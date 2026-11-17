@@ -1,4 +1,4 @@
-const CLOUDFLARED_WSS_URL = 'https://pharmacology-boxed-equality-seats.trycloudflare.com';
+const CLOUDFLARED_WSS_URL = '';
 
 document.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -11,6 +11,8 @@ const nameInput = document.getElementById('player-name-input');
 const playBtn = document.getElementById('play-btn');
 const healthFill = document.getElementById('health-fill');
 const energyFill = document.getElementById('energy-fill');
+const leaderboardHeader = document.getElementById('leaderboard-header');
+const leaderboardList = document.getElementById('leaderboard-list');
 
 const LOGICAL_WIDTH = 1280;
 const LOGICAL_HEIGHT = 720;
@@ -41,13 +43,14 @@ const WORLD = {
 const ME = {
     x: 0,
     y: 0,
+    serverX: 0,
+    serverY: 0,
     width: 49,
     height: 49,
     vx: 0,
     vy: 0,
     angle: 0,
     scale: 1,
-    bopTimer: 0,
     health: 255,
     energy: 255
 };
@@ -55,17 +58,22 @@ const ME = {
 let ws = null;
 let myId = null;
 let myName = '';
-let myTeleportId = 0;
 let inMainMenu = true;
 let serverPlayers = {};
 let pendingJoinName = null;
 let lastRenderedHealth = -1;
 let lastRenderedEnergy = -1;
+let lastLeaderboardSig = '';
+let hasConnected = false;
 
 let menuCamX = null;
 let menuCamY = null;
 let menuCamVX = 60;
 let menuCamVY = 45;
+
+let lastInputKeySig = '';
+let lastSentAngle = 0;
+let lastInputSendTime = 0;
 
 const tilesheetImg = new Image();
 const goodbotImg = new Image();
@@ -180,6 +188,9 @@ function loadAssets() {
         preRenderMap();
     };
     tilesheetImg.src = 'assets/tilesheet.png';
+    if (tilesheetImg.complete && tilesheetImg.naturalWidth > 0) {
+        preRenderMap();
+    }
     goodbotImg.src = 'assets/Goodbot.png';
 }
 
@@ -195,6 +206,20 @@ function updateStatsUI() {
     if (roundedEnergy !== lastRenderedEnergy && energyFill) {
         energyFill.style.width = `${(roundedEnergy / 255) * 100}%`;
         lastRenderedEnergy = roundedEnergy;
+    }
+}
+
+function updateLeaderboard(names) {
+    if (!leaderboardList) return;
+    const sig = names.join('\n');
+    if (sig === lastLeaderboardSig) return;
+    lastLeaderboardSig = sig;
+    leaderboardList.textContent = '';
+    for (let i = 0; i < names.length; i++) {
+        const el = document.createElement('div');
+        el.className = 'leaderboard-entry';
+        el.textContent = names[i];
+        leaderboardList.appendChild(el);
     }
 }
 
@@ -221,249 +246,62 @@ function updateMenuCamera(dt) {
     WORLD.CAMERA.y = menuCamY;
 }
 
-function resolveCircleCollisions() {
-    const wallGrid = WORLD.MAP.mapData && WORLD.MAP.mapData.wall;
-    if (!wallGrid) return;
-
-    const scale = ME.scale;
-    const radius = (ME.width * scale) / 2;
-    const tileSize = WORLD.MAP.tileSize;
-
-    for (let iter = 0; iter < 3; iter++) {
-        let pX = ME.x + ME.width / 2;
-        let pY = ME.y + ME.height / 2;
-
-        const left = Math.floor((pX - radius) / tileSize);
-        const right = Math.floor((pX + radius) / tileSize);
-        const top = Math.floor((pY - radius) / tileSize);
-        const bottom = Math.floor((pY + radius) / tileSize);
-
-        for (let r = top; r <= bottom; r++) {
-            for (let c = left; c <= right; c++) {
-                if (c < 0 || c >= WORLD.MAP.columns || r < 0 || r >= WORLD.MAP.rows) continue;
-                if (!wallGrid[r] || !wallGrid[r][c]) continue;
-
-                const tileX = c * tileSize;
-                const tileY = r * tileSize;
-
-                const testX = pX < tileX ? tileX : (pX > tileX + tileSize ? tileX + tileSize : pX);
-                const testY = pY < tileY ? tileY : (pY > tileY + tileSize ? tileY + tileSize : pY);
-
-                const dX = pX - testX;
-                const dY = pY - testY;
-                const dist = Math.sqrt(dX * dX + dY * dY);
-
-                if (dist < radius) {
-                    if (dist === 0) {
-                        const lD = pX - tileX;
-                        const rD = (tileX + tileSize) - pX;
-                        const tD = pY - tileY;
-                        const bD = (tileY + tileSize) - pY;
-                        const mD = Math.min(lD, rD, tD, bD);
-                        if (mD === lD) pX = tileX - radius;
-                        else if (mD === rD) pX = tileX + tileSize + radius;
-                        else if (mD === tD) pY = tileY - radius;
-                        else pY = tileY + tileSize + radius;
-                    } else {
-                        const overlap = radius - dist;
-                        const nx = dX / dist;
-                        const ny = dY / dist;
-                        pX += nx * overlap;
-                        pY += ny * overlap;
-                        const dot = ME.vx * nx + ME.vy * ny;
-                        if (dot < 0) {
-                            ME.vx -= dot * nx;
-                            ME.vy -= dot * ny;
-                        }
-                    }
-                }
-            }
-        }
-
-        ME.x = pX - ME.width / 2;
-        ME.y = pY - ME.height / 2;
-    }
+function getInputState() {
+    return {
+        up: WORLD.INPUTS.keys.w || WORLD.INPUTS.keys.arrowup,
+        down: WORLD.INPUTS.keys.s || WORLD.INPUTS.keys.arrowdown,
+        left: WORLD.INPUTS.keys.a || WORLD.INPUTS.keys.arrowleft,
+        right: WORLD.INPUTS.keys.d || WORLD.INPUTS.keys.arrowright,
+        sprint: WORLD.INPUTS.keys.shift
+    };
 }
 
-function resolveCircleVsWalls(p) {
-    const wallGrid = WORLD.MAP.mapData && WORLD.MAP.mapData.wall;
-    if (!wallGrid) return;
-
-    const radius = p.width / 2;
-    const tileSize = WORLD.MAP.tileSize;
-
-    for (let iter = 0; iter < 2; iter++) {
-        let pX = p.x + p.width / 2;
-        let pY = p.y + p.height / 2;
-
-        const left = Math.floor((pX - radius) / tileSize);
-        const right = Math.floor((pX + radius) / tileSize);
-        const top = Math.floor((pY - radius) / tileSize);
-        const bottom = Math.floor((pY + radius) / tileSize);
-
-        for (let r = top; r <= bottom; r++) {
-            for (let c = left; c <= right; c++) {
-                if (c < 0 || c >= WORLD.MAP.columns || r < 0 || r >= WORLD.MAP.rows) continue;
-                if (!wallGrid[r] || !wallGrid[r][c]) continue;
-
-                const tileX = c * tileSize;
-                const tileY = r * tileSize;
-
-                const testX = pX < tileX ? tileX : (pX > tileX + tileSize ? tileX + tileSize : pX);
-                const testY = pY < tileY ? tileY : (pY > tileY + tileSize ? tileY + tileSize : pY);
-
-                const dX = pX - testX;
-                const dY = pY - testY;
-                const dist = Math.sqrt(dX * dX + dY * dY);
-
-                if (dist < radius) {
-                    if (dist === 0) {
-                        const lD = pX - tileX;
-                        const rD = (tileX + tileSize) - pX;
-                        const tD = pY - tileY;
-                        const bD = (tileY + tileSize) - pY;
-                        const mD = Math.min(lD, rD, tD, bD);
-                        if (mD === lD) pX = tileX - radius;
-                        else if (mD === rD) pX = tileX + tileSize + radius;
-                        else if (mD === tD) pY = tileY - radius;
-                        else pY = tileY + tileSize + radius;
-                    } else {
-                        const overlap = radius - dist;
-                        pX += (dX / dist) * overlap;
-                        pY += (dY / dist) * overlap;
-                    }
-                }
-            }
-        }
-
-        p.x = pX - p.width / 2;
-        p.y = pY - p.height / 2;
-    }
-}
-
-function resolvePlayerCollisionsLocal() {
-    const meR = ME.width / 2;
-    const mecx = ME.x + ME.width / 2;
-    const mecy = ME.y + ME.height / 2;
-
-    for (const id in serverPlayers) {
-        const p = serverPlayers[id];
-        const pR = p.width / 2;
-        const minDist = meR + pR;
-
-        const pcx = (p.renderX ?? p.x) + p.width / 2;
-        const pcy = (p.renderY ?? p.y) + p.height / 2;
-
-        const dX = mecx - pcx;
-        const dY = mecy - pcy;
-        const dist = Math.sqrt(dX * dX + dY * dY);
-
-        if (dist > 0 && dist < minDist) {
-            const overlap = minDist - dist;
-            const nx = dX / dist;
-            const ny = dY / dist;
-
-            ME.x += nx * (overlap * 0.25);
-            ME.y += ny * (overlap * 0.25);
-
-            p.x -= nx * (overlap * 0.75);
-            p.y -= ny * (overlap * 0.75);
-
-            resolveCircleVsWalls(p);
-
-            if (p.renderX !== undefined) {
-                p.renderX = p.x;
-                p.renderY = p.y;
-            }
-
-            const dot = ME.vx * nx + ME.vy * ny;
-            if (dot < 0) {
-                ME.vx -= dot * nx * 0.25;
-                ME.vy -= dot * ny * 0.25;
-            }
-        }
-    }
-
-    resolveCircleCollisions();
-}
-
-let lastSentX = -1;
-let lastSentY = -1;
-let lastSentAngle = -1;
-let lastSentTime = 0;
-
-function sendPositionUpdate() {
+function sendInput(force = false) {
     if (!myId || !ws || ws.readyState !== WebSocket.OPEN) return;
-    const now = performance.now();
-    const dt = now - lastSentTime;
-    const moved = Math.abs(ME.x - lastSentX) > 0.05 || Math.abs(ME.y - lastSentY) > 0.05 || Math.abs(ME.angle - lastSentAngle) > 0.02;
-    if (!moved && dt < 200) return;
-    if (dt < 25) return;
+    const input = getInputState();
+    const keySig = `${input.up ? 1 : 0}${input.down ? 1 : 0}${input.left ? 1 : 0}${input.right ? 1 : 0}${input.sprint ? 1 : 0}`;
+    const keysChanged = keySig !== lastInputKeySig;
 
-    lastSentTime = now;
-    lastSentX = ME.x;
-    lastSentY = ME.y;
+    let angleDiff = Math.abs(ME.angle - lastSentAngle);
+    if (angleDiff > Math.PI) angleDiff = Math.abs(angleDiff - Math.PI * 2);
+
+    const now = performance.now();
+    if (!force && !keysChanged) {
+        if (angleDiff <= 0.02 || now - lastInputSendTime < 33) return;
+    }
+
+    lastInputKeySig = keySig;
     lastSentAngle = ME.angle;
+    lastInputSendTime = now;
 
     ws.send(JSON.stringify({
-        type: 'position_update',
-        x: ME.x,
-        y: ME.y,
-        vx: ME.vx,
-        vy: ME.vy,
-        angle: ME.angle,
-        scale: ME.scale,
-        teleportId: myTeleportId,
-        clientTimestamp: Date.now()
+        type: 'input',
+        up: input.up,
+        down: input.down,
+        left: input.left,
+        right: input.right,
+        sprint: input.sprint,
+        angle: ME.angle
     }));
 }
 
 function update(dt) {
-    let inputX = 0;
-    let inputY = 0;
-
-    if (WORLD.INPUTS.keys.w || WORLD.INPUTS.keys.arrowup) inputY -= 1;
-    if (WORLD.INPUTS.keys.s || WORLD.INPUTS.keys.arrowdown) inputY += 1;
-    if (WORLD.INPUTS.keys.a || WORLD.INPUTS.keys.arrowleft) inputX -= 1;
-    if (WORLD.INPUTS.keys.d || WORLD.INPUTS.keys.arrowright) inputX += 1;
-
-    const isMoving = inputX !== 0 || inputY !== 0;
-    if (isMoving) {
-        const len = Math.sqrt(inputX * inputX + inputY * inputY);
-        inputX /= len;
-        inputY /= len;
-    }
-
-    const intentSprint = WORLD.INPUTS.keys.shift && isMoving && ME.energy > 0;
-    if (intentSprint) {
-        ME.energy = Math.max(0, ME.energy - 21.24 * dt);
-    } else {
-        ME.energy = Math.min(255, ME.energy + 30 * dt);
-    }
-    updateStatsUI();
-
-    ME.bopTimer = intentSprint ? ME.bopTimer + dt : 0;
-    ME.scale = 1 + (ME.bopTimer > 0 ? Math.sin(ME.bopTimer * 15) * 0.05 : 0);
-
-    const friction = Math.pow(0.001, dt);
-    const accel = intentSprint ? 1866 : 1493;
-
-    ME.vx += inputX * accel * dt;
-    ME.vy += inputY * accel * dt;
-    ME.vx *= friction;
-    ME.vy *= friction;
-    ME.x += ME.vx * dt;
-    ME.y += ME.vy * dt;
-
-    for (let i = 0; i < 3; i++) resolveCircleCollisions();
-    for (let i = 0; i < 2; i++) resolvePlayerCollisionsLocal();
-
     const maxX = Math.max(0, WORLD.MAP.columns * WORLD.MAP.tileSize - ME.width);
     const maxY = Math.max(0, WORLD.MAP.rows * WORLD.MAP.tileSize - ME.height);
-    if (ME.x < 0) ME.x = 0;
-    if (ME.y < 0) ME.y = 0;
-    if (ME.x > maxX) ME.x = maxX;
-    if (ME.y > maxY) ME.y = maxY;
+
+    ME.serverX = Math.max(0, Math.min(maxX, ME.serverX + ME.vx * dt));
+    ME.serverY = Math.max(0, Math.min(maxY, ME.serverY + ME.vy * dt));
+
+    const rdxMe = ME.serverX - ME.x;
+    const rdyMe = ME.serverY - ME.y;
+    if (rdxMe * rdxMe + rdyMe * rdyMe > 180 * 180) {
+        ME.x = ME.serverX;
+        ME.y = ME.serverY;
+    } else {
+        const meLerp = 1 - Math.exp(-dt * 24);
+        ME.x += rdxMe * meLerp;
+        ME.y += rdyMe * meLerp;
+    }
 
     const smX = WORLD.INPUTS.mouseX / WORLD.SYSTEM.viewScale;
     const smY = WORLD.INPUTS.mouseY / WORLD.SYSTEM.viewScale;
@@ -491,10 +329,10 @@ function update(dt) {
             p.renderAngle = p.angle || 0;
         }
 
-        p.x += (p.vx || 0) * dt;
-        p.y += (p.vy || 0) * dt;
+        p.x = Math.max(0, Math.min(maxX, p.x + (p.vx || 0) * dt));
+        p.y = Math.max(0, Math.min(maxY, p.y + (p.vy || 0) * dt));
 
-        const lerpF = 1 - Math.exp(-dt * 18);
+        const lerpF = 1 - Math.exp(-dt * 20);
         const rdx = p.x - p.renderX;
         const rdy = p.y - p.renderY;
         const rdist = Math.sqrt(rdx * rdx + rdy * rdy);
@@ -512,7 +350,7 @@ function update(dt) {
         p.renderAngle += diff * (1 - Math.exp(-dt * 20));
     }
 
-    sendPositionUpdate();
+    sendInput(false);
 }
 
 function drawPlayer(x, y, width, height, angle, scale, label) {
@@ -618,17 +456,24 @@ function gameLoop(now) {
     render();
 }
 
+function normalizeWsUrl(rawUrl) {
+    let u = String(rawUrl || '').trim().replace(/\/+$/, '');
+    if (u.startsWith('https://')) u = 'wss://' + u.slice(8);
+    else if (u.startsWith('http://')) u = 'ws://' + u.slice(7);
+    return u;
+}
+
 async function resolveWsUrl() {
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         const portPart = window.location.port ? ':' + window.location.port : '';
         return 'ws://' + window.location.hostname + portPart;
     }
-    if (CLOUDFLARED_WSS_URL) return CLOUDFLARED_WSS_URL;
+    if (CLOUDFLARED_WSS_URL) return normalizeWsUrl(CLOUDFLARED_WSS_URL);
     try {
         const res = await fetch('config.json', { cache: 'no-store' });
         if (res.ok) {
             const cfg = await res.json();
-            if (cfg && cfg.wssUrl) return cfg.wssUrl;
+            if (cfg && cfg.wssUrl) return normalizeWsUrl(cfg.wssUrl);
         }
     } catch (_) {}
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -642,6 +487,7 @@ async function connectToServer() {
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
+        hasConnected = true;
         if (!inMainMenu && pendingJoinName !== null) {
             ws.send(JSON.stringify({ type: 'join', name: pendingJoinName }));
             pendingJoinName = null;
@@ -671,7 +517,6 @@ async function connectToServer() {
         if (data.type === 'init') {
             myId = data.id;
             myName = data.name;
-            myTeleportId = data.teleportId || 0;
             inMainMenu = false;
 
             applyMapPayload(data.map);
@@ -679,12 +524,17 @@ async function connectToServer() {
 
             ME.x = data.x;
             ME.y = data.y;
+            ME.serverX = data.x;
+            ME.serverY = data.y;
             ME.vx = 0;
             ME.vy = 0;
-            ME.health = 255;
-            ME.energy = 255;
+            ME.scale = 1;
+            ME.health = data.health ?? 255;
+            ME.energy = data.energy ?? 255;
             updateStatsUI();
+            updateLeaderboard([myName]);
 
+            lastInputKeySig = '';
             WORLD.CAMERA.x = ME.x + ME.width / 2 - WORLD.CAMERA.width / 2;
             WORLD.CAMERA.y = ME.y + ME.height / 2 - WORLD.CAMERA.height / 2;
 
@@ -694,14 +544,33 @@ async function connectToServer() {
                 WORLD.SYSTEM._gameLoopRunning = true;
                 requestAnimationFrame(gameLoop);
             }
+            sendInput(true);
+            return;
+        }
+
+        if (data.type === 'shutdown') {
+            window.location.reload();
             return;
         }
 
         if (data.type === 'state') {
             const next = {};
+            const lbEntries = [];
             for (const id in data.players) {
-                if (parseInt(id, 10) === myId) continue;
                 const incoming = data.players[id];
+                const numId = parseInt(id, 10);
+                lbEntries.push({ id: numId, name: incoming.name });
+                if (numId === myId) {
+                    ME.serverX = incoming.x;
+                    ME.serverY = incoming.y;
+                    ME.vx = incoming.vx;
+                    ME.vy = incoming.vy;
+                    ME.scale = incoming.scale ?? 1;
+                    if (incoming.health !== undefined) ME.health = incoming.health;
+                    if (incoming.energy !== undefined) ME.energy = incoming.energy;
+                    updateStatsUI();
+                    continue;
+                }
                 const existing = serverPlayers[id];
                 if (existing) {
                     const dx = incoming.x - existing.renderX;
@@ -722,17 +591,9 @@ async function connectToServer() {
                     };
                 }
             }
+            lbEntries.sort((a, b) => a.id - b.id);
+            updateLeaderboard(lbEntries.map(e => e.name));
             serverPlayers = next;
-            return;
-        }
-
-        if (data.type === 'correct' || data.type === 'teleport') {
-            ME.x = data.x;
-            ME.y = data.y;
-            ME.vx = 0;
-            ME.vy = 0;
-            if (data.teleportId !== undefined) myTeleportId = data.teleportId;
-            if (data.type === 'teleport') WORLD.CAMERA.x = null;
             return;
         }
 
@@ -743,6 +604,10 @@ async function connectToServer() {
 
     ws.onclose = () => {
         ws = null;
+        if (hasConnected) {
+            window.location.reload();
+            return;
+        }
         if (!inMainMenu) {
             setTimeout(() => {
                 pendingJoinName = myName;
@@ -771,14 +636,20 @@ window.addEventListener('keydown', e => {
     }
     if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
     if (Object.prototype.hasOwnProperty.call(WORLD.INPUTS.keys, key)) {
-        WORLD.INPUTS.keys[key] = true;
+        if (!WORLD.INPUTS.keys[key]) {
+            WORLD.INPUTS.keys[key] = true;
+            sendInput(true);
+        }
     }
 });
 
 window.addEventListener('keyup', e => {
     const key = e.key.toLowerCase();
     if (Object.prototype.hasOwnProperty.call(WORLD.INPUTS.keys, key)) {
-        WORLD.INPUTS.keys[key] = false;
+        if (WORLD.INPUTS.keys[key]) {
+            WORLD.INPUTS.keys[key] = false;
+            sendInput(true);
+        }
     }
 });
 
@@ -788,7 +659,14 @@ window.addEventListener('mousemove', e => {
 });
 
 window.addEventListener('blur', () => {
-    for (const k in WORLD.INPUTS.keys) WORLD.INPUTS.keys[k] = false;
+    let changed = false;
+    for (const k in WORLD.INPUTS.keys) {
+        if (WORLD.INPUTS.keys[k]) {
+            WORLD.INPUTS.keys[k] = false;
+            changed = true;
+        }
+    }
+    if (changed) sendInput(true);
 });
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -798,6 +676,12 @@ window.addEventListener('DOMContentLoaded', () => {
     resizeCanvas();
     loadAssets();
     connectToServer();
+
+    if (leaderboardHeader && leaderboardList) {
+        leaderboardHeader.addEventListener('click', () => {
+            leaderboardList.classList.toggle('hidden');
+        });
+    }
 
     if (playBtn) {
         playBtn.addEventListener('click', () => {
