@@ -1,4 +1,4 @@
-const CLOUDFLARED_WSS_URL = '';
+const CLOUDFLARED_WSS_URL = 'https://lewis-distinct-tex-additions.trycloudflare.com';
 
 document.addEventListener('contextmenu', e => e.preventDefault());
 
