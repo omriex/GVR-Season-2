@@ -126,3 +126,38 @@ canvas {
 #energy-fill {
     background-color: #d1ab38;
 }
+
+#leaderboard {
+    position: absolute;
+    top: 20px;
+    right: 25px;
+    text-align: right;
+    color: #ffffff;
+    pointer-events: auto;
+}
+
+#leaderboard-header {
+    font-size: 20px;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    cursor: pointer;
+    text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+    margin-bottom: 6px;
+}
+
+#leaderboard-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+#leaderboard-list.hidden {
+    display: none;
+}
+
+.leaderboard-entry {
+    font-size: 16px;
+    color: #ffffff;
+    text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+}
+
