@@ -1,2 +1,2 @@
 Can be played at:
-https://goodbot.duckdns.org/
+[https://goodbots.duckdns.org](https://goodbots.duckdns.org)
