@@ -1,4 +1,4 @@
-const CLOUDFLARED_WSS_URL = 'https://lewis-distinct-tex-additions.trycloudflare.com';
+const CLOUDFLARED_WSS_URL = 'https://pharmacology-boxed-equality-seats.trycloudflare.com';
 
 document.addEventListener('contextmenu', e => e.preventDefault());
 
