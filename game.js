@@ -13,6 +13,9 @@ const healthFill = document.getElementById('health-fill');
 const energyFill = document.getElementById('energy-fill');
 const leaderboardHeader = document.getElementById('leaderboard-header');
 const leaderboardList = document.getElementById('leaderboard-list');
+const chatLog = document.getElementById('chat-log');
+const chatInput = document.getElementById('chat-input');
+const inventorySlots = document.querySelectorAll('#inventory-layer .slot');
 
 const LOGICAL_WIDTH = 1280;
 const LOGICAL_HEIGHT = 720;
@@ -52,7 +55,8 @@ const ME = {
     angle: 0,
     scale: 1,
     health: 255,
-    energy: 255
+    energy: 255,
+    chats: []
 };
 
 let ws = null;
@@ -65,6 +69,7 @@ let lastRenderedHealth = -1;
 let lastRenderedEnergy = -1;
 let lastLeaderboardSig = '';
 let hasConnected = false;
+let activeSlot = 0;
 
 let menuCamX = null;
 let menuCamY = null;
@@ -223,6 +228,28 @@ function updateLeaderboard(names) {
     }
 }
 
+function appendChatLog(name, text) {
+    if (!chatLog) return;
+    const entry = document.createElement('div');
+    entry.className = 'chat-log-entry';
+    entry.textContent = `${name}: ${text}`;
+    chatLog.appendChild(entry);
+    while (chatLog.children.length > 50) {
+        chatLog.removeChild(chatLog.firstChild);
+    }
+    chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function selectSlot(idx) {
+    if (!inventorySlots || inventorySlots.length === 0) return;
+    if (idx < 0 || idx >= inventorySlots.length) return;
+    activeSlot = idx;
+    for (let i = 0; i < inventorySlots.length; i++) {
+        if (i === activeSlot) inventorySlots[i].classList.add('active');
+        else inventorySlots[i].classList.remove('active');
+    }
+}
+
 function updateMenuCamera(dt) {
     if (!WORLD.MAP.columns || !WORLD.CAMERA.width) return;
     const maxCamX = Math.max(0, WORLD.MAP.columns * WORLD.MAP.tileSize - WORLD.CAMERA.width);
@@ -366,6 +393,7 @@ function drawPlayer(x, y, width, height, angle, scale, label) {
 
     if (label) {
         ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
         ctx.lineJoin = 'round';
         ctx.lineWidth = 3;
         ctx.strokeStyle = 'rgba(0,0,0,0.85)';
@@ -373,6 +401,93 @@ function drawPlayer(x, y, width, height, angle, scale, label) {
         ctx.fillStyle = '#ffffff';
         ctx.strokeText(label, x, y - sH / 2 - 10);
         ctx.fillText(label, x, y - sH / 2 - 10);
+    }
+}
+
+function wrapChatLines(text) {
+    const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return [];
+    const lines = [];
+    const maxLineWidth = 240;
+    let current = '';
+    let wordCount = 0;
+
+    for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        if (ctx.measureText(word).width > maxLineWidth) {
+            if (current) {
+                lines.push(current);
+                current = '';
+                wordCount = 0;
+            }
+            let chunk = '';
+            for (let c = 0; c < word.length; c++) {
+                const nextChunk = chunk + word[c];
+                if (chunk && ctx.measureText(nextChunk).width > maxLineWidth) {
+                    lines.push(chunk);
+                    chunk = word[c];
+                } else {
+                    chunk = nextChunk;
+                }
+            }
+            if (chunk) {
+                current = chunk;
+                wordCount = 1;
+            }
+            continue;
+        }
+
+        const candidate = current ? current + ' ' + word : word;
+        if (current && (wordCount >= 5 || ctx.measureText(candidate).width > maxLineWidth)) {
+            lines.push(current);
+            current = word;
+            wordCount = 1;
+        } else {
+            current = candidate;
+            wordCount++;
+        }
+    }
+
+    if (current) lines.push(current);
+    return lines;
+}
+
+function drawChatBubbles(chats, x, bottomY) {
+    if (!chats || chats.length === 0) return;
+    ctx.font = '14px Viga, sans-serif';
+    const paddingX = 10;
+    const paddingY = 6;
+    const lineHeight = 18;
+    const bubbleGap = 5;
+    let currentBottomY = bottomY;
+    const startIdx = Math.max(0, chats.length - 2);
+
+    for (let i = chats.length - 1; i >= startIdx; i--) {
+        const lines = wrapChatLines(chats[i]);
+        if (lines.length === 0) continue;
+
+        let maxW = 0;
+        for (let l = 0; l < lines.length; l++) {
+            const w = ctx.measureText(lines[l]).width;
+            if (w > maxW) maxW = w;
+        }
+
+        const bubbleW = Math.ceil(maxW + paddingX * 2);
+        const bubbleH = lines.length * lineHeight + paddingY * 2;
+        const topY = Math.round(currentBottomY - bubbleH);
+        const leftX = Math.round(x - bubbleW / 2);
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(leftX, topY, bubbleW, bubbleH);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (let l = 0; l < lines.length; l++) {
+            ctx.fillText(lines[l], x, topY + paddingY + lineHeight * (l + 0.5));
+        }
+
+        currentBottomY = topY - bubbleGap;
     }
 }
 
@@ -430,6 +545,23 @@ function render() {
             const dx = cx * WORLD.MAP.chunkSize - camX;
             const dy = cy * WORLD.MAP.chunkSize - camY;
             ctx.drawImage(WORLD.MAP.fgChunks[cy][cx], dx, dy, WORLD.MAP.chunkSize + 1, WORLD.MAP.chunkSize + 1);
+        }
+    }
+
+    if (!inMainMenu && myId !== null) {
+        for (const id in serverPlayers) {
+            const p = serverPlayers[id];
+            if (!p.chats || p.chats.length === 0) continue;
+            const pRX = (p.renderX ?? p.x) - camX + p.width / 2;
+            const pRY = (p.renderY ?? p.y) - camY + p.height / 2;
+            const ps = Math.min(2, Math.max(0.3, p.scale || 1));
+            drawChatBubbles(p.chats, pRX, pRY - (p.height * ps) / 2 - 28);
+        }
+
+        if (ME.chats && ME.chats.length > 0) {
+            const pRenderX = ME.x - camX + ME.width / 2;
+            const pRenderY = ME.y - camY + ME.height / 2;
+            drawChatBubbles(ME.chats, pRenderX, pRenderY - (ME.height * ME.scale) / 2 - 28);
         }
     }
 
@@ -531,8 +663,18 @@ async function connectToServer() {
             ME.scale = 1;
             ME.health = data.health ?? 255;
             ME.energy = data.energy ?? 255;
+            ME.chats = [];
             updateStatsUI();
             updateLeaderboard([myName]);
+            selectSlot(0);
+            if (chatLog) {
+                chatLog.textContent = '';
+                if (Array.isArray(data.chatLog)) {
+                    for (let i = 0; i < data.chatLog.length; i++) {
+                        appendChatLog(data.chatLog[i].name, data.chatLog[i].text);
+                    }
+                }
+            }
 
             lastInputKeySig = '';
             WORLD.CAMERA.x = ME.x + ME.width / 2 - WORLD.CAMERA.width / 2;
@@ -553,6 +695,13 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'chat_log') {
+            if (typeof data.name === 'string' && typeof data.text === 'string') {
+                appendChatLog(data.name, data.text);
+            }
+            return;
+        }
+
         if (data.type === 'state') {
             const next = {};
             const lbEntries = [];
@@ -568,6 +717,7 @@ async function connectToServer() {
                     ME.scale = incoming.scale ?? 1;
                     if (incoming.health !== undefined) ME.health = incoming.health;
                     if (incoming.energy !== undefined) ME.energy = incoming.energy;
+                    ME.chats = Array.isArray(incoming.chats) ? incoming.chats : [];
                     updateStatsUI();
                     continue;
                 }
@@ -577,6 +727,7 @@ async function connectToServer() {
                     const dy = incoming.y - existing.renderY;
                     const jumped = (dx * dx + dy * dy) > (120 * 120);
                     Object.assign(existing, incoming);
+                    if (!Array.isArray(incoming.chats)) existing.chats = [];
                     if (jumped) {
                         existing.renderX = incoming.x;
                         existing.renderY = incoming.y;
@@ -585,6 +736,7 @@ async function connectToServer() {
                 } else {
                     next[id] = {
                         ...incoming,
+                        chats: Array.isArray(incoming.chats) ? incoming.chats : [],
                         renderX: incoming.x,
                         renderY: incoming.y,
                         renderAngle: incoming.angle || 0
@@ -628,13 +780,60 @@ function resizeCanvas() {
 
 window.addEventListener('resize', resizeCanvas);
 
+function clearHeldInputs() {
+    let changed = false;
+    for (const k in WORLD.INPUTS.keys) {
+        if (WORLD.INPUTS.keys[k]) {
+            WORLD.INPUTS.keys[k] = false;
+            changed = true;
+        }
+    }
+    if (changed) sendInput(true);
+}
+
+function openChat() {
+    if (!chatInput) return;
+    clearHeldInputs();
+    chatInput.focus();
+}
+
+function closeChat() {
+    if (!chatInput) return;
+    chatInput.value = '';
+    chatInput.blur();
+}
+
 window.addEventListener('keydown', e => {
-    const key = e.key.toLowerCase();
-    if (e.key === 'Enter' && inMainMenu) {
-        if (playBtn) playBtn.click();
+    if (e.key === 'Enter') {
+        if (inMainMenu) {
+            if (playBtn) playBtn.click();
+            return;
+        }
+        if (myId !== null && chatInput) {
+            e.preventDefault();
+            if (document.activeElement === chatInput) {
+                const text = chatInput.value.trim().slice(0, 80);
+                if (text && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'chat', text }));
+                }
+                closeChat();
+            } else {
+                openChat();
+            }
+            return;
+        }
+    }
+    if (e.key === 'Escape' && document.activeElement === chatInput) {
+        e.preventDefault();
+        closeChat();
         return;
     }
     if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+    if (e.key >= '1' && e.key <= '5' && !inMainMenu) {
+        selectSlot(Number(e.key) - 1);
+        return;
+    }
+    const key = e.key.toLowerCase();
     if (Object.prototype.hasOwnProperty.call(WORLD.INPUTS.keys, key)) {
         if (!WORLD.INPUTS.keys[key]) {
             WORLD.INPUTS.keys[key] = true;
@@ -659,14 +858,10 @@ window.addEventListener('mousemove', e => {
 });
 
 window.addEventListener('blur', () => {
-    let changed = false;
-    for (const k in WORLD.INPUTS.keys) {
-        if (WORLD.INPUTS.keys[k]) {
-            WORLD.INPUTS.keys[k] = false;
-            changed = true;
-        }
+    clearHeldInputs();
+    if (document.activeElement === chatInput) {
+        closeChat();
     }
-    if (changed) sendInput(true);
 });
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -676,6 +871,18 @@ window.addEventListener('DOMContentLoaded', () => {
     resizeCanvas();
     loadAssets();
     connectToServer();
+
+    if (chatInput) {
+        chatInput.addEventListener('focus', () => {
+            clearHeldInputs();
+        });
+    }
+
+    for (let i = 0; i < inventorySlots.length; i++) {
+        inventorySlots[i].addEventListener('click', () => {
+            selectSlot(i);
+        });
+    }
 
     if (leaderboardHeader && leaderboardList) {
         leaderboardHeader.addEventListener('click', () => {
