@@ -1,4 +1,4 @@
-const CLOUDFLARED_WSS_URL = '';
+const CLOUDFLARED_WSS_URL = 'https://pharmacology-boxed-equality-seats.trycloudflare.com';
 
 document.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -196,7 +196,7 @@ function loadAssets() {
 
 function updateStatsUI() {
     const roundedHealth = Math.round(ME.health);
-    const roundedEnergy = Math.round(ME.energy);
+    const roundedEnergy = Math.ceil(ME.energy);
 
     if (roundedHealth !== lastRenderedHealth && healthFill) {
         healthFill.style.width = `${(roundedHealth / 255) * 100}%`;
