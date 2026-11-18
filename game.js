@@ -1,1649 +1,768 @@
-const CLOUDFLARED_WSS_URL = 'https://cook-sale-builder-voters.trycloudflare.com';
+import express from 'express';
+import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { WebSocketServer, WebSocket } from 'ws';
 
-document.addEventListener('contextmenu', e => e.preventDefault());
+const CLOUDFLARED_WSS_URL = 'https://locale-isa-beats-willing.trycloudflare.com';
 
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d', { alpha: false });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const uiScaleLayer = document.getElementById('ui-scale-layer');
-const mainMenu = document.getElementById('main-menu');
-const gameUI = document.getElementById('game-ui');
-const nameInput = document.getElementById('player-name-input');
-const serverSelect = document.getElementById('server-select');
-const server1Option = document.getElementById('server-1-option');
-const menuError = document.getElementById('menu-error');
-const playBtn = document.getElementById('play-btn');
-const statsLayer = document.getElementById('stats-layer');
-const healthFill = document.getElementById('health-fill');
-const energyFill = document.getElementById('energy-fill');
-const leaderboardHeader = document.getElementById('leaderboard-header');
-const leaderboardList = document.getElementById('leaderboard-list');
-const chatLog = document.getElementById('chat-log');
-const chatInput = document.getElementById('chat-input');
-const chatWrapper = document.getElementById('chat-wrapper');
-const chatToggleBtn = document.getElementById('chat-toggle-btn');
-const perfStats = document.getElementById('perf-stats');
-const fpsCounter = document.getElementById('fps-counter');
-const pingCounter = document.getElementById('ping-counter');
-const settingsBtn = document.getElementById('settings-btn');
-const leaveBtn = document.getElementById('leave-btn');
-const settingsOverlay = document.getElementById('settings-overlay');
-const settingsCloseBtn = document.getElementById('settings-close-btn');
-const settingShowPing = document.getElementById('setting-show-ping');
-const settingShowFps = document.getElementById('setting-show-fps');
-const uiSizeButtons = document.querySelectorAll('.ui-size-btn');
-const settingMusicVolume = document.getElementById('setting-music-volume');
-const settingSoundVolume = document.getElementById('setting-sound-volume');
-const musicVolumeValue = document.getElementById('music-volume-value');
-const soundVolumeValue = document.getElementById('sound-volume-value');
-const leaveOverlay = document.getElementById('leave-overlay');
-const leaveYesBtn = document.getElementById('leave-yes-btn');
-const leaveNoBtn = document.getElementById('leave-no-btn');
-const mobileJoystick = document.getElementById('mobile-joystick');
-const mobileJoystickThumb = document.getElementById('mobile-joystick-thumb');
-const mobileSprintBtn = document.getElementById('mobile-sprint-btn');
-const inventoryLayer = document.getElementById('inventory-layer');
-const inventorySlots = document.querySelectorAll('#inventory-layer .slot');
+const PORT = Number(process.env.PORT) || 3000;
+const PLAYER_SIZE = 49;
+const PLAYER_RADIUS = PLAYER_SIZE / 2;
+const MAX_PLAYERS = 5;
+const MAX_PER_IP = 8;
+const MAP_PATH = path.join(__dirname, 'map.json');
 
-const LOGICAL_WIDTH = 1280;
-const LOGICAL_HEIGHT = 720;
+let MAP = loadMapFromDisk();
 
-const WORLD = {
-    MAP: {
-        tileSize: 64,
-        chunkSize: 1024,
-        columns: 0,
-        rows: 0,
-        mapData: null,
-        bgChunks: [],
-        wallChunks: [],
-        fgChunks: []
-    },
-    CAMERA: { x: null, y: null, width: LOGICAL_WIDTH, height: LOGICAL_HEIGHT },
-    INPUTS: {
-        keys: {
-            w: false, a: false, s: false, d: false, shift: false,
-            arrowup: false, arrowleft: false, arrowdown: false, arrowright: false
-        },
-        mouseX: 0,
-        mouseY: 0
-    },
-    SYSTEM: { viewScale: 1, isReady: false, lastTime: performance.now(), _gameLoopRunning: false }
-};
+function createEmptyGrid(w, h) {
+    return Array.from({ length: h }, () => Array(w).fill(null));
+}
 
-const ME = {
-    x: 0,
-    y: 0,
-    serverX: 0,
-    serverY: 0,
-    width: 49,
-    height: 49,
-    vx: 0,
-    vy: 0,
-    angle: 0,
-    scale: 1,
-    health: 255,
-    energy: 255,
-    chats: []
-};
+function createDefaultMap() {
+    const mapW = 32;
+    const mapH = 32;
+    return {
+        config: { tileSize: 64, mapW, mapH },
+        mapData: {
+            floor1: Array.from({ length: mapH }, () => Array.from({ length: mapW }, () => ({ tx: 14, ty: 59, r: 0 }))),
+            floor2: createEmptyGrid(mapW, mapH),
+            wall: createEmptyGrid(mapW, mapH),
+            tree: createEmptyGrid(mapW, mapH)
+        }
+    };
+}
 
-let ws = null;
-let myId = null;
-let myName = '';
-let inMainMenu = true;
-let serverPlayers = {};
-let pendingJoinName = null;
-let lastRenderedHealth = -1;
-let lastRenderedEnergy = -1;
-let lastLeaderboardSig = '';
-let hasConnected = false;
-let activeSlot = 0;
+function validateCell(cell) {
+    if (cell === null || cell === undefined) return null;
+    if (typeof cell !== 'object') return false;
+    const tx = Number(cell.tx);
+    const ty = Number(cell.ty);
+    const r = cell.r === undefined ? 0 : Number(cell.r);
+    if (!Number.isInteger(tx) || tx < 0 || tx > 500) return false;
+    if (!Number.isInteger(ty) || ty < 0 || ty > 500) return false;
+    if (!Number.isInteger(r) || (r !== 0 && r !== 90 && r !== 180 && r !== 270)) return false;
+    return { tx, ty, r };
+}
 
-let menuCamX = null;
-let menuCamY = null;
-let menuCamVX = 60;
-let menuCamVY = 45;
-
-let lastInputKeySig = '';
-let lastSentAngle = 0;
-let lastInputSendTime = 0;
-
-let isSettingsOpen = false;
-let isLeaveDialogOpen = false;
-let isChatMinimized = false;
-let isJoining = false;
-let serverPlayerCount = 0;
-let serverMaxPlayers = 5;
-let currentPingMs = null;
-let pingProbeUrl = null;
-let pingTimerId = null;
-
-const UI_SIZE_MULTIPLIERS = {
-    low: 0.8,
-    normal: 1.0,
-    big: 1.25
-};
-
-const initialDpr = window.devicePixelRatio || 1;
-const baseDpr = initialDpr < 1 ? 1 : initialDpr;
-let lastObservedDpr = initialDpr;
-let currentUiScale = 1;
-let joystickTouchId = null;
-let aimTouchId = null;
-let serverDeviceIsMobile = null;
-
-function applyServerDeviceMode(isMobile) {
-    if (typeof isMobile !== 'boolean') return;
-    serverDeviceIsMobile = isMobile;
-    document.body.classList.toggle('touch-mode', serverDeviceIsMobile);
-    if (!serverDeviceIsMobile) {
-        resetJoystick();
-        setMobileSprint(false);
+function validateLayerGrid(grid, mapW, mapH) {
+    if (!Array.isArray(grid) || grid.length !== mapH) return null;
+    const clean = new Array(mapH);
+    for (let y = 0; y < mapH; y++) {
+        const row = grid[y];
+        if (!Array.isArray(row) || row.length !== mapW) return null;
+        const cleanRow = new Array(mapW);
+        for (let x = 0; x < mapW; x++) {
+            const cell = validateCell(row[x]);
+            if (cell === false) return null;
+            cleanRow[x] = cell;
+        }
+        clean[y] = cleanRow;
     }
+    return clean;
 }
 
-function isNodeHostedOrigin() {
-    const host = window.location.hostname;
-    return host === 'localhost' || host === '127.0.0.1' || host.endsWith('.run.app');
+function validateMapData(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    if (!raw.config || typeof raw.config !== 'object') return null;
+    if (!raw.mapData || typeof raw.mapData !== 'object') return null;
+
+    const tileSize = Number(raw.config.tileSize);
+    const mapW = Number(raw.config.mapW);
+    const mapH = Number(raw.config.mapH);
+
+    if (!Number.isInteger(tileSize) || tileSize < 16 || tileSize > 256) return null;
+    if (!Number.isInteger(mapW) || mapW < 1 || mapW > 300) return null;
+    if (!Number.isInteger(mapH) || mapH < 1 || mapH > 300) return null;
+
+    const floor1 = validateLayerGrid(raw.mapData.floor1, mapW, mapH);
+    const floor2 = validateLayerGrid(raw.mapData.floor2, mapW, mapH);
+    const wall = validateLayerGrid(raw.mapData.wall || raw.mapData.walls, mapW, mapH);
+    const tree = validateLayerGrid(raw.mapData.tree || raw.mapData.trees, mapW, mapH);
+
+    if (!floor1 || !floor2 || !wall || !tree) return null;
+
+    return {
+        config: { tileSize, mapW, mapH },
+        mapData: { floor1, floor2, wall, tree }
+    };
 }
 
-async function fetchDeviceMode() {
-    if (!isNodeHostedOrigin()) return;
+let lastMapMtimeMs = 0;
+
+function loadMapFromDisk() {
     try {
-        const res = await fetch('/api/device-mode', { cache: 'no-store' });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (typeof data.isMobile === 'boolean') {
-            applyServerDeviceMode(data.isMobile);
+        const stat = fs.statSync(MAP_PATH);
+        const raw = JSON.parse(fs.readFileSync(MAP_PATH, 'utf8'));
+        const valid = validateMapData(raw);
+        if (valid) {
+            lastMapMtimeMs = stat.mtimeMs;
+            return valid;
         }
     } catch (_) {}
+    return createDefaultMap();
 }
 
-function layoutBottomHud() {
-    if (!uiScaleLayer || !gameUI || !inventoryLayer || !chatWrapper || !statsLayer) return;
-    if (gameUI.style.display === 'none') return;
+function resolvePlayerWalls(p, applyVelocity) {
+    const wallGrid = MAP.mapData.wall;
+    const tileSize = MAP.config.tileSize;
+    const cols = MAP.config.mapW;
+    const rows = MAP.config.mapH;
+    const maxW = Math.max(0, cols * tileSize - p.width);
+    const maxH = Math.max(0, rows * tileSize - p.height);
+    const radius = (p.width * p.scale) / 2;
 
-    const effW = window.innerWidth / currentUiScale;
-    const effH = window.innerHeight / currentUiScale;
+    if (wallGrid) {
+        for (let iter = 0; iter < 3; iter++) {
+            let cx = p.x + p.width / 2;
+            let cy = p.y + p.height / 2;
 
-    if (effW <= 640 || effH <= 540) {
-        inventoryLayer.style.left = '';
-        inventoryLayer.style.transform = '';
-        chatWrapper.style.bottom = '';
-        return;
-    }
+            const left = Math.floor((cx - radius) / tileSize);
+            const right = Math.floor((cx + radius) / tileSize);
+            const top = Math.floor((cy - radius) / tileSize);
+            const bottom = Math.floor((cy + radius) / tileSize);
 
-    chatWrapper.style.bottom = '';
-    inventoryLayer.style.left = '';
-    inventoryLayer.style.transform = '';
+            for (let r = top; r <= bottom; r++) {
+                for (let c = left; c <= right; c++) {
+                    if (c < 0 || c >= cols || r < 0 || r >= rows) continue;
+                    if (!wallGrid[r] || !wallGrid[r][c]) continue;
 
-    const chatRight = chatWrapper.offsetLeft + chatWrapper.offsetWidth;
-    const statsLeft = statsLayer.offsetLeft;
-    const invWidth = inventoryLayer.offsetWidth;
-    if (!invWidth || !statsLeft) return;
+                    const tileX = c * tileSize;
+                    const tileY = r * tileSize;
+                    const testX = cx < tileX ? tileX : (cx > tileX + tileSize ? tileX + tileSize : cx);
+                    const testY = cy < tileY ? tileY : (cy > tileY + tileSize ? tileY + tileSize : cy);
+                    const dX = cx - testX;
+                    const dY = cy - testY;
+                    const dist = Math.sqrt(dX * dX + dY * dY);
 
-    const gap = 14;
-    const minLeft = chatRight + gap;
-    const maxRight = statsLeft - gap;
-    const centerLeft = (effW - invWidth) / 2;
-
-    if (maxRight - minLeft >= invWidth) {
-        if (centerLeft < minLeft || centerLeft + invWidth > maxRight) {
-            const clampedLeft = Math.max(minLeft, Math.min(maxRight - invWidth, centerLeft));
-            inventoryLayer.style.left = `${Math.round(clampedLeft)}px`;
-            inventoryLayer.style.transform = 'none';
-        }
-    } else {
-        chatWrapper.style.bottom = `${inventoryLayer.offsetHeight + 44}px`;
-    }
-}
-
-function updateServerDropdown(count, max) {
-    if (typeof count === 'number' && isFinite(count) && count >= 0) {
-        serverPlayerCount = count;
-    }
-    if (typeof max === 'number' && isFinite(max) && max > 0) {
-        serverMaxPlayers = max;
-    }
-    if (server1Option) {
-        server1Option.textContent = `Server 1 (${serverPlayerCount}/${serverMaxPlayers})`;
-    }
-}
-
-function setMenuError(message) {
-    if (menuError) {
-        menuError.textContent = message || '';
-    }
-}
-
-function enterGameUI() {
-    if (leaveBtn) leaveBtn.classList.add('visible');
-    if (mainMenu) mainMenu.classList.add('slide-up');
-    if (gameUI) {
-        gameUI.style.display = 'block';
-        layoutBottomHud();
-        setTimeout(() => { gameUI.style.opacity = '1'; }, 50);
-    }
-    setTimeout(() => {
-        if (mainMenu && !inMainMenu) mainMenu.style.display = 'none';
-    }, 600);
-}
-
-function returnToMainMenu() {
-    isJoining = false;
-    pendingJoinName = null;
-    myId = null;
-    inMainMenu = true;
-    serverPlayers = {};
-    ME.chats = [];
-    lastRenderedHealth = -1;
-    lastRenderedEnergy = -1;
-    lastLeaderboardSig = '';
-    resetJoystick();
-    setMobileSprint(false);
-    clearHeldInputs();
-    closeChat();
-    closeLeaveDialog();
-    if (leaveBtn) leaveBtn.classList.remove('visible');
-    if (chatLog) chatLog.textContent = '';
-    if (leaderboardList) leaderboardList.textContent = '';
-    if (gameUI) {
-        gameUI.style.opacity = '0';
-        gameUI.style.display = 'none';
-    }
-    if (mainMenu) {
-        mainMenu.style.display = 'flex';
-        void mainMenu.offsetWidth;
-        mainMenu.classList.remove('slide-up');
-    }
-}
-
-async function fetchInitialServerStatus() {
-    if (!isNodeHostedOrigin()) return;
-    try {
-        const res = await fetch('/api/server-status', { cache: 'no-store' });
-        if (!res.ok) return;
-        const data = await res.json();
-        const s1 = Array.isArray(data.servers) ? data.servers[0] : null;
-        if (s1) {
-            updateServerDropdown(s1.playerCount, s1.maxPlayers);
-        }
-    } catch (_) {}
-}
-
-const SETTINGS = {
-    showPing: true,
-    showFps: true,
-    uiSize: 'normal',
-    musicVolume: 100,
-    soundVolume: 100
-};
-
-window.GAME_AUDIO_SETTINGS = {
-    musicVolume: 1,
-    soundVolume: 1
-};
-
-function updateUiScale() {
-    const currentDpr = window.devicePixelRatio || 1;
-    lastObservedDpr = currentDpr;
-    const vvScale = window.visualViewport ? window.visualViewport.scale : 1;
-    const browserZoom = (currentDpr / baseDpr) * (vvScale > 0 ? vvScale : 1);
-    const inverseZoom = browserZoom > 0 ? 1 / browserZoom : 1;
-    const sizeMult = UI_SIZE_MULTIPLIERS[SETTINGS.uiSize] || 1;
-    currentUiScale = sizeMult * inverseZoom;
-
-    document.documentElement.style.setProperty('--ui-scale', String(currentUiScale));
-
-    if (uiScaleLayer) {
-        const effW = window.innerWidth / currentUiScale;
-        const effH = window.innerHeight / currentUiScale;
-        const isMobile = effW <= 640;
-        const isTablet = effW > 640 && effW <= 940;
-        const isTiny = effW <= 380;
-        const isShort = effH <= 540;
-        uiScaleLayer.classList.toggle('layout-tablet', isTablet);
-        uiScaleLayer.classList.toggle('layout-mobile', isMobile);
-        uiScaleLayer.classList.toggle('layout-tiny', isTiny);
-        uiScaleLayer.classList.toggle('layout-short', isShort);
-        layoutBottomHud();
-    }
-}
-
-function loadSettings() {
-    try {
-        const raw = localStorage.getItem('gvr_settings');
-        if (raw) {
-            const parsed = JSON.parse(raw);
-            if (typeof parsed.showPing === 'boolean') SETTINGS.showPing = parsed.showPing;
-            if (typeof parsed.showFps === 'boolean') SETTINGS.showFps = parsed.showFps;
-            if (parsed.uiSize === 'low' || parsed.uiSize === 'normal' || parsed.uiSize === 'big') {
-                SETTINGS.uiSize = parsed.uiSize;
-            }
-            if (typeof parsed.musicVolume === 'number' && isFinite(parsed.musicVolume)) {
-                SETTINGS.musicVolume = Math.max(0, Math.min(100, Math.round(parsed.musicVolume)));
-            }
-            if (typeof parsed.soundVolume === 'number' && isFinite(parsed.soundVolume)) {
-                SETTINGS.soundVolume = Math.max(0, Math.min(100, Math.round(parsed.soundVolume)));
-            }
-        }
-    } catch (_) {}
-}
-
-function saveSettings() {
-    try {
-        localStorage.setItem('gvr_settings', JSON.stringify(SETTINGS));
-    } catch (_) {}
-}
-
-function applySettingsToUI() {
-    if (settingShowPing) settingShowPing.checked = SETTINGS.showPing;
-    if (settingShowFps) settingShowFps.checked = SETTINGS.showFps;
-    for (let i = 0; i < uiSizeButtons.length; i++) {
-        const btn = uiSizeButtons[i];
-        btn.classList.toggle('active', btn.dataset.uiSize === SETTINGS.uiSize);
-    }
-    if (settingMusicVolume) settingMusicVolume.value = String(SETTINGS.musicVolume);
-    if (settingSoundVolume) settingSoundVolume.value = String(SETTINGS.soundVolume);
-    if (musicVolumeValue) musicVolumeValue.textContent = `${SETTINGS.musicVolume}%`;
-    if (soundVolumeValue) soundVolumeValue.textContent = `${SETTINGS.soundVolume}%`;
-
-    window.GAME_AUDIO_SETTINGS.musicVolume = SETTINGS.musicVolume / 100;
-    window.GAME_AUDIO_SETTINGS.soundVolume = SETTINGS.soundVolume / 100;
-
-    if (fpsCounter) {
-        fpsCounter.classList.toggle('hidden', !SETTINGS.showFps);
-    }
-    if (pingCounter) {
-        pingCounter.classList.toggle('hidden', !SETTINGS.showPing);
-    }
-    if (perfStats) {
-        perfStats.classList.toggle('hidden', !SETTINGS.showFps && !SETTINGS.showPing);
-    }
-    updateUiScale();
-}
-
-function openSettings() {
-    if (!settingsOverlay) return;
-    if (isLeaveDialogOpen) closeLeaveDialog();
-    isSettingsOpen = true;
-    clearHeldInputs();
-    if (document.activeElement === chatInput) {
-        closeChat();
-    }
-    settingsOverlay.classList.add('open');
-    settingsOverlay.setAttribute('aria-hidden', 'false');
-}
-
-function closeSettings() {
-    if (!settingsOverlay) return;
-    isSettingsOpen = false;
-    settingsOverlay.classList.remove('open');
-    settingsOverlay.setAttribute('aria-hidden', 'true');
-}
-
-function openLeaveDialog() {
-    if (!leaveOverlay || inMainMenu) return;
-    if (isSettingsOpen) closeSettings();
-    isLeaveDialogOpen = true;
-    clearHeldInputs();
-    if (document.activeElement === chatInput) {
-        closeChat();
-    }
-    leaveOverlay.classList.add('open');
-    leaveOverlay.setAttribute('aria-hidden', 'false');
-}
-
-function closeLeaveDialog() {
-    if (!leaveOverlay) return;
-    isLeaveDialogOpen = false;
-    leaveOverlay.classList.remove('open');
-    leaveOverlay.setAttribute('aria-hidden', 'true');
-}
-
-function enableTouchMode() {
-    if (serverDeviceIsMobile !== null) {
-        document.body.classList.toggle('touch-mode', serverDeviceIsMobile);
-        return;
-    }
-    if (!document.body.classList.contains('touch-mode')) {
-        document.body.classList.add('touch-mode');
-    }
-}
-
-function detectTouchCapability() {
-    if (serverDeviceIsMobile !== null) {
-        document.body.classList.toggle('touch-mode', serverDeviceIsMobile);
-        return;
-    }
-    const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
-    if (hasTouch) {
-        enableTouchMode();
-    }
-}
-
-function setMobileSprint(active) {
-    const val = Boolean(active);
-    if (WORLD.INPUTS.keys.shift !== val) {
-        WORLD.INPUTS.keys.shift = val;
-        sendInput(true);
-    }
-    if (mobileSprintBtn) {
-        mobileSprintBtn.classList.toggle('pressed', val);
-    }
-}
-
-function resetJoystick() {
-    joystickTouchId = null;
-    if (mobileJoystickThumb) {
-        mobileJoystickThumb.style.transform = 'translate(0px, 0px)';
-    }
-    let changed = false;
-    if (WORLD.INPUTS.keys.w) { WORLD.INPUTS.keys.w = false; changed = true; }
-    if (WORLD.INPUTS.keys.s) { WORLD.INPUTS.keys.s = false; changed = true; }
-    if (WORLD.INPUTS.keys.a) { WORLD.INPUTS.keys.a = false; changed = true; }
-    if (WORLD.INPUTS.keys.d) { WORLD.INPUTS.keys.d = false; changed = true; }
-    if (changed) sendInput(true);
-}
-
-function updateJoystickFromPoint(clientX, clientY) {
-    if (!mobileJoystick) return;
-    const rect = mobileJoystick.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const maxRadius = rect.width * 0.42;
-    let dx = clientX - cx;
-    let dy = clientY - cy;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist > maxRadius && dist > 0) {
-        dx = (dx / dist) * maxRadius;
-        dy = (dy / dist) * maxRadius;
-    }
-
-    if (mobileJoystickThumb) {
-        const scaleDiv = currentUiScale > 0 ? currentUiScale : 1;
-        mobileJoystickThumb.style.transform = `translate(${dx / scaleDiv}px, ${dy / scaleDiv}px)`;
-    }
-
-    const nx = maxRadius > 0 ? dx / maxRadius : 0;
-    const ny = maxRadius > 0 ? dy / maxRadius : 0;
-    const mag = Math.sqrt(nx * nx + ny * ny);
-    const deadzone = 0.2;
-
-    const nextUp = mag > deadzone && ny < -0.35;
-    const nextDown = mag > deadzone && ny > 0.35;
-    const nextLeft = mag > deadzone && nx < -0.35;
-    const nextRight = mag > deadzone && nx > 0.35;
-
-    let changed = false;
-    if (WORLD.INPUTS.keys.w !== nextUp) { WORLD.INPUTS.keys.w = nextUp; changed = true; }
-    if (WORLD.INPUTS.keys.s !== nextDown) { WORLD.INPUTS.keys.s = nextDown; changed = true; }
-    if (WORLD.INPUTS.keys.a !== nextLeft) { WORLD.INPUTS.keys.a = nextLeft; changed = true; }
-    if (WORLD.INPUTS.keys.d !== nextRight) { WORLD.INPUTS.keys.d = nextRight; changed = true; }
-
-    if (mag > deadzone && aimTouchId === null) {
-        const psX = (ME.x - (WORLD.CAMERA.x || 0) + ME.width / 2) * WORLD.SYSTEM.viewScale;
-        const psY = (ME.y - (WORLD.CAMERA.y || 0) + ME.height / 2) * WORLD.SYSTEM.viewScale;
-        WORLD.INPUTS.mouseX = psX + nx * 120;
-        WORLD.INPUTS.mouseY = psY + ny * 120;
-    }
-
-    if (changed) sendInput(true);
-}
-
-function setChatMinimized(minimized) {
-    isChatMinimized = Boolean(minimized);
-    if (chatWrapper) {
-        chatWrapper.classList.toggle('minimized', isChatMinimized);
-    }
-    if (chatToggleBtn) {
-        chatToggleBtn.setAttribute('aria-expanded', isChatMinimized ? 'false' : 'true');
-        chatToggleBtn.setAttribute('aria-label', isChatMinimized ? 'Maximize chat' : 'Minimize chat');
-    }
-    if (isChatMinimized && document.activeElement === chatInput) {
-        chatInput.blur();
-    }
-}
-
-function updatePingDisplay(ms) {
-    if (typeof ms !== 'number' || !isFinite(ms) || ms < 0) return;
-    currentPingMs = Math.round(ms);
-    if (pingCounter) {
-        pingCounter.textContent = `${currentPingMs} ms`;
-    }
-}
-
-function wsUrlToHttpProbe(wsUrl) {
-    if (!wsUrl) return null;
-    if (wsUrl.startsWith('wss://')) return 'https://' + wsUrl.slice(6);
-    if (wsUrl.startsWith('ws://')) return 'http://' + wsUrl.slice(5);
-    return wsUrl;
-}
-
-async function measurePingOnce() {
-    if (!pingProbeUrl || !ws || ws.readyState !== WebSocket.OPEN) return;
-    const start = performance.now();
-    try {
-        await fetch(pingProbeUrl, { method: 'HEAD', mode: 'no-cors', cache: 'no-store' });
-        updatePingDisplay(performance.now() - start);
-    } catch (_) {}
-}
-
-function startPingMonitor(wsUrl) {
-    pingProbeUrl = wsUrlToHttpProbe(wsUrl);
-    if (pingTimerId !== null) return;
-    pingTimerId = setInterval(measurePingOnce, 2000);
-}
-
-let fpsFrames = 0;
-let fpsLastSample = performance.now();
-function startFpsCounter() {
-    function tick(now) {
-        if ((window.devicePixelRatio || 1) !== lastObservedDpr) {
-            updateUiScale();
-        }
-        fpsFrames++;
-        const elapsed = now - fpsLastSample;
-        if (elapsed >= 500) {
-            const fps = Math.round((fpsFrames * 1000) / elapsed);
-            fpsFrames = 0;
-            fpsLastSample = now;
-            if (fpsCounter && SETTINGS.showFps) {
-                fpsCounter.textContent = `${fps} FPS`;
-            }
-        }
-        requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-}
-
-const tilesheetImg = new Image();
-const goodbotImg = new Image();
-
-function applyMapPayload(rawMap) {
-    if (!rawMap) return;
-    if (rawMap.config && rawMap.mapData) {
-        WORLD.MAP.tileSize = rawMap.config.tileSize || 64;
-        WORLD.MAP.columns = rawMap.config.mapW || 0;
-        WORLD.MAP.rows = rawMap.config.mapH || 0;
-        WORLD.MAP.mapData = {
-            floor1: rawMap.mapData.floor1 || [],
-            floor2: rawMap.mapData.floor2 || [],
-            wall: rawMap.mapData.wall || rawMap.mapData.walls || [],
-            tree: rawMap.mapData.tree || rawMap.mapData.trees || []
-        };
-    }
-}
-
-function drawTileCell(targetCtx, cell, dx, dy, tileSize) {
-    if (!cell || !tilesheetImg.complete || tilesheetImg.naturalWidth === 0) return;
-    const sInset = 0.5;
-    const sSize = tileSize - (sInset * 2);
-    const sx = cell.tx * tileSize + sInset;
-    const sy = cell.ty * tileSize + sInset;
-    const rot = (cell.r || 0) * Math.PI / 180;
-
-    if (rot !== 0) {
-        targetCtx.save();
-        targetCtx.translate(dx + tileSize / 2, dy + tileSize / 2);
-        targetCtx.rotate(rot);
-        targetCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, -tileSize / 2, -tileSize / 2, tileSize, tileSize);
-        targetCtx.restore();
-    } else {
-        targetCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, dx, dy, tileSize, tileSize);
-    }
-}
-
-function preRenderMap() {
-    if (!WORLD.MAP.columns || !WORLD.MAP.rows || !WORLD.MAP.mapData) return;
-
-    const numCX = Math.ceil((WORLD.MAP.columns * WORLD.MAP.tileSize) / WORLD.MAP.chunkSize);
-    const numCY = Math.ceil((WORLD.MAP.rows * WORLD.MAP.tileSize) / WORLD.MAP.chunkSize);
-
-    WORLD.MAP.bgChunks = [];
-    WORLD.MAP.wallChunks = [];
-    WORLD.MAP.fgChunks = [];
-
-    for (let cy = 0; cy < numCY; cy++) {
-        WORLD.MAP.bgChunks[cy] = [];
-        WORLD.MAP.wallChunks[cy] = [];
-        WORLD.MAP.fgChunks[cy] = [];
-        for (let cx = 0; cx < numCX; cx++) {
-            const bg = document.createElement('canvas');
-            bg.width = bg.height = WORLD.MAP.chunkSize;
-            const wc = document.createElement('canvas');
-            wc.width = wc.height = WORLD.MAP.chunkSize;
-            const fg = document.createElement('canvas');
-            fg.width = fg.height = WORLD.MAP.chunkSize;
-            WORLD.MAP.bgChunks[cy][cx] = bg;
-            WORLD.MAP.wallChunks[cy][cx] = wc;
-            WORLD.MAP.fgChunks[cy][cx] = fg;
-            renderChunk(cx, cy);
-        }
-    }
-}
-
-function renderChunk(cx, cy) {
-    const bgCtx = WORLD.MAP.bgChunks[cy][cx].getContext('2d', { alpha: true });
-    const wcCtx = WORLD.MAP.wallChunks[cy][cx].getContext('2d', { alpha: true });
-    const fgCtx = WORLD.MAP.fgChunks[cy][cx].getContext('2d', { alpha: true });
-
-    bgCtx.imageSmoothingEnabled = false;
-    wcCtx.imageSmoothingEnabled = false;
-    fgCtx.imageSmoothingEnabled = false;
-
-    bgCtx.clearRect(0, 0, WORLD.MAP.chunkSize, WORLD.MAP.chunkSize);
-    wcCtx.clearRect(0, 0, WORLD.MAP.chunkSize, WORLD.MAP.chunkSize);
-    fgCtx.clearRect(0, 0, WORLD.MAP.chunkSize, WORLD.MAP.chunkSize);
-
-    if (!tilesheetImg.complete || tilesheetImg.naturalWidth === 0) return;
-
-    const tileSize = WORLD.MAP.tileSize;
-    const startCol = Math.max(0, Math.floor((cx * WORLD.MAP.chunkSize) / tileSize));
-    const endCol = Math.min(WORLD.MAP.columns, Math.ceil(((cx + 1) * WORLD.MAP.chunkSize) / tileSize));
-    const startRow = Math.max(0, Math.floor((cy * WORLD.MAP.chunkSize) / tileSize));
-    const endRow = Math.min(WORLD.MAP.rows, Math.ceil(((cy + 1) * WORLD.MAP.chunkSize) / tileSize));
-
-    const layerOrder = ['floor1', 'floor2', 'wall', 'tree'];
-    for (const layerName of layerOrder) {
-        const grid = WORLD.MAP.mapData[layerName];
-        if (!grid) continue;
-        const targetCtx = layerName === 'tree' ? fgCtx : (layerName === 'wall' ? wcCtx : bgCtx);
-
-        for (let r = startRow; r < endRow; r++) {
-            const rowArr = grid[r];
-            if (!rowArr) continue;
-            for (let c = startCol; c < endCol; c++) {
-                const cell = rowArr[c];
-                if (cell) {
-                    const dx = (c * tileSize) - (cx * WORLD.MAP.chunkSize);
-                    const dy = (r * tileSize) - (cy * WORLD.MAP.chunkSize);
-                    drawTileCell(targetCtx, cell, dx, dy, tileSize);
+                    if (dist < radius) {
+                        if (dist === 0) {
+                            const lD = cx - tileX;
+                            const rD = (tileX + tileSize) - cx;
+                            const tD = cy - tileY;
+                            const bD = (tileY + tileSize) - cy;
+                            const mD = Math.min(lD, rD, tD, bD);
+                            if (mD === lD) cx = tileX - radius;
+                            else if (mD === rD) cx = tileX + tileSize + radius;
+                            else if (mD === tD) cy = tileY - radius;
+                            else cy = tileY + tileSize + radius;
+                        } else {
+                            const overlap = radius - dist;
+                            const nx = dX / dist;
+                            const ny = dY / dist;
+                            cx += nx * overlap;
+                            cy += ny * overlap;
+                            if (applyVelocity) {
+                                const dot = p.vx * nx + p.vy * ny;
+                                if (dot < 0) {
+                                    p.vx -= dot * nx;
+                                    p.vy -= dot * ny;
+                                }
+                            }
+                        }
+                    }
                 }
             }
+
+            p.x = cx - p.width / 2;
+            p.y = cy - p.height / 2;
+        }
+    }
+
+    if (p.x < 0) {
+        p.x = 0;
+        if (applyVelocity && p.vx < 0) p.vx = 0;
+    } else if (p.x > maxW) {
+        p.x = maxW;
+        if (applyVelocity && p.vx > 0) p.vx = 0;
+    }
+
+    if (p.y < 0) {
+        p.y = 0;
+        if (applyVelocity && p.vy < 0) p.vy = 0;
+    } else if (p.y > maxH) {
+        p.y = maxH;
+        if (applyVelocity && p.vy > 0) p.vy = 0;
+    }
+}
+
+function findSpawnPosition() {
+    const centerX = (MAP.config.mapW * MAP.config.tileSize) / 2 - PLAYER_RADIUS;
+    const centerY = (MAP.config.mapH * MAP.config.tileSize) / 2 - PLAYER_RADIUS;
+    const dummy = { x: centerX, y: centerY, vx: 0, vy: 0, width: PLAYER_SIZE, height: PLAYER_SIZE, scale: 1 };
+    resolvePlayerWalls(dummy, false);
+    return { x: dummy.x, y: dummy.y };
+}
+
+function sanitizeName(raw) {
+    if (typeof raw !== 'string') return 'Goodbot' + (Math.floor(Math.random() * 900) + 100);
+    const cleaned = raw.replace(/[^\w \-\[\].!]/g, '').trim().slice(0, 16);
+    return cleaned || ('Goodbot' + (Math.floor(Math.random() * 900) + 100));
+}
+
+function sanitizeChat(raw) {
+    if (typeof raw !== 'string') return '';
+    return raw.replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+
+function normalizeAngle(raw) {
+    let a = Number(raw);
+    if (!Number.isFinite(a)) return null;
+    a = ((a + Math.PI) % (Math.PI * 2) + (Math.PI * 2)) % (Math.PI * 2) - Math.PI;
+    return a;
+}
+
+function getClientIp(req) {
+    const cf = req.headers['cf-connecting-ip'];
+    if (typeof cf === 'string' && cf.length > 0) return cf.trim();
+    return req.socket.remoteAddress || 'unknown';
+}
+
+function isStrictLocalRequest(req) {
+    const addr = req.socket.remoteAddress || '';
+    const isLoopback = addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+    const hasProxyHeaders = Boolean(
+        req.headers['cf-connecting-ip'] ||
+        req.headers['cf-ray'] ||
+        req.headers['x-forwarded-for'] ||
+        req.headers['x-real-ip']
+    );
+    return isLoopback && !hasProxyHeaders;
+}
+
+function detectIsMobileFromRequest(req) {
+    const chMobile = req.headers['sec-ch-ua-mobile'];
+    if (chMobile === '?1') return true;
+    if (chMobile === '?0') return false;
+    const ua = String(req.headers['user-agent'] || '');
+    if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(ua)) {
+        return true;
+    }
+    return false;
+}
+
+const app = express();
+app.disable('x-powered-by');
+app.use(express.json({ limit: '5mb' }));
+
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    const cleanPath = req.path.toLowerCase();
+    if (
+        cleanPath === '/server.js' ||
+        cleanPath === '/package.json' ||
+        cleanPath === '/package-lock.json' ||
+        cleanPath === '/bun.lock' ||
+        cleanPath.startsWith('/node_modules') ||
+        cleanPath.startsWith('/.git') ||
+        cleanPath.startsWith('/public')
+    ) {
+        return res.status(403).end();
+    }
+    next();
+});
+
+app.get('/config.json', (_req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ wssUrl: CLOUDFLARED_WSS_URL });
+});
+
+app.get('/api/server-status', (_req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+        servers: [
+            {
+                id: 'server-1',
+                name: 'Server 1',
+                playerCount: players.size,
+                maxPlayers: MAX_PLAYERS
+            }
+        ]
+    });
+});
+
+app.get('/api/device-mode', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+        isMobile: detectIsMobileFromRequest(req)
+    });
+});
+
+app.get('/map.json', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(MAP);
+});
+
+app.post('/api/map', (req, res) => {
+    if (!isStrictLocalRequest(req)) {
+        return res.status(403).json({ error: 'Local editor access only' });
+    }
+    const valid = validateMapData(req.body);
+    if (!valid) {
+        return res.status(400).json({ error: 'Invalid map format' });
+    }
+    const tmpPath = MAP_PATH + '.tmp';
+    try {
+        fs.writeFileSync(tmpPath, JSON.stringify(valid));
+        fs.renameSync(tmpPath, MAP_PATH);
+        try {
+            lastMapMtimeMs = fs.statSync(MAP_PATH).mtimeMs;
+        } catch (_) {}
+        MAP = valid;
+        const mapPayload = JSON.stringify({
+            type: 'map_data',
+            map: MAP,
+            playerCount: players.size,
+            maxPlayers: MAX_PLAYERS
+        });
+        for (const client of wss.clients) {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(mapPayload);
+            }
+        }
+        return res.json({ ok: true });
+    } catch (_) {
+        try { fs.unlinkSync(tmpPath); } catch (_) {}
+        return res.status(500).json({ error: 'Failed to save map.json' });
+    }
+});
+
+function syncMapFromDisk() {
+    try {
+        const stat = fs.statSync(MAP_PATH);
+        if (!stat || stat.mtimeMs <= 0 || stat.mtimeMs === lastMapMtimeMs) return;
+        const raw = JSON.parse(fs.readFileSync(MAP_PATH, 'utf8'));
+        const valid = validateMapData(raw);
+        if (!valid) return;
+        lastMapMtimeMs = stat.mtimeMs;
+        MAP = valid;
+        const mapPayload = JSON.stringify({
+            type: 'map_data',
+            map: MAP,
+            playerCount: players.size,
+            maxPlayers: MAX_PLAYERS
+        });
+        for (const client of wss.clients) {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(mapPayload);
+            }
+        }
+    } catch (_) {}
+}
+
+setInterval(syncMapFromDisk, 1500);
+
+app.get(['/', '/index.html'], (req, res) => {
+    res.setHeader('Accept-CH', 'Sec-CH-UA-Mobile');
+    const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+    const host = req.headers.host;
+    if (!host) {
+        return res.type('html').send(html);
+    }
+    const xfProto = req.headers['x-forwarded-proto'];
+    const proto = typeof xfProto === 'string' && xfProto.length > 0 ? xfProto.split(',')[0].trim() : req.protocol;
+    const baseUrl = `${proto}://${host}`;
+    const rendered = html.replaceAll('https://goodbots.duckdns.org/assets/Goodbot.png', `${baseUrl}/assets/Goodbot.png`);
+    res.type('html').send(rendered);
+});
+
+app.use(express.static(__dirname, {
+    dotfiles: 'deny',
+    index: 'index.html'
+}));
+
+const server = http.createServer(app);
+const wss = new WebSocketServer({
+    server,
+    maxPayload: 4096
+});
+
+let nextPlayerId = 1;
+const players = new Map();
+const ipCounts = new Map();
+const chatHistory = [];
+
+function broadcast(payload, excludeId = null) {
+    const raw = JSON.stringify(payload);
+    for (const [id, p] of players) {
+        if (id === excludeId) continue;
+        if (p.ws.readyState === WebSocket.OPEN) {
+            p.ws.send(raw);
         }
     }
 }
 
-function loadAssets() {
-    tilesheetImg.onload = () => {
-        preRenderMap();
-    };
-    tilesheetImg.src = 'assets/tilesheet.png';
-    if (tilesheetImg.complete && tilesheetImg.naturalWidth > 0) {
-        preRenderMap();
-    }
-    goodbotImg.src = 'assets/Goodbot.png';
-}
-
-function updateStatsUI() {
-    const roundedHealth = Math.round(ME.health);
-    const roundedEnergy = Math.ceil(ME.energy);
-
-    if (roundedHealth !== lastRenderedHealth && healthFill) {
-        healthFill.style.width = `${(roundedHealth / 255) * 100}%`;
-        lastRenderedHealth = roundedHealth;
-    }
-
-    if (roundedEnergy !== lastRenderedEnergy && energyFill) {
-        energyFill.style.width = `${(roundedEnergy / 255) * 100}%`;
-        lastRenderedEnergy = roundedEnergy;
+function broadcastServerInfo() {
+    const raw = JSON.stringify({
+        type: 'server_info',
+        serverId: 'server-1',
+        playerCount: players.size,
+        maxPlayers: MAX_PLAYERS
+    });
+    for (const client of wss.clients) {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(raw);
+        }
     }
 }
 
-function updateLeaderboard(names) {
-    if (!leaderboardList) return;
-    const sig = names.join('\n');
-    if (sig === lastLeaderboardSig) return;
-    lastLeaderboardSig = sig;
-    leaderboardList.textContent = '';
-    for (let i = 0; i < names.length; i++) {
-        const el = document.createElement('div');
-        el.className = 'leaderboard-entry';
-        el.textContent = names[i];
-        leaderboardList.appendChild(el);
-    }
-}
+wss.on('connection', (ws, req) => {
+    const ip = getClientIp(req);
+    const currentIpCount = ipCounts.get(ip) || 0;
 
-function appendChatLog(name, text) {
-    if (!chatLog) return;
-    const entry = document.createElement('div');
-    entry.className = 'chat-log-entry';
-    entry.textContent = `${name}: ${text}`;
-    chatLog.appendChild(entry);
-    while (chatLog.children.length > 50) {
-        chatLog.removeChild(chatLog.firstChild);
-    }
-    chatLog.scrollTop = chatLog.scrollHeight;
-}
-
-function selectSlot(idx) {
-    if (!inventorySlots || inventorySlots.length === 0) return;
-    if (idx < 0 || idx >= inventorySlots.length) return;
-    activeSlot = idx;
-    for (let i = 0; i < inventorySlots.length; i++) {
-        if (i === activeSlot) inventorySlots[i].classList.add('active');
-        else inventorySlots[i].classList.remove('active');
-    }
-}
-
-function updateMenuCamera(dt) {
-    if (!WORLD.MAP.columns || !WORLD.CAMERA.width) return;
-    const maxCamX = Math.max(0, WORLD.MAP.columns * WORLD.MAP.tileSize - WORLD.CAMERA.width);
-    const maxCamY = Math.max(0, WORLD.MAP.rows * WORLD.MAP.tileSize - WORLD.CAMERA.height);
-
-    if (menuCamX === null) {
-        menuCamX = maxCamX / 2;
-        menuCamY = maxCamY / 2;
+    if (currentIpCount >= MAX_PER_IP) {
+        ws.close(4009, 'Server busy');
+        return;
     }
 
-    menuCamX += menuCamVX * dt;
-    menuCamY += menuCamVY * dt;
+    ipCounts.set(ip, currentIpCount + 1);
+    ws.isAlive = true;
+    ws.isMobile = detectIsMobileFromRequest(req);
 
-    if (menuCamX <= 0) { menuCamX = 0; menuCamVX = Math.abs(menuCamVX); }
-    else if (menuCamX >= maxCamX) { menuCamX = maxCamX; menuCamVX = -Math.abs(menuCamVX); }
-
-    if (menuCamY <= 0) { menuCamY = 0; menuCamVY = Math.abs(menuCamVY); }
-    else if (menuCamY >= maxCamY) { menuCamY = maxCamY; menuCamVY = -Math.abs(menuCamVY); }
-
-    WORLD.CAMERA.x = menuCamX;
-    WORLD.CAMERA.y = menuCamY;
-}
-
-function getInputState() {
-    return {
-        up: WORLD.INPUTS.keys.w || WORLD.INPUTS.keys.arrowup,
-        down: WORLD.INPUTS.keys.s || WORLD.INPUTS.keys.arrowdown,
-        left: WORLD.INPUTS.keys.a || WORLD.INPUTS.keys.arrowleft,
-        right: WORLD.INPUTS.keys.d || WORLD.INPUTS.keys.arrowright,
-        sprint: WORLD.INPUTS.keys.shift
-    };
-}
-
-function sendInput(force = false) {
-    if (!myId || !ws || ws.readyState !== WebSocket.OPEN) return;
-    const input = getInputState();
-    const keySig = `${input.up ? 1 : 0}${input.down ? 1 : 0}${input.left ? 1 : 0}${input.right ? 1 : 0}${input.sprint ? 1 : 0}`;
-    const keysChanged = keySig !== lastInputKeySig;
-
-    let angleDiff = Math.abs(ME.angle - lastSentAngle);
-    if (angleDiff > Math.PI) angleDiff = Math.abs(angleDiff - Math.PI * 2);
-
-    const now = performance.now();
-    if (!force && !keysChanged) {
-        if (angleDiff <= 0.02 || now - lastInputSendTime < 33) return;
-    }
-
-    lastInputKeySig = keySig;
-    lastSentAngle = ME.angle;
-    lastInputSendTime = now;
+    let player = null;
+    let msgWindowStart = Date.now();
+    let msgCount = 0;
+    let badMsgCount = 0;
 
     ws.send(JSON.stringify({
-        type: 'input',
-        up: input.up,
-        down: input.down,
-        left: input.left,
-        right: input.right,
-        sprint: input.sprint,
-        angle: ME.angle
+        type: 'map_data',
+        map: MAP,
+        playerCount: players.size,
+        maxPlayers: MAX_PLAYERS,
+        isMobile: ws.isMobile
     }));
-}
 
-function update(dt) {
-    const maxX = Math.max(0, WORLD.MAP.columns * WORLD.MAP.tileSize - ME.width);
-    const maxY = Math.max(0, WORLD.MAP.rows * WORLD.MAP.tileSize - ME.height);
+    ws.on('pong', () => {
+        ws.isAlive = true;
+    });
 
-    ME.serverX = Math.max(0, Math.min(maxX, ME.serverX + ME.vx * dt));
-    ME.serverY = Math.max(0, Math.min(maxY, ME.serverY + ME.vy * dt));
-
-    const rdxMe = ME.serverX - ME.x;
-    const rdyMe = ME.serverY - ME.y;
-    if (rdxMe * rdxMe + rdyMe * rdyMe > 180 * 180) {
-        ME.x = ME.serverX;
-        ME.y = ME.serverY;
-    } else {
-        const meLerp = 1 - Math.exp(-dt * 24);
-        ME.x += rdxMe * meLerp;
-        ME.y += rdyMe * meLerp;
-    }
-
-    const smX = WORLD.INPUTS.mouseX / WORLD.SYSTEM.viewScale;
-    const smY = WORLD.INPUTS.mouseY / WORLD.SYSTEM.viewScale;
-    const psX = ME.x - (WORLD.CAMERA.x || 0) + ME.width / 2;
-    const psY = ME.y - (WORLD.CAMERA.y || 0) + ME.height / 2;
-    const mouseAngle = Math.atan2(smY - psY, smX - psX);
-    ME.angle = mouseAngle + (Math.PI / 2);
-
-    const targetCamX = ME.x + ME.width / 2 - WORLD.CAMERA.width / 2;
-    const targetCamY = ME.y + ME.height / 2 - WORLD.CAMERA.height / 2;
-    if (WORLD.CAMERA.x === null || isNaN(WORLD.CAMERA.x) || !isFinite(WORLD.CAMERA.x)) {
-        WORLD.CAMERA.x = targetCamX;
-        WORLD.CAMERA.y = targetCamY;
-    } else {
-        const lf = 1 - Math.exp(-Math.max(0, dt) * 40);
-        WORLD.CAMERA.x += (targetCamX - WORLD.CAMERA.x) * lf;
-        WORLD.CAMERA.y += (targetCamY - WORLD.CAMERA.y) * lf;
-    }
-
-    for (const id in serverPlayers) {
-        const p = serverPlayers[id];
-        if (p.renderX === undefined) {
-            p.renderX = p.x;
-            p.renderY = p.y;
-            p.renderAngle = p.angle || 0;
+    ws.on('message', (raw) => {
+        const now = Date.now();
+        if (now - msgWindowStart >= 1000) {
+            msgWindowStart = now;
+            msgCount = 0;
         }
-
-        p.x = Math.max(0, Math.min(maxX, p.x + (p.vx || 0) * dt));
-        p.y = Math.max(0, Math.min(maxY, p.y + (p.vy || 0) * dt));
-
-        const lerpF = 1 - Math.exp(-dt * 20);
-        const rdx = p.x - p.renderX;
-        const rdy = p.y - p.renderY;
-        const rdist = Math.sqrt(rdx * rdx + rdy * rdy);
-        const maxStep = 200;
-        if (rdist > maxStep) {
-            p.renderX = p.x - (rdx / rdist) * maxStep;
-            p.renderY = p.y - (rdy / rdist) * maxStep;
+        msgCount++;
+        if (msgCount > 240) {
+            ws.close(4008, 'Rate limit exceeded');
+            return;
         }
-        p.renderX += (p.x - p.renderX) * lerpF;
-        p.renderY += (p.y - p.renderY) * lerpF;
+        if (msgCount > 120) return;
 
-        let diff = (p.angle || 0) - p.renderAngle;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        p.renderAngle += diff * (1 - Math.exp(-dt * 20));
-    }
-
-    sendInput(false);
-}
-
-function drawPlayer(x, y, width, height, angle, scale, label) {
-    const sW = width * scale;
-    const sH = height * scale;
-    if (goodbotImg.complete && goodbotImg.naturalWidth > 0) {
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(angle);
-        ctx.drawImage(goodbotImg, -sW / 2, -sH / 2, sW, sH);
-        ctx.restore();
-    }
-
-    if (label) {
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'alphabetic';
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-        ctx.font = '15px Viga, sans-serif';
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeText(label, x, y - sH / 2 - 10);
-        ctx.fillText(label, x, y - sH / 2 - 10);
-    }
-}
-
-function wrapChatLines(text) {
-    const words = String(text || '').trim().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return [];
-    const lines = [];
-    const maxLineWidth = 240;
-    let current = '';
-    let wordCount = 0;
-
-    for (let i = 0; i < words.length; i++) {
-        const word = words[i];
-        if (ctx.measureText(word).width > maxLineWidth) {
-            if (current) {
-                lines.push(current);
-                current = '';
-                wordCount = 0;
-            }
-            let chunk = '';
-            for (let c = 0; c < word.length; c++) {
-                const nextChunk = chunk + word[c];
-                if (chunk && ctx.measureText(nextChunk).width > maxLineWidth) {
-                    lines.push(chunk);
-                    chunk = word[c];
-                } else {
-                    chunk = nextChunk;
-                }
-            }
-            if (chunk) {
-                current = chunk;
-                wordCount = 1;
-            }
-            continue;
-        }
-
-        const candidate = current ? current + ' ' + word : word;
-        if (current && (wordCount >= 5 || ctx.measureText(candidate).width > maxLineWidth)) {
-            lines.push(current);
-            current = word;
-            wordCount = 1;
-        } else {
-            current = candidate;
-            wordCount++;
-        }
-    }
-
-    if (current) lines.push(current);
-    return lines;
-}
-
-function drawChatBubbles(chats, x, bottomY) {
-    if (!chats || chats.length === 0) return;
-    ctx.font = '14px Viga, sans-serif';
-    const paddingX = 10;
-    const paddingY = 6;
-    const lineHeight = 18;
-    const bubbleGap = 5;
-    let currentBottomY = bottomY;
-    const startIdx = Math.max(0, chats.length - 2);
-
-    for (let i = chats.length - 1; i >= startIdx; i--) {
-        const lines = wrapChatLines(chats[i]);
-        if (lines.length === 0) continue;
-
-        let maxW = 0;
-        for (let l = 0; l < lines.length; l++) {
-            const w = ctx.measureText(lines[l]).width;
-            if (w > maxW) maxW = w;
-        }
-
-        const bubbleW = Math.ceil(maxW + paddingX * 2);
-        const bubbleH = lines.length * lineHeight + paddingY * 2;
-        const topY = Math.round(currentBottomY - bubbleH);
-        const leftX = Math.round(x - bubbleW / 2);
-
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(leftX, topY, bubbleW, bubbleH);
-
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        for (let l = 0; l < lines.length; l++) {
-            ctx.fillText(lines[l], x, topY + paddingY + lineHeight * (l + 0.5));
-        }
-
-        currentBottomY = topY - bubbleGap;
-    }
-}
-
-function render() {
-    if (!WORLD.SYSTEM.isReady) return;
-    if (!WORLD.MAP.bgChunks.length || !WORLD.MAP.bgChunks[0].length) return;
-
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.save();
-    ctx.scale(WORLD.SYSTEM.viewScale, WORLD.SYSTEM.viewScale);
-    ctx.imageSmoothingEnabled = false;
-
-    const camX = Math.floor(WORLD.CAMERA.x || 0);
-    const camY = Math.floor(WORLD.CAMERA.y || 0);
-
-    const startCX = Math.max(0, Math.floor(camX / WORLD.MAP.chunkSize));
-    const endCX = Math.min(WORLD.MAP.bgChunks[0].length - 1, Math.floor((camX + WORLD.CAMERA.width) / WORLD.MAP.chunkSize));
-    const startCY = Math.max(0, Math.floor(camY / WORLD.MAP.chunkSize));
-    const endCY = Math.min(WORLD.MAP.bgChunks.length - 1, Math.floor((camY + WORLD.CAMERA.height) / WORLD.MAP.chunkSize));
-
-    for (let cy = startCY; cy <= endCY; cy++) {
-        for (let cx = startCX; cx <= endCX; cx++) {
-            const dx = cx * WORLD.MAP.chunkSize - camX;
-            const dy = cy * WORLD.MAP.chunkSize - camY;
-            ctx.drawImage(WORLD.MAP.bgChunks[cy][cx], dx, dy, WORLD.MAP.chunkSize + 1, WORLD.MAP.chunkSize + 1);
-        }
-    }
-
-    if (!inMainMenu && myId !== null) {
-        for (const id in serverPlayers) {
-            const p = serverPlayers[id];
-            const pRX = (p.renderX ?? p.x) - camX + p.width / 2;
-            const pRY = (p.renderY ?? p.y) - camY + p.height / 2;
-            const ps = Math.min(2, Math.max(0.3, p.scale || 1));
-            drawPlayer(pRX, pRY, p.width, p.height, p.renderAngle ?? 0, ps, p.name);
-        }
-
-        const pRenderX = ME.x - camX + ME.width / 2;
-        const pRenderY = ME.y - camY + ME.height / 2;
-        drawPlayer(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, myName);
-    }
-
-    for (let cy = startCY; cy <= endCY; cy++) {
-        for (let cx = startCX; cx <= endCX; cx++) {
-            const dx = cx * WORLD.MAP.chunkSize - camX;
-            const dy = cy * WORLD.MAP.chunkSize - camY;
-            ctx.drawImage(WORLD.MAP.wallChunks[cy][cx], dx, dy, WORLD.MAP.chunkSize + 1, WORLD.MAP.chunkSize + 1);
-        }
-    }
-
-    for (let cy = startCY; cy <= endCY; cy++) {
-        for (let cx = startCX; cx <= endCX; cx++) {
-            const dx = cx * WORLD.MAP.chunkSize - camX;
-            const dy = cy * WORLD.MAP.chunkSize - camY;
-            ctx.drawImage(WORLD.MAP.fgChunks[cy][cx], dx, dy, WORLD.MAP.chunkSize + 1, WORLD.MAP.chunkSize + 1);
-        }
-    }
-
-    if (!inMainMenu && myId !== null) {
-        for (const id in serverPlayers) {
-            const p = serverPlayers[id];
-            if (!p.chats || p.chats.length === 0) continue;
-            const pRX = (p.renderX ?? p.x) - camX + p.width / 2;
-            const pRY = (p.renderY ?? p.y) - camY + p.height / 2;
-            const ps = Math.min(2, Math.max(0.3, p.scale || 1));
-            drawChatBubbles(p.chats, pRX, pRY - (p.height * ps) / 2 - 28);
-        }
-
-        if (ME.chats && ME.chats.length > 0) {
-            const pRenderX = ME.x - camX + ME.width / 2;
-            const pRenderY = ME.y - camY + ME.height / 2;
-            drawChatBubbles(ME.chats, pRenderX, pRenderY - (ME.height * ME.scale) / 2 - 28);
-        }
-    }
-
-    ctx.restore();
-}
-
-function gameLoop(now) {
-    if (!WORLD.SYSTEM.isReady) return;
-    requestAnimationFrame(gameLoop);
-
-    let dt = (now - WORLD.SYSTEM.lastTime) / 1000;
-    WORLD.SYSTEM.lastTime = now;
-    if (dt > 0.1) dt = 0.1;
-    if (dt < 0 || isNaN(dt)) dt = 0.016;
-
-    if (inMainMenu) {
-        updateMenuCamera(dt);
-        render();
-        return;
-    }
-
-    if (!myId) return;
-    update(dt);
-    render();
-}
-
-function normalizeWsUrl(rawUrl) {
-    let u = String(rawUrl || '').trim().replace(/\/+$/, '');
-    if (u.startsWith('https://')) u = 'wss://' + u.slice(8);
-    else if (u.startsWith('http://')) u = 'ws://' + u.slice(7);
-    return u;
-}
-
-async function resolveWsUrl() {
-    const host = window.location.hostname;
-    if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.run.app')) {
-        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return proto + '//' + window.location.host;
-    }
-    if (CLOUDFLARED_WSS_URL) return normalizeWsUrl(CLOUDFLARED_WSS_URL);
-    try {
-        const res = await fetch('config.json', { cache: 'no-store' });
-        if (res.ok) {
-            const cfg = await res.json();
-            if (cfg && cfg.wssUrl) return normalizeWsUrl(cfg.wssUrl);
-        }
-    } catch (_) {}
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return proto + '//' + window.location.host;
-}
-
-async function connectToServer() {
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-
-    const wsUrl = await resolveWsUrl();
-    startPingMonitor(wsUrl);
-    const wsConnectStart = performance.now();
-    ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-        hasConnected = true;
-        updatePingDisplay(performance.now() - wsConnectStart);
-        measurePingOnce();
-        if (pendingJoinName !== null) {
-            ws.send(JSON.stringify({ type: 'join', name: pendingJoinName }));
-            pendingJoinName = null;
-        }
-    };
-
-    ws.onmessage = (event) => {
         let data;
         try {
-            data = JSON.parse(event.data);
+            data = JSON.parse(raw.toString());
         } catch (_) {
+            badMsgCount++;
+            if (badMsgCount > 10) ws.close(4004, 'Malformed payload');
             return;
         }
 
-        if (data.type === 'pong' && typeof data.t === 'number') {
-            updatePingDisplay(performance.now() - data.t);
-            return;
-        }
+        if (!data || typeof data !== 'object' || typeof data.type !== 'string') return;
 
-        if (data.type === 'server_info') {
-            updateServerDropdown(data.playerCount, data.maxPlayers);
-            return;
-        }
-
-        if (data.type === 'left_server') {
-            updateServerDropdown(data.playerCount, data.maxPlayers);
-            return;
-        }
-
-        if (data.type === 'server_full') {
-            isJoining = false;
-            pendingJoinName = null;
-            inMainMenu = true;
-            updateServerDropdown(data.playerCount, data.maxPlayers);
-            setMenuError(data.message || `Server is full (${serverPlayerCount}/${serverMaxPlayers})`);
-            return;
-        }
-
-        if (data.type === 'map_data') {
-            if (typeof data.isMobile === 'boolean') {
-                applyServerDeviceMode(data.isMobile);
-            }
-            updateServerDropdown(data.playerCount, data.maxPlayers);
-            applyMapPayload(data.map);
-            preRenderMap();
-            WORLD.SYSTEM.isReady = true;
-            resizeCanvas();
-            if (!WORLD.SYSTEM._gameLoopRunning) {
-                WORLD.SYSTEM._gameLoopRunning = true;
-                requestAnimationFrame(gameLoop);
-            }
-            return;
-        }
-
-        if (data.type === 'init') {
-            if (typeof data.isMobile === 'boolean') {
-                applyServerDeviceMode(data.isMobile);
-            }
-            isJoining = false;
-            pendingJoinName = null;
-            myId = data.id;
-            myName = data.name;
-            inMainMenu = false;
-            WORLD.CAMERA.x = null;
-            WORLD.CAMERA.y = null;
-            setMenuError('');
-            updateServerDropdown(data.playerCount, data.maxPlayers);
-            enterGameUI();
-
-            applyMapPayload(data.map);
-            preRenderMap();
-
-            ME.x = data.x;
-            ME.y = data.y;
-            ME.serverX = data.x;
-            ME.serverY = data.y;
-            ME.vx = 0;
-            ME.vy = 0;
-            ME.scale = 1;
-            ME.health = data.health ?? 255;
-            ME.energy = data.energy ?? 255;
-            ME.chats = [];
-            updateStatsUI();
-            updateLeaderboard([myName]);
-            selectSlot(0);
-            if (chatLog) {
-                chatLog.textContent = '';
-                if (Array.isArray(data.chatLog)) {
-                    for (let i = 0; i < data.chatLog.length; i++) {
-                        appendChatLog(data.chatLog[i].name, data.chatLog[i].text);
-                    }
-                }
-            }
-
-            lastInputKeySig = '';
-            WORLD.CAMERA.x = ME.x + ME.width / 2 - WORLD.CAMERA.width / 2;
-            WORLD.CAMERA.y = ME.y + ME.height / 2 - WORLD.CAMERA.height / 2;
-
-            WORLD.SYSTEM.lastTime = performance.now();
-            WORLD.SYSTEM.isReady = true;
-            if (!WORLD.SYSTEM._gameLoopRunning) {
-                WORLD.SYSTEM._gameLoopRunning = true;
-                requestAnimationFrame(gameLoop);
-            }
-            sendInput(true);
-            return;
-        }
-
-        if (data.type === 'shutdown') {
-            window.location.reload();
-            return;
-        }
-
-        if (data.type === 'chat_log') {
-            if (typeof data.name === 'string' && typeof data.text === 'string') {
-                appendChatLog(data.name, data.text);
-            }
-            return;
-        }
-
-        if (data.type === 'state') {
-            const next = {};
-            const lbEntries = [];
-            for (const id in data.players) {
-                const incoming = data.players[id];
-                const numId = parseInt(id, 10);
-                lbEntries.push({ id: numId, name: incoming.name });
-                if (numId === myId) {
-                    ME.serverX = incoming.x;
-                    ME.serverY = incoming.y;
-                    ME.vx = incoming.vx;
-                    ME.vy = incoming.vy;
-                    ME.scale = incoming.scale ?? 1;
-                    if (incoming.health !== undefined) ME.health = incoming.health;
-                    if (incoming.energy !== undefined) ME.energy = incoming.energy;
-                    ME.chats = Array.isArray(incoming.chats) ? incoming.chats : [];
-                    updateStatsUI();
-                    continue;
-                }
-                const existing = serverPlayers[id];
-                if (existing) {
-                    const dx = incoming.x - existing.renderX;
-                    const dy = incoming.y - existing.renderY;
-                    const jumped = (dx * dx + dy * dy) > (120 * 120);
-                    Object.assign(existing, incoming);
-                    if (!Array.isArray(incoming.chats)) existing.chats = [];
-                    if (jumped) {
-                        existing.renderX = incoming.x;
-                        existing.renderY = incoming.y;
-                    }
-                    next[id] = existing;
-                } else {
-                    next[id] = {
-                        ...incoming,
-                        chats: Array.isArray(incoming.chats) ? incoming.chats : [],
-                        renderX: incoming.x,
-                        renderY: incoming.y,
-                        renderAngle: incoming.angle || 0
-                    };
-                }
-            }
-            lbEntries.sort((a, b) => a.id - b.id);
-            updateLeaderboard(lbEntries.map(e => e.name));
-            serverPlayers = next;
-            return;
-        }
-
-        if (data.type === 'player_left') {
-            delete serverPlayers[data.id];
-        }
-    };
-
-    ws.onclose = () => {
-        ws = null;
-        if (hasConnected) {
-            window.location.reload();
-            return;
-        }
-        if (!inMainMenu) {
-            setTimeout(() => {
-                pendingJoinName = myName;
-                connectToServer();
-            }, 1000);
-        }
-    };
-}
-
-function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    WORLD.SYSTEM.viewScale = Math.max(canvas.width / LOGICAL_WIDTH, canvas.height / LOGICAL_HEIGHT);
-    WORLD.CAMERA.width = canvas.width / WORLD.SYSTEM.viewScale;
-    WORLD.CAMERA.height = canvas.height / WORLD.SYSTEM.viewScale;
-    ctx.imageSmoothingEnabled = false;
-}
-
-window.addEventListener('resize', () => {
-    resizeCanvas();
-    updateUiScale();
-});
-
-if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', updateUiScale);
-}
-
-function clearHeldInputs() {
-    let changed = false;
-    for (const k in WORLD.INPUTS.keys) {
-        if (WORLD.INPUTS.keys[k]) {
-            WORLD.INPUTS.keys[k] = false;
-            changed = true;
-        }
-    }
-    if (changed) sendInput(true);
-}
-
-function openChat() {
-    if (!chatInput) return;
-    if (isChatMinimized) setChatMinimized(false);
-    clearHeldInputs();
-    chatInput.focus();
-}
-
-function closeChat() {
-    if (!chatInput) return;
-    chatInput.value = '';
-    chatInput.blur();
-}
-
-window.addEventListener('keydown', e => {
-    if (isLeaveDialogOpen) {
-        if (e.key === 'Escape') {
-            e.preventDefault();
-            closeLeaveDialog();
-        }
-        return;
-    }
-    if (isSettingsOpen) {
-        if (e.key === 'Escape') {
-            e.preventDefault();
-            closeSettings();
-        }
-        return;
-    }
-    if (e.key === 'Enter') {
-        if (inMainMenu) {
-            if (playBtn) playBtn.click();
-            return;
-        }
-        if (myId !== null && chatInput) {
-            e.preventDefault();
-            if (document.activeElement === chatInput) {
-                const text = chatInput.value.trim().slice(0, 80);
-                if (text && ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'chat', text }));
-                }
-                closeChat();
-            } else {
-                openChat();
-            }
-            return;
-        }
-    }
-    if (e.key === 'Escape' && document.activeElement === chatInput) {
-        e.preventDefault();
-        closeChat();
-        return;
-    }
-    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
-    if (e.key >= '1' && e.key <= '5' && !inMainMenu) {
-        selectSlot(Number(e.key) - 1);
-        return;
-    }
-    const key = e.key.toLowerCase();
-    if (Object.prototype.hasOwnProperty.call(WORLD.INPUTS.keys, key)) {
-        if (!WORLD.INPUTS.keys[key]) {
-            WORLD.INPUTS.keys[key] = true;
-            sendInput(true);
-        }
-    }
-});
-
-window.addEventListener('keyup', e => {
-    const key = e.key.toLowerCase();
-    if (Object.prototype.hasOwnProperty.call(WORLD.INPUTS.keys, key)) {
-        if (WORLD.INPUTS.keys[key]) {
-            WORLD.INPUTS.keys[key] = false;
-            sendInput(true);
-        }
-    }
-});
-
-window.addEventListener('mousemove', e => {
-    WORLD.INPUTS.mouseX = e.clientX;
-    WORLD.INPUTS.mouseY = e.clientY;
-});
-
-window.addEventListener('blur', () => {
-    clearHeldInputs();
-    if (document.activeElement === chatInput) {
-        closeChat();
-    }
-});
-
-window.addEventListener('DOMContentLoaded', () => {
-    const savedName = localStorage.getItem('playerName');
-    if (savedName && nameInput) nameInput.value = savedName;
-
-    detectTouchCapability();
-    fetchDeviceMode();
-    loadSettings();
-    applySettingsToUI();
-    startFpsCounter();
-
-    resizeCanvas();
-    updateUiScale();
-    loadAssets();
-    fetchInitialServerStatus();
-    connectToServer();
-
-    window.addEventListener('touchstart', enableTouchMode, { passive: true });
-
-    if (mobileJoystick) {
-        mobileJoystick.addEventListener('touchstart', (e) => {
-            if (inMainMenu || isSettingsOpen || isLeaveDialogOpen) return;
-            e.preventDefault();
-            if (joystickTouchId !== null) return;
-            const touch = e.changedTouches[0];
-            if (!touch) return;
-            joystickTouchId = touch.identifier;
-            updateJoystickFromPoint(touch.clientX, touch.clientY);
-        }, { passive: false });
-
-        mobileJoystick.addEventListener('touchmove', (e) => {
-            if (joystickTouchId === null) return;
-            e.preventDefault();
-            for (let i = 0; i < e.changedTouches.length; i++) {
-                const t = e.changedTouches[i];
-                if (t.identifier === joystickTouchId) {
-                    updateJoystickFromPoint(t.clientX, t.clientY);
-                    break;
-                }
-            }
-        }, { passive: false });
-
-        const endJoystick = (e) => {
-            if (joystickTouchId === null) return;
-            for (let i = 0; i < e.changedTouches.length; i++) {
-                if (e.changedTouches[i].identifier === joystickTouchId) {
-                    resetJoystick();
-                    break;
-                }
-            }
-        };
-        mobileJoystick.addEventListener('touchend', endJoystick, { passive: true });
-        mobileJoystick.addEventListener('touchcancel', endJoystick, { passive: true });
-    }
-
-    if (mobileSprintBtn) {
-        mobileSprintBtn.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            setMobileSprint(true);
-        }, { passive: false });
-        mobileSprintBtn.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            setMobileSprint(false);
-        }, { passive: false });
-        mobileSprintBtn.addEventListener('touchcancel', () => {
-            setMobileSprint(false);
-        }, { passive: true });
-    }
-
-    canvas.addEventListener('touchstart', (e) => {
-        if (inMainMenu || isSettingsOpen || isLeaveDialogOpen) return;
-        if (aimTouchId === null && e.changedTouches[0]) {
-            aimTouchId = e.changedTouches[0].identifier;
-            WORLD.INPUTS.mouseX = e.changedTouches[0].clientX;
-            WORLD.INPUTS.mouseY = e.changedTouches[0].clientY;
-        }
-    }, { passive: true });
-
-    canvas.addEventListener('touchmove', (e) => {
-        if (aimTouchId === null) return;
-        for (let i = 0; i < e.changedTouches.length; i++) {
-            const t = e.changedTouches[i];
-            if (t.identifier === aimTouchId) {
-                WORLD.INPUTS.mouseX = t.clientX;
-                WORLD.INPUTS.mouseY = t.clientY;
-                break;
-            }
-        }
-    }, { passive: true });
-
-    const endAimTouch = (e) => {
-        if (aimTouchId === null) return;
-        for (let i = 0; i < e.changedTouches.length; i++) {
-            if (e.changedTouches[i].identifier === aimTouchId) {
-                aimTouchId = null;
-                break;
-            }
-        }
-    };
-    canvas.addEventListener('touchend', endAimTouch, { passive: true });
-    canvas.addEventListener('touchcancel', endAimTouch, { passive: true });
-
-    if (settingsBtn) {
-        settingsBtn.addEventListener('click', () => {
-            openSettings();
-        });
-    }
-
-    if (leaveBtn) {
-        leaveBtn.addEventListener('click', () => {
-            openLeaveDialog();
-        });
-    }
-
-    if (leaveNoBtn) {
-        leaveNoBtn.addEventListener('click', () => {
-            closeLeaveDialog();
-        });
-    }
-
-    if (leaveYesBtn) {
-        leaveYesBtn.addEventListener('click', () => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'leave' }));
-            }
-            returnToMainMenu();
-        });
-    }
-
-    if (leaveOverlay) {
-        leaveOverlay.addEventListener('click', (e) => {
-            if (e.target === leaveOverlay) {
-                closeLeaveDialog();
-            }
-        });
-    }
-
-    if (settingsCloseBtn) {
-        settingsCloseBtn.addEventListener('click', () => {
-            closeSettings();
-        });
-    }
-
-    if (settingsOverlay) {
-        settingsOverlay.addEventListener('click', (e) => {
-            if (e.target === settingsOverlay) {
-                closeSettings();
-            }
-        });
-    }
-
-    if (settingShowPing) {
-        settingShowPing.addEventListener('change', () => {
-            SETTINGS.showPing = settingShowPing.checked;
-            saveSettings();
-            applySettingsToUI();
-        });
-    }
-
-    if (settingShowFps) {
-        settingShowFps.addEventListener('change', () => {
-            SETTINGS.showFps = settingShowFps.checked;
-            saveSettings();
-            applySettingsToUI();
-        });
-    }
-
-    for (let i = 0; i < uiSizeButtons.length; i++) {
-        uiSizeButtons[i].addEventListener('click', () => {
-            const nextSize = uiSizeButtons[i].dataset.uiSize;
-            if (nextSize === 'low' || nextSize === 'normal' || nextSize === 'big') {
-                SETTINGS.uiSize = nextSize;
-                saveSettings();
-                applySettingsToUI();
-            }
-        });
-    }
-
-    if (settingMusicVolume) {
-        settingMusicVolume.addEventListener('input', () => {
-            SETTINGS.musicVolume = Number(settingMusicVolume.value);
-            saveSettings();
-            applySettingsToUI();
-        });
-    }
-
-    if (settingSoundVolume) {
-        settingSoundVolume.addEventListener('input', () => {
-            SETTINGS.soundVolume = Number(settingSoundVolume.value);
-            saveSettings();
-            applySettingsToUI();
-        });
-    }
-
-    if (chatToggleBtn) {
-        chatToggleBtn.addEventListener('click', () => {
-            setChatMinimized(!isChatMinimized);
-        });
-    }
-
-    if (chatInput) {
-        chatInput.addEventListener('focus', () => {
-            clearHeldInputs();
-        });
-    }
-
-    for (let i = 0; i < inventorySlots.length; i++) {
-        inventorySlots[i].addEventListener('click', () => {
-            selectSlot(i);
-        });
-    }
-
-    if (leaderboardHeader && leaderboardList) {
-        leaderboardHeader.addEventListener('click', () => {
-            leaderboardList.classList.toggle('hidden');
-        });
-    }
-
-    if (playBtn) {
-        playBtn.addEventListener('click', () => {
-            if (!inMainMenu || isJoining) return;
-            setMenuError('');
-
-            if (serverPlayerCount >= serverMaxPlayers) {
-                setMenuError(`Server is full (${serverPlayerCount}/${serverMaxPlayers})`);
+        if (data.type === 'join') {
+            if (player) return;
+            if (players.size >= MAX_PLAYERS) {
+                ws.send(JSON.stringify({
+                    type: 'server_full',
+                    message: `Server is full (${players.size}/${MAX_PLAYERS})`,
+                    playerCount: players.size,
+                    maxPlayers: MAX_PLAYERS
+                }));
                 return;
             }
+            const id = nextPlayerId++;
+            const spawn = findSpawnPosition();
+            player = {
+                id,
+                ws,
+                name: sanitizeName(data.name),
+                x: spawn.x,
+                y: spawn.y,
+                vx: 0,
+                vy: 0,
+                angle: 0,
+                scale: 1,
+                bopTimer: 0,
+                health: 255,
+                energy: 255,
+                regenDelay: 0,
+                exhausted: false,
+                chats: [],
+                lastChatAt: 0,
+                width: PLAYER_SIZE,
+                height: PLAYER_SIZE,
+                input: {
+                    up: false,
+                    down: false,
+                    left: false,
+                    right: false,
+                    sprint: false
+                }
+            };
+            players.set(id, player);
 
-            const raw = nameInput ? nameInput.value.trim() : '';
-            myName = raw || ('Goodbot' + (Math.floor(Math.random() * 900) + 100));
-            localStorage.setItem('playerName', myName);
-            isJoining = true;
+            ws.send(JSON.stringify({
+                type: 'init',
+                id: player.id,
+                name: player.name,
+                x: player.x,
+                y: player.y,
+                health: player.health,
+                energy: player.energy,
+                map: MAP,
+                chatLog: chatHistory,
+                playerCount: players.size,
+                maxPlayers: MAX_PLAYERS,
+                isMobile: ws.isMobile
+            }));
+            broadcastServerInfo();
+            return;
+        }
 
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'join', name: myName }));
-            } else {
-                pendingJoinName = myName;
-                connectToServer();
+        if (!player) return;
+
+        if (data.type === 'leave') {
+            players.delete(player.id);
+            broadcast({ type: 'player_left', id: player.id }, player.id);
+            player = null;
+            ws.send(JSON.stringify({
+                type: 'left_server',
+                playerCount: players.size,
+                maxPlayers: MAX_PLAYERS
+            }));
+            broadcastServerInfo();
+            return;
+        }
+
+        if (data.type === 'input') {
+            player.input.up = data.up === true;
+            player.input.down = data.down === true;
+            player.input.left = data.left === true;
+            player.input.right = data.right === true;
+            player.input.sprint = data.sprint === true;
+
+            if (data.angle !== undefined) {
+                const nextAngle = normalizeAngle(data.angle);
+                if (nextAngle !== null) {
+                    player.angle = nextAngle;
+                }
             }
-        });
-    }
+            return;
+        }
+
+        if (data.type === 'chat') {
+            if (player.lastChatAt && now - player.lastChatAt < 250) return;
+            const text = sanitizeChat(data.text);
+            if (!text) return;
+            player.lastChatAt = now;
+            const durationMs = 3500 + text.length * 75;
+            player.chats.push({
+                text,
+                expiresAt: now + durationMs
+            });
+            while (player.chats.length > 2) {
+                player.chats.shift();
+            }
+            chatHistory.push({ name: player.name, text });
+            while (chatHistory.length > 50) {
+                chatHistory.shift();
+            }
+            broadcast({ type: 'chat_log', name: player.name, text });
+        }
+    });
+
+    ws.on('close', () => {
+        const count = ipCounts.get(ip) || 1;
+        if (count <= 1) ipCounts.delete(ip);
+        else ipCounts.set(ip, count - 1);
+
+        if (player) {
+            players.delete(player.id);
+            broadcast({ type: 'player_left', id: player.id }, player.id);
+            player = null;
+            broadcastServerInfo();
+        }
+    });
 });
+
+let lastPhysicsTime = performance.now();
+
+function stepPhysics() {
+    const now = performance.now();
+    let dt = (now - lastPhysicsTime) / 1000;
+    lastPhysicsTime = now;
+    if (players.size === 0) return;
+    if (dt > 0.05) dt = 0.05;
+    if (dt <= 0 || isNaN(dt)) dt = 1 / 60;
+
+    const friction = Math.pow(0.001, dt);
+    const list = Array.from(players.values());
+
+    for (let i = 0; i < list.length; i++) {
+        const p = list[i];
+        let inputX = 0;
+        let inputY = 0;
+
+        if (p.input.up) inputY -= 1;
+        if (p.input.down) inputY += 1;
+        if (p.input.left) inputX -= 1;
+        if (p.input.right) inputX += 1;
+
+        const isMoving = inputX !== 0 || inputY !== 0;
+        if (isMoving) {
+            const len = Math.sqrt(inputX * inputX + inputY * inputY);
+            inputX /= len;
+            inputY /= len;
+        }
+
+        if (p.energy <= 0) p.exhausted = true;
+        if (!p.input.sprint || p.energy >= 15) p.exhausted = false;
+
+        const intentSprint = p.input.sprint && isMoving && p.energy > 0 && !p.exhausted;
+        if (intentSprint) {
+            p.energy = Math.max(0, p.energy - 21.24 * dt);
+            p.regenDelay = 5;
+            if (p.energy <= 0) p.exhausted = true;
+        } else {
+            if (p.regenDelay > 0) {
+                p.regenDelay = Math.max(0, p.regenDelay - dt);
+            } else {
+                p.energy = Math.min(255, p.energy + 30 * dt);
+            }
+        }
+
+        p.bopTimer = intentSprint ? p.bopTimer + dt : 0;
+        p.scale = 1 + (p.bopTimer > 0 ? Math.sin(p.bopTimer * 15) * 0.05 : 0);
+
+        const accel = intentSprint ? 1866 : 1493;
+        p.vx += inputX * accel * dt;
+        p.vy += inputY * accel * dt;
+        p.vx *= friction;
+        p.vy *= friction;
+
+        if (Math.abs(p.vx) < 0.05) p.vx = 0;
+        if (Math.abs(p.vy) < 0.05) p.vy = 0;
+
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+
+        resolvePlayerWalls(p, true);
+    }
+
+    for (let iter = 0; iter < 2; iter++) {
+        for (let i = 0; i < list.length; i++) {
+            const a = list[i];
+            for (let j = i + 1; j < list.length; j++) {
+                const b = list[j];
+                const minDist = (a.width + b.width) / 2;
+                const acx = a.x + a.width / 2;
+                const acy = a.y + a.height / 2;
+                const bcx = b.x + b.width / 2;
+                const bcy = b.y + b.height / 2;
+                const dX = acx - bcx;
+                const dY = acy - bcy;
+                const dist = Math.sqrt(dX * dX + dY * dY);
+
+                if (dist < minDist) {
+                    const nx = dist > 0 ? dX / dist : 1;
+                    const ny = dist > 0 ? dY / dist : 0;
+                    const overlap = minDist - dist;
+                    a.x += nx * (overlap * 0.5);
+                    a.y += ny * (overlap * 0.5);
+                    b.x -= nx * (overlap * 0.5);
+                    b.y -= ny * (overlap * 0.5);
+                    resolvePlayerWalls(a, false);
+                    resolvePlayerWalls(b, false);
+                }
+            }
+        }
+    }
+}
+
+setInterval(stepPhysics, 1000 / 60);
+
+setInterval(() => {
+    for (const client of wss.clients) {
+        if (!client.isAlive) {
+            client.terminate();
+            continue;
+        }
+        client.isAlive = false;
+        client.ping();
+    }
+}, 15000);
+
+setInterval(() => {
+    if (players.size === 0) return;
+    const nowMs = Date.now();
+    const snapshot = {};
+    for (const [id, p] of players) {
+        if (p.chats.length > 0) {
+            p.chats = p.chats.filter(c => c.expiresAt > nowMs);
+        }
+        const entry = {
+            id: p.id,
+            name: p.name,
+            x: Math.round(p.x * 100) / 100,
+            y: Math.round(p.y * 100) / 100,
+            vx: Math.round(p.vx * 100) / 100,
+            vy: Math.round(p.vy * 100) / 100,
+            angle: Math.round(p.angle * 1000) / 1000,
+            scale: Math.round(p.scale * 1000) / 1000,
+            health: Math.round(p.health * 100) / 100,
+            energy: Math.round(p.energy * 100) / 100,
+            width: p.width,
+            height: p.height
+        };
+        if (p.chats.length > 0) {
+            entry.chats = p.chats.map(c => c.text);
+        }
+        snapshot[id] = entry;
+    }
+    const payload = JSON.stringify({ type: 'state', players: snapshot });
+    for (const [, p] of players) {
+        if (p.ws.readyState === WebSocket.OPEN) {
+            p.ws.send(payload);
+        }
+    }
+}, 33);
+
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+});
+
+let shuttingDown = false;
+
+function handleShutdown() {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const payload = JSON.stringify({ type: 'shutdown' });
+    for (const client of wss.clients) {
+        if (client.readyState === WebSocket.OPEN) {
+            try {
+                client.send(payload);
+            } catch (_) {}
+        }
+    }
+    setTimeout(() => {
+        for (const client of wss.clients) {
+            try { client.close(1001); } catch (_) {}
+        }
+        try { wss.close(); } catch (_) {}
+        try { server.close(); } catch (_) {}
+        process.exit(0);
+    }, 80);
+}
+
+process.on('SIGINT', handleShutdown);
+process.on('SIGTERM', handleShutdown);
+process.on('SIGBREAK', handleShutdown);
+process.on('SIGHUP', handleShutdown);
