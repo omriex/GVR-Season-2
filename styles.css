@@ -287,6 +287,74 @@ canvas {
     color: #d1ab38;
 }
 
+#game-state-banner {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 300px;
+    max-width: calc(100% - 420px);
+    background-color: rgba(0, 0, 0, 0.5);
+    border-radius: 0;
+    padding: 10px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+    pointer-events: none;
+    z-index: 20;
+}
+
+#game-state-title {
+    font-size: 20px;
+    line-height: 1.2;
+    color: #ffffff;
+    text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+}
+
+#game-state-divider {
+    width: 100%;
+    height: 2px;
+    background-color: rgba(255, 255, 255, 0.35);
+}
+
+#game-state-desc {
+    font-size: 14px;
+    line-height: 1.2;
+    color: #eeeeee;
+    text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+}
+
+#game-start-btn {
+    padding: 6px 24px;
+    font-size: 16px;
+    background-color: #4CAF50;
+    border: 3px solid #1a1a1a;
+    border-radius: 0;
+    color: #eeeeee;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+#game-start-btn:hover {
+    filter: brightness(0.5);
+}
+
+#game-start-btn:active {
+    transform: scale(0.92);
+}
+
+#game-start-btn.voted {
+    background-color: #2e7d32;
+}
+
+#game-state-divider.hidden,
+#game-state-desc.hidden,
+#game-start-btn.hidden {
+    display: none;
+}
+
 #leaderboard {
     position: absolute;
     top: 20px;
@@ -306,6 +374,40 @@ canvas {
     text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
     margin-bottom: 4px;
     pointer-events: none;
+}
+
+#entity-counter {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    margin-bottom: 8px;
+    pointer-events: none;
+}
+
+.entity-row {
+    font-size: 14px;
+    line-height: 1.15;
+    text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+}
+
+.entity-goodbots {
+    color: #d84aff;
+}
+
+.entity-rarebots {
+    color: #f00000;
+}
+
+.entity-divider {
+    width: 100%;
+    height: 2px;
+    background-color: rgba(255, 255, 255, 0.35);
+    margin: 2px 0;
+}
+
+.entity-wave {
+    color: #21e9ff;
 }
 
 #perf-stats.hidden,
@@ -361,6 +463,14 @@ canvas {
     justify-self: start;
     text-align: left;
     text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+}
+
+.leaderboard-name-rarebot {
+    color: #f00000;
+}
+
+.leaderboard-name-spectator {
+    color: #ffffff;
 }
 
 .leaderboard-score {
@@ -480,6 +590,14 @@ canvas {
     color: #d84aff;
 }
 
+.chat-log-name-rarebot {
+    color: #f00000;
+}
+
+.chat-log-name-spectator {
+    color: #ffffff;
+}
+
 #chat-input {
     width: 100%;
     padding: 8px 10px;
@@ -569,6 +687,30 @@ body.touch-mode #mobile-controls {
     border: 3px solid #1a1a1a;
     border-radius: 50%;
     pointer-events: none;
+}
+
+#mobile-attack-btn {
+    position: absolute;
+    bottom: 192px;
+    right: 24px;
+    width: 72px;
+    height: 72px;
+    background-color: rgba(0, 0, 0, 0.55);
+    border: 3px solid #1a1a1a;
+    color: #ffffff;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    pointer-events: auto;
+    touch-action: none;
+}
+
+#mobile-attack-btn:hover {
+    filter: brightness(0.5);
+}
+
+#mobile-attack-btn:active {
+    transform: scale(0.92);
 }
 
 #mobile-sprint-btn {
@@ -971,9 +1113,28 @@ body.touch-mode #mobile-controls {
     gap: 12px;
 }
 
+#ui-scale-layer.layout-tablet #game-state-banner {
+    top: 14px;
+    min-width: 240px;
+    max-width: calc(100% - 340px);
+    padding: 8px 16px;
+}
+
+#ui-scale-layer.layout-tablet #game-state-title {
+    font-size: 17px;
+}
+
+#ui-scale-layer.layout-tablet #game-state-desc {
+    font-size: 13px;
+}
+
 #ui-scale-layer.layout-tablet #leaderboard {
     top: 14px;
     right: 16px;
+}
+
+#ui-scale-layer.layout-tablet .entity-row {
+    font-size: 13px;
 }
 
 #ui-scale-layer.layout-tablet #chat-wrapper {
@@ -1018,6 +1179,11 @@ body.touch-mode #mobile-controls {
 #ui-scale-layer.layout-tablet #mobile-joystick {
     bottom: 158px;
     left: 16px;
+}
+
+#ui-scale-layer.layout-tablet #mobile-attack-btn {
+    bottom: 166px;
+    right: 16px;
 }
 
 #ui-scale-layer.layout-tablet #mobile-sprint-btn {
@@ -1069,6 +1235,27 @@ body.touch-mode #mobile-controls {
     height: 28px;
 }
 
+#ui-scale-layer.layout-mobile #game-state-banner {
+    top: 12px;
+    min-width: 136px;
+    max-width: calc(100% - 210px);
+    padding: 6px 10px;
+    gap: 5px;
+}
+
+#ui-scale-layer.layout-mobile #game-state-title {
+    font-size: 13px;
+}
+
+#ui-scale-layer.layout-mobile #game-state-desc {
+    font-size: 11px;
+}
+
+#ui-scale-layer.layout-mobile #game-start-btn {
+    padding: 4px 12px;
+    font-size: 12px;
+}
+
 #ui-scale-layer.layout-mobile #leaderboard {
     top: 12px;
     right: 12px;
@@ -1077,6 +1264,14 @@ body.touch-mode #mobile-controls {
 #ui-scale-layer.layout-mobile #perf-stats {
     font-size: 13px;
     gap: 8px;
+}
+
+#ui-scale-layer.layout-mobile #entity-counter {
+    margin-bottom: 5px;
+}
+
+#ui-scale-layer.layout-mobile .entity-row {
+    font-size: 11px;
 }
 
 #ui-scale-layer.layout-mobile #leaderboard-header {
@@ -1159,6 +1354,14 @@ body.touch-mode #mobile-controls {
 #ui-scale-layer.layout-mobile #mobile-joystick-thumb {
     width: 42px;
     height: 42px;
+}
+
+#ui-scale-layer.layout-mobile #mobile-attack-btn {
+    bottom: 152px;
+    right: 14px;
+    width: 64px;
+    height: 64px;
+    font-size: 12px;
 }
 
 #ui-scale-layer.layout-mobile #mobile-sprint-btn {
@@ -1247,6 +1450,14 @@ body.touch-mode #mobile-controls {
     height: 36px;
 }
 
+#ui-scale-layer.layout-tiny #mobile-attack-btn {
+    width: 58px;
+    height: 58px;
+    bottom: 134px;
+    right: 10px;
+    font-size: 11px;
+}
+
 #ui-scale-layer.layout-tiny #mobile-sprint-btn {
     width: 58px;
     height: 58px;
@@ -1298,9 +1509,34 @@ body.touch-mode #mobile-controls {
     left: 12px;
 }
 
+#ui-scale-layer.layout-short #game-state-banner {
+    top: 10px;
+    min-width: 180px;
+    max-width: calc(100% - 240px);
+    padding: 6px 14px;
+    gap: 5px;
+}
+
+#ui-scale-layer.layout-short #game-state-title {
+    font-size: 15px;
+}
+
+#ui-scale-layer.layout-short #game-state-desc {
+    font-size: 12px;
+}
+
+#ui-scale-layer.layout-short #game-start-btn {
+    padding: 4px 16px;
+    font-size: 13px;
+}
+
 #ui-scale-layer.layout-short #leaderboard {
     top: 10px;
     right: 12px;
+}
+
+#ui-scale-layer.layout-short .entity-row {
+    font-size: 12px;
 }
 
 #ui-scale-layer.layout-short #stats-layer {
@@ -1354,6 +1590,14 @@ body.touch-mode #mobile-controls {
     left: 14px;
     width: 96px;
     height: 96px;
+}
+
+#ui-scale-layer.layout-short #mobile-attack-btn {
+    bottom: 88px;
+    right: 14px;
+    width: 60px;
+    height: 60px;
+    font-size: 11px;
 }
 
 #ui-scale-layer.layout-short #mobile-sprint-btn {
