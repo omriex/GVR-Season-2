@@ -19,6 +19,13 @@ const healthFill = document.getElementById('health-fill');
 const energyFill = document.getElementById('energy-fill');
 const healthValue = document.getElementById('health-value');
 const energyValue = document.getElementById('energy-value');
+const gameStateTitle = document.getElementById('game-state-title');
+const gameStateDivider = document.getElementById('game-state-divider');
+const gameStateDesc = document.getElementById('game-state-desc');
+const gameStartBtn = document.getElementById('game-start-btn');
+const goodbotsCount = document.getElementById('goodbots-count');
+const rarebotsCount = document.getElementById('rarebots-count');
+const waveCount = document.getElementById('wave-count');
 const leaderboardHeader = document.getElementById('leaderboard-header');
 const leaderboardList = document.getElementById('leaderboard-list');
 const chatLog = document.getElementById('chat-log');
@@ -53,6 +60,7 @@ const shopTooltipDesc = document.getElementById('shop-tooltip-desc');
 const shopTooltipStats = document.getElementById('shop-tooltip-stats');
 const mobileJoystick = document.getElementById('mobile-joystick');
 const mobileJoystickThumb = document.getElementById('mobile-joystick-thumb');
+const mobileAttackBtn = document.getElementById('mobile-attack-btn');
 const mobileSprintBtn = document.getElementById('mobile-sprint-btn');
 const inventoryLayer = document.getElementById('inventory-layer');
 const inventorySlots = document.querySelectorAll('#inventory-layer .slot');
@@ -94,9 +102,12 @@ const ME = {
     vy: 0,
     angle: 0,
     scale: 1,
-    health: 255,
+    health: 1000,
+    maxHealth: 1000,
     energy: 255,
+    maxEnergy: 255,
     scraps: 0,
+    faction: 'goodbot',
     chats: []
 };
 
@@ -105,13 +116,25 @@ let myId = null;
 let myName = '';
 let inMainMenu = true;
 let serverPlayers = {};
+let serverEnemies = {};
 let pendingJoinName = null;
 let lastRenderedHealth = -1;
 let lastRenderedEnergy = -1;
+let lastRenderedMaxHealth = -1;
+let lastRenderedMaxEnergy = -1;
 let lastRenderedScraps = -1;
 let lastLeaderboardSig = '';
 let hasConnected = false;
 let activeSlot = 0;
+let lastAttackSentAt = 0;
+let isAttackHeld = false;
+
+const swingAnims = new Map();
+const enemyAggroUntil = new Map();
+const explosions = [];
+const floatingTexts = [];
+const MAX_EXPLOSION_PARTICLES = 240;
+const EXPLOSION_COLORS = ['#ff2a00', '#ff7b00', '#ffd000', '#ff4d00'];
 
 let menuCamX = null;
 let menuCamY = null;
@@ -250,12 +273,22 @@ function returnToMainMenu() {
     myId = null;
     inMainMenu = true;
     serverPlayers = {};
-    ME.health = 255;
+    serverEnemies = {};
+    swingAnims.clear();
+    enemyAggroUntil.clear();
+    explosions.length = 0;
+    floatingTexts.length = 0;
+    ME.health = 1000;
+    ME.maxHealth = 1000;
     ME.energy = 255;
+    ME.maxEnergy = 255;
     ME.scraps = 0;
+    ME.faction = 'goodbot';
     ME.chats = [];
     lastRenderedHealth = -1;
     lastRenderedEnergy = -1;
+    lastRenderedMaxHealth = -1;
+    lastRenderedMaxEnergy = -1;
     lastRenderedScraps = -1;
     lastLeaderboardSig = '';
     resetJoystick();
@@ -264,6 +297,16 @@ function returnToMainMenu() {
     closeChat();
     closeLeaveDialog();
     closeShop();
+    applyGameStateUI({
+        phase: 'waiting',
+        goodbots: 0,
+        rarebots: 0,
+        wave: 0,
+        intermissionSeconds: 15,
+        startVotes: 0,
+        requiredVotes: 1,
+        hasVoted: false
+    });
     if (leaveBtn) leaveBtn.classList.remove('visible');
     if (chatLog) chatLog.textContent = '';
     if (leaderboardList) leaderboardList.textContent = '';
@@ -709,6 +752,74 @@ function startFpsCounter() {
 
 const tilesheetImg = new Image();
 const goodbotImg = new Image();
+const rarebotImg = new Image();
+const botHandsImg = new Image();
+
+let audioCtx = null;
+let soundBuffersLoaded = false;
+let soundBuffersLoading = false;
+const soundBuffers = {
+    swing: null,
+    hit: null,
+    explosion: null
+};
+
+function ensureAudioContext() {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!audioCtx) {
+        audioCtx = new AudioCtx();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+    }
+    if (!soundBuffersLoaded && !soundBuffersLoading) {
+        soundBuffersLoading = true;
+        const files = {
+            swing: 'sounds/swing.mp3',
+            hit: 'sounds/hit.mp3',
+            explosion: 'sounds/explosion.mp3'
+        };
+        Promise.all(
+            Object.entries(files).map(async ([key, url]) => {
+                try {
+                    const res = await fetch(url);
+                    if (!res.ok) return;
+                    const arr = await res.arrayBuffer();
+                    soundBuffers[key] = await audioCtx.decodeAudioData(arr);
+                } catch (_) {}
+            })
+        ).finally(() => {
+            soundBuffersLoaded = true;
+            soundBuffersLoading = false;
+        });
+    }
+    return audioCtx;
+}
+
+function playSpatialSound(key, wx, wy) {
+    const masterVol = window.GAME_AUDIO_SETTINGS ? Number(window.GAME_AUDIO_SETTINGS.soundVolume) : 1;
+    if (!isFinite(masterVol) || masterVol <= 0.005) return;
+    const ctxAudio = ensureAudioContext();
+    if (!ctxAudio || !soundBuffers[key]) return;
+
+    const lx = myId !== null ? (ME.x + ME.width / 2) : ((WORLD.CAMERA.x || 0) + WORLD.CAMERA.width / 2);
+    const ly = myId !== null ? (ME.y + ME.height / 2) : ((WORLD.CAMERA.y || 0) + WORLD.CAMERA.height / 2);
+    const dist = (typeof wx === 'number' && typeof wy === 'number') ? Math.hypot(wx - lx, wy - ly) : 0;
+    const falloff = Math.max(0, Math.min(1, 1 - Math.max(0, dist - 80) / 1000));
+    const gainValue = falloff * falloff * masterVol;
+    if (gainValue <= 0.005) return;
+
+    try {
+        const source = ctxAudio.createBufferSource();
+        source.buffer = soundBuffers[key];
+        const gainNode = ctxAudio.createGain();
+        gainNode.gain.value = gainValue;
+        source.connect(gainNode);
+        gainNode.connect(ctxAudio.destination);
+        source.start(0);
+    } catch (_) {}
+}
 
 function applyMapPayload(rawMap) {
     if (!rawMap) return;
@@ -824,23 +935,29 @@ function loadAssets() {
         preRenderMap();
     }
     goodbotImg.src = 'assets/Goodbot.png';
+    rarebotImg.src = 'assets/Rarebot.png';
+    botHandsImg.src = 'assets/Bot Hands.png';
 }
 
 function updateStatsUI() {
-    const roundedHealth = Math.max(0, Math.min(255, Math.round(ME.health)));
-    const roundedEnergy = Math.max(0, Math.min(255, Math.ceil(ME.energy)));
+    const maxH = Math.max(1, Number(ME.maxHealth) || 1000);
+    const maxE = Math.max(1, Number(ME.maxEnergy) || 255);
+    const roundedHealth = Math.max(0, Math.min(maxH, Math.round(ME.health)));
+    const roundedEnergy = Math.max(0, Math.min(maxE, Math.ceil(ME.energy)));
     const currentScraps = Math.max(0, Math.floor(Number(ME.scraps) || 0));
 
-    if (roundedHealth !== lastRenderedHealth) {
-        if (healthFill) healthFill.style.width = `${(roundedHealth / 255) * 100}%`;
+    if (roundedHealth !== lastRenderedHealth || maxH !== lastRenderedMaxHealth) {
+        if (healthFill) healthFill.style.width = `${(roundedHealth / maxH) * 100}%`;
         if (healthValue) healthValue.textContent = String(roundedHealth);
         lastRenderedHealth = roundedHealth;
+        lastRenderedMaxHealth = maxH;
     }
 
-    if (roundedEnergy !== lastRenderedEnergy) {
-        if (energyFill) energyFill.style.width = `${(roundedEnergy / 255) * 100}%`;
+    if (roundedEnergy !== lastRenderedEnergy || maxE !== lastRenderedMaxEnergy) {
+        if (energyFill) energyFill.style.width = `${(roundedEnergy / maxE) * 100}%`;
         if (energyValue) energyValue.textContent = String(roundedEnergy);
         lastRenderedEnergy = roundedEnergy;
+        lastRenderedMaxEnergy = maxE;
     }
 
     if (currentScraps !== lastRenderedScraps) {
@@ -849,9 +966,60 @@ function updateStatsUI() {
     }
 }
 
+function applyGameStateUI(state) {
+    if (!state || typeof state !== 'object') return;
+    if (goodbotsCount && typeof state.goodbots === 'number') {
+        goodbotsCount.textContent = String(Math.max(0, Math.floor(state.goodbots)));
+    }
+    if (rarebotsCount && typeof state.rarebots === 'number') {
+        rarebotsCount.textContent = String(Math.max(0, Math.floor(state.rarebots)));
+    }
+    if (waveCount && typeof state.wave === 'number') {
+        waveCount.textContent = String(Math.max(0, Math.floor(state.wave)));
+    }
+
+    const phase = state.phase || 'waiting';
+    if (phase === 'waiting') {
+        if (gameStateTitle) gameStateTitle.textContent = 'Waiting to start...';
+        if (gameStateDivider) gameStateDivider.classList.add('hidden');
+        if (gameStateDesc) gameStateDesc.classList.add('hidden');
+        if (gameStartBtn) {
+            gameStartBtn.classList.remove('hidden');
+            const votes = Number(state.startVotes) || 0;
+            const req = Number(state.requiredVotes) || 1;
+            const voted = state.hasVoted === true;
+            gameStartBtn.classList.toggle('voted', voted);
+            if (req <= 1 && (Number(state.goodbots) || 0) <= 1) {
+                gameStartBtn.textContent = 'Start';
+            } else {
+                gameStartBtn.textContent = voted ? `Ready (${votes}/${req})` : `Start (${votes}/${req})`;
+            }
+        }
+        return;
+    }
+
+    if (phase === 'intermission') {
+        const secs = Math.max(0, Math.floor(Number(state.intermissionSeconds) || 0));
+        if (gameStateTitle) gameStateTitle.textContent = `Intermission: ${secs}`;
+        if (gameStateDivider) gameStateDivider.classList.add('hidden');
+        if (gameStateDesc) gameStateDesc.classList.add('hidden');
+        if (gameStartBtn) gameStartBtn.classList.add('hidden');
+        return;
+    }
+
+    const waveNum = Math.max(1, Math.floor(Number(state.wave) || 1));
+    if (gameStateTitle) gameStateTitle.textContent = `Wave: ${waveNum}`;
+    if (gameStateDivider) gameStateDivider.classList.remove('hidden');
+    if (gameStateDesc) {
+        gameStateDesc.textContent = 'Eliminate all the enemies';
+        gameStateDesc.classList.remove('hidden');
+    }
+    if (gameStartBtn) gameStartBtn.classList.add('hidden');
+}
+
 function updateLeaderboard(entries) {
     if (!leaderboardList) return;
-    const sig = entries.map(e => `${e.name}\t${e.scraps}`).join('\n');
+    const sig = entries.map(e => `${e.name}\t${e.scraps}\t${e.faction || 'goodbot'}`).join('\n');
     if (sig === lastLeaderboardSig) return;
     lastLeaderboardSig = sig;
     leaderboardList.textContent = '';
@@ -866,7 +1034,10 @@ function updateLeaderboard(entries) {
     for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         const nameEl = document.createElement('span');
-        nameEl.className = 'leaderboard-name';
+        let factionClass = '';
+        if (entry.faction === 'rarebot') factionClass = ' leaderboard-name-rarebot';
+        else if (entry.faction === 'spectator') factionClass = ' leaderboard-name-spectator';
+        nameEl.className = 'leaderboard-name' + factionClass;
         nameEl.textContent = entry.name;
         const scoreEl = document.createElement('span');
         scoreEl.className = 'leaderboard-score';
@@ -876,12 +1047,15 @@ function updateLeaderboard(entries) {
     }
 }
 
-function appendChatLog(name, text) {
+function appendChatLog(name, text, faction = 'goodbot') {
     if (!chatLog) return;
     const entry = document.createElement('div');
     entry.className = 'chat-log-entry';
     const nameEl = document.createElement('span');
-    nameEl.className = 'chat-log-name';
+    let factionClass = '';
+    if (faction === 'rarebot') factionClass = ' chat-log-name-rarebot';
+    else if (faction === 'spectator') factionClass = ' chat-log-name-spectator';
+    nameEl.className = 'chat-log-name' + factionClass;
     nameEl.textContent = name;
     entry.appendChild(nameEl);
     entry.appendChild(document.createTextNode(`: ${text}`));
@@ -1029,30 +1203,220 @@ function update(dt) {
         p.renderAngle += diff * (1 - Math.exp(-dt * 20));
     }
 
+    for (const id in serverEnemies) {
+        const e = serverEnemies[id];
+        if (e.renderX === undefined) {
+            e.renderX = e.x;
+            e.renderY = e.y;
+            e.renderAngle = e.angle || 0;
+        }
+
+        e.x = Math.max(0, Math.min(maxX, e.x + (e.vx || 0) * dt));
+        e.y = Math.max(0, Math.min(maxY, e.y + (e.vy || 0) * dt));
+
+        const lerpF = 1 - Math.exp(-dt * 20);
+        const rdx = e.x - e.renderX;
+        const rdy = e.y - e.renderY;
+        const rdist = Math.sqrt(rdx * rdx + rdy * rdy);
+        const maxStep = 200;
+        if (rdist > maxStep) {
+            e.renderX = e.x - (rdx / rdist) * maxStep;
+            e.renderY = e.y - (rdy / rdist) * maxStep;
+        }
+        e.renderX += (e.x - e.renderX) * lerpF;
+        e.renderY += (e.y - e.renderY) * lerpF;
+
+        let diff = (e.angle || 0) - e.renderAngle;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        e.renderAngle += diff * (1 - Math.exp(-dt * 20));
+    }
+
+    for (let i = explosions.length - 1; i >= 0; i--) {
+        const pt = explosions[i];
+        pt.age += dt;
+        if (pt.age >= pt.life) {
+            explosions[i] = explosions[explosions.length - 1];
+            explosions.pop();
+            continue;
+        }
+        const drag = Math.pow(0.06, dt);
+        pt.x += pt.vx * dt;
+        pt.y += pt.vy * dt;
+        pt.vx *= drag;
+        pt.vy *= drag;
+    }
+
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        const ft = floatingTexts[i];
+        ft.age += dt;
+        if (ft.age >= ft.life) {
+            floatingTexts[i] = floatingTexts[floatingTexts.length - 1];
+            floatingTexts.pop();
+        }
+    }
+
+    if (isAttackHeld && !inMainMenu && myId !== null && !isSettingsOpen && !isLeaveDialogOpen && !isShopOpen && document.activeElement !== chatInput) {
+        triggerAttack();
+    }
+
     sendInput(false);
 }
 
-function drawPlayer(x, y, width, height, angle, scale, label) {
+function spawnExplosionParticles(wx, wy) {
+    const count = 22;
+    for (let i = 0; i < count; i++) {
+        if (explosions.length >= MAX_EXPLOSION_PARTICLES) {
+            explosions.shift();
+        }
+        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.45;
+        const speed = 70 + Math.random() * 230;
+        explosions.push({
+            x: wx + (Math.random() - 0.5) * 8,
+            y: wy + (Math.random() - 0.5) * 8,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            radius: 4 + Math.random() * 8,
+            life: 0.35 + Math.random() * 0.35,
+            age: 0,
+            color: EXPLOSION_COLORS[Math.floor(Math.random() * EXPLOSION_COLORS.length)]
+        });
+    }
+}
+
+function getSwingOffset(entityKey, nowMs) {
+    const startedAt = swingAnims.get(entityKey);
+    if (!startedAt) return 0;
+    const duration = 260;
+    const elapsed = nowMs - startedAt;
+    if (elapsed >= duration || elapsed < 0) {
+        swingAnims.delete(entityKey);
+        return 0;
+    }
+    const p = elapsed / duration;
+    if (p < 0.32) {
+        const t = p / 0.32;
+        const easeOut = 1 - (1 - t) * (1 - t);
+        return -0.72 * easeOut;
+    }
+    if (p < 0.68) {
+        const t = (p - 0.32) / 0.36;
+        const easeInOut = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        return -0.72 + 1.44 * easeInOut;
+    }
+    const t = (p - 0.68) / 0.32;
+    const easeOut = 1 - (1 - t) * (1 - t);
+    return 0.72 * (1 - easeOut);
+}
+
+function clientHasLOS(x1, y1, x2, y2) {
+    const grid = WORLD.MAP.mapData ? WORLD.MAP.mapData.wall : null;
+    if (!grid) return true;
+    const ts = WORLD.MAP.tileSize || 64;
+    const cols = WORLD.MAP.columns || 0;
+    const rows = WORLD.MAP.rows || 0;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= 4) return true;
+    const steps = Math.ceil(dist / (ts * 0.35));
+    for (let i = 1; i < steps; i++) {
+        const px = x1 + (dx * i) / steps;
+        const py = y1 + (dy * i) / steps;
+        const c = Math.floor(px / ts);
+        const r = Math.floor(py / ts);
+        if (c < 0 || c >= cols || r < 0 || r >= rows) return false;
+        if (grid[r] && grid[r][c]) return false;
+    }
+    return true;
+}
+
+function drawSubtleBars(x, topY, hp, maxHp, en, maxEn) {
+    const barW = 34;
+    const hpH = 3;
+    const enH = 2;
+    const left = Math.round(x - barW / 2);
+    const top = Math.round(topY);
+    const hpRatio = Math.max(0, Math.min(1, hp / Math.max(1, maxHp)));
+    const enRatio = Math.max(0, Math.min(1, en / Math.max(1, maxEn)));
+
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.fillRect(left - 1, top - 1, barW + 2, hpH + enH + 3);
+    ctx.fillStyle = '#cc3f3f';
+    ctx.fillRect(left, top, Math.round(barW * hpRatio), hpH);
+    ctx.fillStyle = '#d1ab38';
+    ctx.fillRect(left, top + hpH + 1, Math.round(barW * enRatio), enH);
+    ctx.restore();
+}
+
+function drawBotHands(x, y, sW, sH, angle, swingOffset) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle + swingOffset);
+    if (botHandsImg.complete && botHandsImg.naturalWidth > 0) {
+        const refW = goodbotImg.complete && goodbotImg.naturalWidth > 0 ? goodbotImg.naturalWidth : 512;
+        const refH = goodbotImg.complete && goodbotImg.naturalHeight > 0 ? goodbotImg.naturalHeight : 512;
+        const hW = sW * (botHandsImg.naturalWidth / refW);
+        const hH = sH * (botHandsImg.naturalHeight / refH);
+        ctx.drawImage(botHandsImg, -hW / 2, -hH / 2, hW, hH);
+    } else {
+        const r = sW * 0.14;
+        const hx = sW * 0.46;
+        const hy = -sH * 0.48;
+        ctx.fillStyle = '#2d2d30';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = Math.max(1.5, sW * 0.045);
+        ctx.beginPath();
+        ctx.arc(-hx, hy, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(hx, hy, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+function drawEntity(x, y, width, height, angle, scale, label, faction, showHands, swingOffset, bars) {
     const sW = width * scale;
     const sH = height * scale;
-    if (goodbotImg.complete && goodbotImg.naturalWidth > 0) {
+    const spriteImg = faction === 'rarebot' ? rarebotImg : goodbotImg;
+    const isSpectator = faction === 'spectator';
+
+    if (showHands && !isSpectator) {
+        drawBotHands(x, y, sW, sH, angle, swingOffset);
+    }
+
+    if (spriteImg.complete && spriteImg.naturalWidth > 0) {
         ctx.save();
+        if (isSpectator) ctx.globalAlpha = 0.5;
         ctx.translate(x, y);
         ctx.rotate(angle);
-        ctx.drawImage(goodbotImg, -sW / 2, -sH / 2, sW, sH);
+        ctx.drawImage(spriteImg, -sW / 2, -sH / 2, sW, sH);
         ctx.restore();
     }
 
     if (label) {
+        ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
         ctx.lineJoin = 'round';
         ctx.lineWidth = 3;
         ctx.strokeStyle = 'rgba(0,0,0,0.85)';
         ctx.font = '15px Viga, sans-serif';
-        ctx.fillStyle = '#d84aff';
+        if (faction === 'rarebot') ctx.fillStyle = '#f00000';
+        else if (faction === 'spectator') ctx.fillStyle = '#ffffff';
+        else ctx.fillStyle = '#d84aff';
         ctx.strokeText(label, x, y - sH / 2 - 10);
         ctx.fillText(label, x, y - sH / 2 - 10);
+        ctx.restore();
+    }
+
+    if (bars) {
+        drawSubtleBars(x, y + sH / 2 + 6, bars.health, bars.maxHealth, bars.energy, bars.maxEnergy);
     }
 }
 
@@ -1171,17 +1535,55 @@ function render() {
     }
 
     if (!inMainMenu && myId !== null) {
+        const nowMs = performance.now();
+        const meCX = ME.x + ME.width / 2;
+        const meCY = ME.y + ME.height / 2;
+
+        for (const id in serverEnemies) {
+            const e = serverEnemies[id];
+            const eRX = (e.renderX ?? e.x) - camX + e.width / 2;
+            const eRY = (e.renderY ?? e.y) - camY + e.height / 2;
+            const es = Math.min(2, Math.max(0.3, e.scale || 1));
+            const key = `enemy:${id}`;
+            const showBars = ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs;
+            const bars = showBars ? {
+                health: e.health ?? 255,
+                maxHealth: e.maxHealth ?? 255,
+                energy: e.energy ?? 50,
+                maxEnergy: e.maxEnergy ?? 50
+            } : null;
+            drawEntity(eRX, eRY, e.width, e.height, e.renderAngle ?? 0, es, 'Rarebot', 'rarebot', true, getSwingOffset(key, nowMs), bars);
+        }
+
         for (const id in serverPlayers) {
             const p = serverPlayers[id];
+            const pFaction = p.faction || 'goodbot';
             const pRX = (p.renderX ?? p.x) - camX + p.width / 2;
             const pRY = (p.renderY ?? p.y) - camY + p.height / 2;
             const ps = Math.min(2, Math.max(0.3, p.scale || 1));
-            drawPlayer(pRX, pRY, p.width, p.height, p.renderAngle ?? 0, ps, p.name);
+            const key = `player:${id}`;
+            let showBars = false;
+            if (ME.faction === 'goodbot' && pFaction === 'rarebot') {
+                showBars = (enemyAggroUntil.get(key) || 0) > nowMs;
+            } else if (ME.faction === 'rarebot' && pFaction === 'goodbot') {
+                const onScreen = pRX >= -40 && pRX <= WORLD.CAMERA.width + 40 && pRY >= -40 && pRY <= WORLD.CAMERA.height + 40;
+                if (onScreen) {
+                    showBars = clientHasLOS(meCX, meCY, (p.renderX ?? p.x) + p.width / 2, (p.renderY ?? p.y) + p.height / 2);
+                }
+            }
+            const bars = showBars ? {
+                health: p.health ?? 255,
+                maxHealth: p.maxHealth ?? (pFaction === 'rarebot' ? 255 : 1000),
+                energy: p.energy ?? 50,
+                maxEnergy: p.maxEnergy ?? (pFaction === 'rarebot' ? 50 : 255)
+            } : null;
+            drawEntity(pRX, pRY, p.width, p.height, p.renderAngle ?? 0, ps, p.name, pFaction, pFaction !== 'spectator', getSwingOffset(key, nowMs), bars);
         }
 
         const pRenderX = ME.x - camX + ME.width / 2;
         const pRenderY = ME.y - camY + ME.height / 2;
-        drawPlayer(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, myName);
+        const myKey = `player:${myId}`;
+        drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, myName, ME.faction, ME.faction !== 'spectator', getSwingOffset(myKey, nowMs), null);
     }
 
     for (let cy = startCY; cy <= endCY; cy++) {
@@ -1200,7 +1602,52 @@ function render() {
         }
     }
 
+    if (explosions.length > 0) {
+        ctx.save();
+        for (let i = 0; i < explosions.length; i++) {
+            const pt = explosions[i];
+            const alpha = Math.max(0, 1 - pt.age / pt.life);
+            ctx.globalAlpha = alpha * 0.85;
+            ctx.fillStyle = pt.color;
+            ctx.beginPath();
+            ctx.arc(pt.x - camX, pt.y - camY, pt.radius * (0.6 + 0.4 * alpha), 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+
     if (!inMainMenu && myId !== null) {
+        if (floatingTexts.length > 0) {
+            ctx.save();
+            ctx.font = '16px Viga, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'alphabetic';
+            ctx.lineJoin = 'round';
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+            ctx.fillStyle = '#ffe100';
+            for (let i = 0; i < floatingTexts.length; i++) {
+                const ft = floatingTexts[i];
+                const alpha = Math.max(0, 1 - ft.age / ft.life);
+                let tx = ft.x;
+                let ty = ft.y;
+                if (ft.playerId === myId) {
+                    tx = ME.x + ME.width / 2;
+                    ty = ME.y - 26;
+                } else if (serverPlayers[ft.playerId]) {
+                    const fp = serverPlayers[ft.playerId];
+                    tx = (fp.renderX ?? fp.x) + fp.width / 2;
+                    ty = (fp.renderY ?? fp.y) - 26;
+                }
+                const sx = tx - camX;
+                const sy = ty - camY - ft.age * 24;
+                ctx.globalAlpha = alpha;
+                ctx.strokeText(ft.text, sx, sy);
+                ctx.fillText(ft.text, sx, sy);
+            }
+            ctx.restore();
+        }
+
         for (const id in serverPlayers) {
             const p = serverPlayers[id];
             if (!p.chats || p.chats.length === 0) continue;
@@ -1301,6 +1748,11 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'game_state') {
+            applyGameStateUI(data);
+            return;
+        }
+
         if (data.type === 'left_server') {
             updateServerDropdown(data.playerCount, data.maxPlayers);
             return;
@@ -1356,18 +1808,28 @@ async function connectToServer() {
             ME.vx = 0;
             ME.vy = 0;
             ME.scale = 1;
-            ME.health = Math.max(0, Math.min(255, data.health ?? 255));
-            ME.energy = Math.max(0, Math.min(255, data.energy ?? 255));
+            ME.faction = data.faction || 'goodbot';
+            ME.maxHealth = Math.max(1, Number(data.maxHealth) || 1000);
+            ME.maxEnergy = Math.max(1, Number(data.maxEnergy) || 255);
+            ME.health = Math.max(0, Math.min(ME.maxHealth, data.health ?? ME.maxHealth));
+            ME.energy = Math.max(0, Math.min(ME.maxEnergy, data.energy ?? ME.maxEnergy));
             ME.scraps = Math.max(0, Math.floor(data.scraps ?? 0));
             ME.chats = [];
+            lastRenderedHealth = -1;
+            lastRenderedEnergy = -1;
+            lastRenderedMaxHealth = -1;
+            lastRenderedMaxEnergy = -1;
             updateStatsUI();
-            updateLeaderboard([{ name: myName, scraps: ME.scraps }]);
+            updateLeaderboard([{ name: myName, scraps: ME.scraps, faction: ME.faction }]);
+            if (data.gameState) {
+                applyGameStateUI(data.gameState);
+            }
             selectSlot(0);
             if (chatLog) {
                 chatLog.textContent = '';
                 if (Array.isArray(data.chatLog)) {
                     for (let i = 0; i < data.chatLog.length; i++) {
-                        appendChatLog(data.chatLog[i].name, data.chatLog[i].text);
+                        appendChatLog(data.chatLog[i].name, data.chatLog[i].text, data.chatLog[i].faction || 'goodbot');
                     }
                 }
             }
@@ -1393,7 +1855,60 @@ async function connectToServer() {
 
         if (data.type === 'chat_log') {
             if (typeof data.name === 'string' && typeof data.text === 'string') {
-                appendChatLog(data.name, data.text);
+                appendChatLog(data.name, data.text, data.faction || 'goodbot');
+            }
+            return;
+        }
+
+        if (data.type === 'entity_swing') {
+            const key = `${data.kind}:${data.id}`;
+            const nowMs = performance.now();
+            if (!(data.kind === 'player' && data.id === myId && swingAnims.has(key) && nowMs - swingAnims.get(key) < 160)) {
+                swingAnims.set(key, nowMs);
+                playSpatialSound('swing', data.x, data.y);
+            }
+            if (ME.faction === 'goodbot' && data.kind === 'enemy') {
+                if (data.targetId === myId) {
+                    enemyAggroUntil.set(key, nowMs + 8000);
+                } else if (typeof data.x === 'number' && typeof data.y === 'number') {
+                    const dist = Math.hypot(data.x - (ME.x + ME.width / 2), data.y - (ME.y + ME.height / 2));
+                    if (dist <= 135) enemyAggroUntil.set(key, nowMs + 8000);
+                }
+            } else if (ME.faction === 'goodbot' && data.kind === 'player' && data.id !== myId) {
+                const attacker = serverPlayers[data.id];
+                if (attacker && attacker.faction === 'rarebot' && typeof data.x === 'number' && typeof data.y === 'number') {
+                    const dist = Math.hypot(data.x - (ME.x + ME.width / 2), data.y - (ME.y + ME.height / 2));
+                    if (dist <= 135) enemyAggroUntil.set(key, nowMs + 8000);
+                }
+            }
+            return;
+        }
+
+        if (data.type === 'entity_hit') {
+            playSpatialSound('hit', data.x, data.y);
+            if (data.kind === 'player' && data.id === myId && ME.faction === 'goodbot') {
+                enemyAggroUntil.set(`${data.attackerKind}:${data.attackerId}`, performance.now() + 8000);
+            }
+            return;
+        }
+
+        if (data.type === 'explosion') {
+            playSpatialSound('explosion', data.x, data.y);
+            spawnExplosionParticles(data.x, data.y);
+            return;
+        }
+
+        if (data.type === 'scrap_gain' && Array.isArray(data.gains)) {
+            for (let i = 0; i < data.gains.length; i++) {
+                const g = data.gains[i];
+                floatingTexts.push({
+                    playerId: g.id,
+                    x: Number(g.x) || 0,
+                    y: Number(g.y) || 0,
+                    text: `+${Math.max(1, Math.floor(Number(g.amount) || 0))}`,
+                    age: 0,
+                    life: 1.3
+                });
             }
             return;
         }
@@ -1405,15 +1920,22 @@ async function connectToServer() {
                 const incoming = data.players[id];
                 const numId = parseInt(id, 10);
                 const pScraps = Math.max(0, Math.floor(incoming.scraps ?? 0));
-                lbEntries.push({ id: numId, name: incoming.name, scraps: pScraps });
+                const pFaction = incoming.faction || 'goodbot';
+                lbEntries.push({ id: numId, name: incoming.name, scraps: pScraps, faction: pFaction });
                 if (numId === myId) {
                     ME.serverX = incoming.x;
                     ME.serverY = incoming.y;
                     ME.vx = incoming.vx;
                     ME.vy = incoming.vy;
                     ME.scale = incoming.scale ?? 1;
-                    if (incoming.health !== undefined) ME.health = Math.max(0, Math.min(255, incoming.health));
-                    if (incoming.energy !== undefined) ME.energy = Math.max(0, Math.min(255, incoming.energy));
+                    if (incoming.faction !== undefined && incoming.faction !== ME.faction) {
+                        ME.faction = incoming.faction;
+                        enemyAggroUntil.clear();
+                    }
+                    if (incoming.maxHealth !== undefined) ME.maxHealth = Math.max(1, incoming.maxHealth);
+                    if (incoming.maxEnergy !== undefined) ME.maxEnergy = Math.max(1, incoming.maxEnergy);
+                    if (incoming.health !== undefined) ME.health = Math.max(0, Math.min(ME.maxHealth, incoming.health));
+                    if (incoming.energy !== undefined) ME.energy = Math.max(0, Math.min(ME.maxEnergy, incoming.energy));
                     if (incoming.scraps !== undefined) ME.scraps = pScraps;
                     ME.chats = Array.isArray(incoming.chats) ? incoming.chats : [];
                     updateStatsUI();
@@ -1442,13 +1964,41 @@ async function connectToServer() {
                 }
             }
             lbEntries.sort((a, b) => a.id - b.id);
-            updateLeaderboard(lbEntries.map(e => ({ name: e.name, scraps: e.scraps })));
+            updateLeaderboard(lbEntries.map(e => ({ name: e.name, scraps: e.scraps, faction: e.faction })));
             serverPlayers = next;
+
+            const nextEnemies = {};
+            if (data.enemies && typeof data.enemies === 'object') {
+                for (const id in data.enemies) {
+                    const incoming = data.enemies[id];
+                    const existing = serverEnemies[id];
+                    if (existing) {
+                        const dx = incoming.x - existing.renderX;
+                        const dy = incoming.y - existing.renderY;
+                        const jumped = (dx * dx + dy * dy) > (120 * 120);
+                        Object.assign(existing, incoming);
+                        if (jumped) {
+                            existing.renderX = incoming.x;
+                            existing.renderY = incoming.y;
+                        }
+                        nextEnemies[id] = existing;
+                    } else {
+                        nextEnemies[id] = {
+                            ...incoming,
+                            renderX: incoming.x,
+                            renderY: incoming.y,
+                            renderAngle: incoming.angle || 0
+                        };
+                    }
+                }
+            }
+            serverEnemies = nextEnemies;
             return;
         }
 
         if (data.type === 'player_left') {
             delete serverPlayers[data.id];
+            enemyAggroUntil.delete(`player:${data.id}`);
         }
     };
 
@@ -1486,6 +2036,7 @@ if (window.visualViewport) {
 }
 
 function clearHeldInputs() {
+    isAttackHeld = false;
     let changed = false;
     for (const k in WORLD.INPUTS.keys) {
         if (WORLD.INPUTS.keys[k]) {
@@ -1596,6 +2147,42 @@ window.addEventListener('blur', () => {
     }
 });
 
+function triggerAttack() {
+    ensureAudioContext();
+    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen) return;
+    if (ME.faction === 'spectator') return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const cooldown = ME.faction === 'rarebot' ? 508 : 428;
+    const nowMs = performance.now();
+    if (nowMs - lastAttackSentAt < cooldown) return;
+    lastAttackSentAt = nowMs;
+
+    swingAnims.set(`player:${myId}`, nowMs);
+    playSpatialSound('swing', ME.x + ME.width / 2, ME.y + ME.height / 2);
+    ws.send(JSON.stringify({ type: 'attack' }));
+}
+
+window.addEventListener('mousedown', (e) => {
+    ensureAudioContext();
+    if (e.button !== 0) return;
+    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen) return;
+    if (document.activeElement === chatInput) return;
+    if (e.target !== canvas) return;
+    isAttackHeld = true;
+    triggerAttack();
+});
+
+window.addEventListener('mouseup', (e) => {
+    if (e.button === 0) {
+        isAttackHeld = false;
+    }
+});
+
+window.addEventListener('keydown', () => {
+    ensureAudioContext();
+}, { passive: true });
+
 window.addEventListener('DOMContentLoaded', () => {
     const savedName = localStorage.getItem('playerName');
     if (savedName && nameInput) nameInput.value = savedName;
@@ -1612,7 +2199,10 @@ window.addEventListener('DOMContentLoaded', () => {
     fetchInitialServerStatus();
     connectToServer();
 
-    window.addEventListener('touchstart', enableTouchMode, { passive: true });
+    window.addEventListener('touchstart', () => {
+        ensureAudioContext();
+        enableTouchMode();
+    }, { passive: true });
 
     if (mobileJoystick) {
         mobileJoystick.addEventListener('touchstart', (e) => {
@@ -1648,6 +2238,27 @@ window.addEventListener('DOMContentLoaded', () => {
         };
         mobileJoystick.addEventListener('touchend', endJoystick, { passive: true });
         mobileJoystick.addEventListener('touchcancel', endJoystick, { passive: true });
+    }
+
+    if (mobileAttackBtn) {
+        mobileAttackBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isAttackHeld = true;
+            triggerAttack();
+        }, { passive: false });
+        mobileAttackBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            isAttackHeld = false;
+        }, { passive: false });
+        mobileAttackBtn.addEventListener('touchcancel', () => {
+            isAttackHeld = false;
+        }, { passive: true });
+        mobileAttackBtn.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            isAttackHeld = true;
+            triggerAttack();
+        });
     }
 
     if (mobileSprintBtn) {
@@ -1827,6 +2438,15 @@ window.addEventListener('DOMContentLoaded', () => {
     for (let i = 0; i < inventorySlots.length; i++) {
         inventorySlots[i].addEventListener('click', () => {
             selectSlot(i);
+        });
+    }
+
+    if (gameStartBtn) {
+        gameStartBtn.addEventListener('click', () => {
+            if (inMainMenu || myId === null) return;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'start_vote' }));
+            }
         });
     }
 
