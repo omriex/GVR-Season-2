@@ -14,6 +14,7 @@ const server1Option = document.getElementById('server-1-option');
 const menuError = document.getElementById('menu-error');
 const playBtn = document.getElementById('play-btn');
 const statsLayer = document.getElementById('stats-layer');
+const scrapsValue = document.getElementById('scraps-value');
 const healthFill = document.getElementById('health-fill');
 const energyFill = document.getElementById('energy-fill');
 const healthValue = document.getElementById('health-value');
@@ -24,6 +25,7 @@ const chatLog = document.getElementById('chat-log');
 const chatInput = document.getElementById('chat-input');
 const chatWrapper = document.getElementById('chat-wrapper');
 const chatToggleBtn = document.getElementById('chat-toggle-btn');
+const shopBtn = document.getElementById('shop-btn');
 const perfStats = document.getElementById('perf-stats');
 const fpsCounter = document.getElementById('fps-counter');
 const pingCounter = document.getElementById('ping-counter');
@@ -41,6 +43,14 @@ const soundVolumeValue = document.getElementById('sound-volume-value');
 const leaveOverlay = document.getElementById('leave-overlay');
 const leaveYesBtn = document.getElementById('leave-yes-btn');
 const leaveNoBtn = document.getElementById('leave-no-btn');
+const shopOverlay = document.getElementById('shop-overlay');
+const shopCloseBtn = document.getElementById('shop-close-btn');
+const shopGrid = document.getElementById('shop-grid');
+const shopTooltip = document.getElementById('shop-tooltip');
+const shopTooltipTitle = document.getElementById('shop-tooltip-title');
+const shopTooltipCost = document.getElementById('shop-tooltip-cost');
+const shopTooltipDesc = document.getElementById('shop-tooltip-desc');
+const shopTooltipStats = document.getElementById('shop-tooltip-stats');
 const mobileJoystick = document.getElementById('mobile-joystick');
 const mobileJoystickThumb = document.getElementById('mobile-joystick-thumb');
 const mobileSprintBtn = document.getElementById('mobile-sprint-btn');
@@ -86,6 +96,7 @@ const ME = {
     scale: 1,
     health: 255,
     energy: 255,
+    scraps: 0,
     chats: []
 };
 
@@ -97,6 +108,7 @@ let serverPlayers = {};
 let pendingJoinName = null;
 let lastRenderedHealth = -1;
 let lastRenderedEnergy = -1;
+let lastRenderedScraps = -1;
 let lastLeaderboardSig = '';
 let hasConnected = false;
 let activeSlot = 0;
@@ -112,6 +124,7 @@ let lastInputSendTime = 0;
 
 let isSettingsOpen = false;
 let isLeaveDialogOpen = false;
+let isShopOpen = false;
 let isChatMinimized = false;
 let isJoining = false;
 let serverPlayerCount = 0;
@@ -237,15 +250,20 @@ function returnToMainMenu() {
     myId = null;
     inMainMenu = true;
     serverPlayers = {};
+    ME.health = 255;
+    ME.energy = 255;
+    ME.scraps = 0;
     ME.chats = [];
     lastRenderedHealth = -1;
     lastRenderedEnergy = -1;
+    lastRenderedScraps = -1;
     lastLeaderboardSig = '';
     resetJoystick();
     setMobileSprint(false);
     clearHeldInputs();
     closeChat();
     closeLeaveDialog();
+    closeShop();
     if (leaveBtn) leaveBtn.classList.remove('visible');
     if (chatLog) chatLog.textContent = '';
     if (leaderboardList) leaderboardList.textContent = '';
@@ -368,6 +386,7 @@ function applySettingsToUI() {
 function openSettings() {
     if (!settingsOverlay) return;
     if (isLeaveDialogOpen) closeLeaveDialog();
+    if (isShopOpen) closeShop();
     isSettingsOpen = true;
     clearHeldInputs();
     if (document.activeElement === chatInput) {
@@ -387,6 +406,7 @@ function closeSettings() {
 function openLeaveDialog() {
     if (!leaveOverlay || inMainMenu) return;
     if (isSettingsOpen) closeSettings();
+    if (isShopOpen) closeShop();
     isLeaveDialogOpen = true;
     clearHeldInputs();
     if (document.activeElement === chatInput) {
@@ -401,6 +421,134 @@ function closeLeaveDialog() {
     isLeaveDialogOpen = false;
     leaveOverlay.classList.remove('open');
     leaveOverlay.setAttribute('aria-hidden', 'true');
+}
+
+const SHOP_ITEMS = [
+    {
+        id: 'placeholder-item',
+        title: 'Item',
+        description: 'An item',
+        cost: 0,
+        stats: [
+            { label: 'Damage', value: 0 },
+            { label: 'Firerate', value: 0 }
+        ]
+    }
+];
+
+function positionShopTooltipForSlot(slot) {
+    if (!shopTooltip || !slot) return;
+    const scale = currentUiScale > 0 ? currentUiScale : 1;
+    const rect = slot.getBoundingClientRect();
+    const effW = window.innerWidth / scale;
+    const effH = window.innerHeight / scale;
+    const tipW = shopTooltip.offsetWidth;
+    const tipH = shopTooltip.offsetHeight;
+
+    let left = rect.right / scale + 10;
+    if (left + tipW > effW - 8) {
+        left = rect.left / scale - tipW - 10;
+    }
+    if (left < 8) {
+        left = Math.max(8, Math.min(effW - tipW - 8, rect.left / scale));
+    }
+
+    let top = rect.top / scale;
+    if (top + tipH > effH - 8) {
+        top = Math.max(8, effH - tipH - 8);
+    }
+    if (top < 8) top = 8;
+
+    shopTooltip.style.left = `${Math.round(left)}px`;
+    shopTooltip.style.top = `${Math.round(top)}px`;
+}
+
+function showShopTooltip(item, slot) {
+    if (!shopTooltip) return;
+    if (shopTooltipTitle) shopTooltipTitle.textContent = item.title;
+    if (shopTooltipCost) shopTooltipCost.textContent = `Cost: ${item.cost} Scraps`;
+    if (shopTooltipDesc) shopTooltipDesc.textContent = item.description;
+    if (shopTooltipStats) {
+        shopTooltipStats.textContent = '';
+        for (let i = 0; i < item.stats.length; i++) {
+            const st = item.stats[i];
+            const row = document.createElement('div');
+            row.className = 'shop-tooltip-stat';
+            row.textContent = `${st.label}: ${st.value}`;
+            shopTooltipStats.appendChild(row);
+        }
+    }
+    shopTooltip.classList.add('visible');
+    shopTooltip.setAttribute('aria-hidden', 'false');
+    positionShopTooltipForSlot(slot);
+}
+
+function hideShopTooltip() {
+    if (!shopTooltip) return;
+    shopTooltip.classList.remove('visible');
+    shopTooltip.setAttribute('aria-hidden', 'true');
+}
+
+function renderShopItems() {
+    if (!shopGrid) return;
+    shopGrid.textContent = '';
+    for (let i = 0; i < SHOP_ITEMS.length; i++) {
+        const item = SHOP_ITEMS[i];
+        const slot = document.createElement('button');
+        slot.type = 'button';
+        slot.className = 'shop-item-slot';
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'shop-item-name';
+        nameEl.textContent = item.title;
+
+        const costEl = document.createElement('span');
+        costEl.className = 'shop-item-cost';
+        costEl.textContent = String(item.cost);
+
+        slot.appendChild(nameEl);
+        slot.appendChild(costEl);
+
+        slot.addEventListener('pointerenter', () => {
+            showShopTooltip(item, slot);
+        });
+        slot.addEventListener('pointerleave', () => {
+            hideShopTooltip();
+        });
+        slot.addEventListener('focus', () => {
+            showShopTooltip(item, slot);
+        });
+        slot.addEventListener('blur', () => {
+            hideShopTooltip();
+        });
+        slot.addEventListener('click', () => {
+            showShopTooltip(item, slot);
+        });
+
+        shopGrid.appendChild(slot);
+    }
+}
+
+function openShop() {
+    if (!shopOverlay || inMainMenu) return;
+    if (isSettingsOpen) closeSettings();
+    if (isLeaveDialogOpen) closeLeaveDialog();
+    isShopOpen = true;
+    clearHeldInputs();
+    if (document.activeElement === chatInput) {
+        closeChat();
+    }
+    hideShopTooltip();
+    shopOverlay.classList.add('open');
+    shopOverlay.setAttribute('aria-hidden', 'false');
+}
+
+function closeShop() {
+    if (!shopOverlay) return;
+    isShopOpen = false;
+    hideShopTooltip();
+    shopOverlay.classList.remove('open');
+    shopOverlay.setAttribute('aria-hidden', 'true');
 }
 
 function enableTouchMode() {
@@ -681,6 +829,7 @@ function loadAssets() {
 function updateStatsUI() {
     const roundedHealth = Math.max(0, Math.min(255, Math.round(ME.health)));
     const roundedEnergy = Math.max(0, Math.min(255, Math.ceil(ME.energy)));
+    const currentScraps = Math.max(0, Math.floor(Number(ME.scraps) || 0));
 
     if (roundedHealth !== lastRenderedHealth) {
         if (healthFill) healthFill.style.width = `${(roundedHealth / 255) * 100}%`;
@@ -693,19 +842,37 @@ function updateStatsUI() {
         if (energyValue) energyValue.textContent = String(roundedEnergy);
         lastRenderedEnergy = roundedEnergy;
     }
+
+    if (currentScraps !== lastRenderedScraps) {
+        if (scrapsValue) scrapsValue.textContent = String(currentScraps);
+        lastRenderedScraps = currentScraps;
+    }
 }
 
-function updateLeaderboard(names) {
+function updateLeaderboard(entries) {
     if (!leaderboardList) return;
-    const sig = names.join('\n');
+    const sig = entries.map(e => `${e.name}\t${e.scraps}`).join('\n');
     if (sig === lastLeaderboardSig) return;
     lastLeaderboardSig = sig;
     leaderboardList.textContent = '';
-    for (let i = 0; i < names.length; i++) {
-        const el = document.createElement('div');
-        el.className = 'leaderboard-entry';
-        el.textContent = names[i];
-        leaderboardList.appendChild(el);
+
+    const spacerEl = document.createElement('span');
+    const colLabelEl = document.createElement('span');
+    colLabelEl.className = 'leaderboard-col-label';
+    colLabelEl.textContent = 'scraps';
+    leaderboardList.appendChild(spacerEl);
+    leaderboardList.appendChild(colLabelEl);
+
+    for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        const nameEl = document.createElement('span');
+        nameEl.className = 'leaderboard-name';
+        nameEl.textContent = entry.name;
+        const scoreEl = document.createElement('span');
+        scoreEl.className = 'leaderboard-score';
+        scoreEl.textContent = String(entry.scraps);
+        leaderboardList.appendChild(nameEl);
+        leaderboardList.appendChild(scoreEl);
     }
 }
 
@@ -1191,9 +1358,10 @@ async function connectToServer() {
             ME.scale = 1;
             ME.health = Math.max(0, Math.min(255, data.health ?? 255));
             ME.energy = Math.max(0, Math.min(255, data.energy ?? 255));
+            ME.scraps = Math.max(0, Math.floor(data.scraps ?? 0));
             ME.chats = [];
             updateStatsUI();
-            updateLeaderboard([myName]);
+            updateLeaderboard([{ name: myName, scraps: ME.scraps }]);
             selectSlot(0);
             if (chatLog) {
                 chatLog.textContent = '';
@@ -1236,7 +1404,8 @@ async function connectToServer() {
             for (const id in data.players) {
                 const incoming = data.players[id];
                 const numId = parseInt(id, 10);
-                lbEntries.push({ id: numId, name: incoming.name });
+                const pScraps = Math.max(0, Math.floor(incoming.scraps ?? 0));
+                lbEntries.push({ id: numId, name: incoming.name, scraps: pScraps });
                 if (numId === myId) {
                     ME.serverX = incoming.x;
                     ME.serverY = incoming.y;
@@ -1245,6 +1414,7 @@ async function connectToServer() {
                     ME.scale = incoming.scale ?? 1;
                     if (incoming.health !== undefined) ME.health = Math.max(0, Math.min(255, incoming.health));
                     if (incoming.energy !== undefined) ME.energy = Math.max(0, Math.min(255, incoming.energy));
+                    if (incoming.scraps !== undefined) ME.scraps = pScraps;
                     ME.chats = Array.isArray(incoming.chats) ? incoming.chats : [];
                     updateStatsUI();
                     continue;
@@ -1272,7 +1442,7 @@ async function connectToServer() {
                 }
             }
             lbEntries.sort((a, b) => a.id - b.id);
-            updateLeaderboard(lbEntries.map(e => e.name));
+            updateLeaderboard(lbEntries.map(e => ({ name: e.name, scraps: e.scraps })));
             serverPlayers = next;
             return;
         }
@@ -1354,6 +1524,13 @@ window.addEventListener('keydown', e => {
         }
         return;
     }
+    if (isShopOpen) {
+        if (e.key === 'Escape' || e.key.toLowerCase() === 'b') {
+            e.preventDefault();
+            closeShop();
+        }
+        return;
+    }
     if (e.key === 'Enter') {
         if (inMainMenu) {
             if (playBtn) playBtn.click();
@@ -1379,6 +1556,11 @@ window.addEventListener('keydown', e => {
         return;
     }
     if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+    if (e.key.toLowerCase() === 'b' && !inMainMenu) {
+        e.preventDefault();
+        openShop();
+        return;
+    }
     if (e.key >= '1' && e.key <= '5' && !inMainMenu) {
         selectSlot(Number(e.key) - 1);
         return;
@@ -1606,6 +1788,29 @@ window.addEventListener('DOMContentLoaded', () => {
             applySettingsToUI();
         });
     }
+
+    if (shopBtn) {
+        shopBtn.addEventListener('click', () => {
+            if (isShopOpen) closeShop();
+            else openShop();
+        });
+    }
+
+    if (shopCloseBtn) {
+        shopCloseBtn.addEventListener('click', () => {
+            closeShop();
+        });
+    }
+
+    if (shopOverlay) {
+        shopOverlay.addEventListener('click', (e) => {
+            if (e.target === shopOverlay) {
+                closeShop();
+            }
+        });
+    }
+
+    renderShopItems();
 
     if (chatToggleBtn) {
         chatToggleBtn.addEventListener('click', () => {
