@@ -5,6 +5,10 @@
     font-family: 'Viga', sans-serif;
 }
 
+:root {
+    --ui-scale: 1;
+}
+
 body, html {
     margin: 0;
     padding: 0;
@@ -12,6 +16,7 @@ body, html {
     height: 100%;
     overflow: hidden;
     background-color: #000;
+    touch-action: none;
 }
 
 canvas {
@@ -21,6 +26,61 @@ canvas {
     left: 0;
     z-index: 1;
     transform: translateZ(0);
+    touch-action: none;
+}
+
+#ui-scale-layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: calc(100vw / var(--ui-scale));
+    height: calc(100vh / var(--ui-scale));
+    transform: scale(var(--ui-scale));
+    transform-origin: top left;
+    z-index: 10;
+    pointer-events: none;
+}
+
+#top-left-controls {
+    position: fixed;
+    top: 20px;
+    left: 25px;
+    z-index: 150;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    pointer-events: auto;
+}
+
+#settings-btn,
+#leave-btn {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: #ffffff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    filter: drop-shadow(2px 2px 0px rgba(0, 0, 0, 0.85));
+}
+
+#leave-btn {
+    display: none;
+}
+
+#leave-btn.visible {
+    display: flex;
+}
+
+#settings-btn:hover,
+#leave-btn:hover {
+    filter: drop-shadow(2px 2px 0px rgba(0, 0, 0, 0.85)) brightness(0.5);
+}
+
+#settings-btn:active,
+#leave-btn:active {
+    transform: scale(0.92);
 }
 
 #main-menu {
@@ -34,7 +94,9 @@ canvas {
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    padding: 20px;
     z-index: 100;
+    pointer-events: auto;
     transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -48,10 +110,12 @@ canvas {
     margin: 0 0 40px 0;
     text-shadow: 4px 4px 0px #1a1a1a;
     letter-spacing: 2px;
+    text-align: center;
 }
 
 #player-name-input {
     width: 300px;
+    max-width: 100%;
     padding: 15px;
     font-size: 20px;
     background-color: #333;
@@ -66,8 +130,67 @@ canvas {
     border-color: #555;
 }
 
+#server-select-wrap {
+    position: relative;
+    width: 300px;
+    max-width: 100%;
+    margin-bottom: 20px;
+}
+
+#server-select {
+    width: 100%;
+    padding: 15px 40px;
+    font-size: 20px;
+    background-color: #333;
+    border: 4px solid #1a1a1a;
+    border-radius: 0;
+    color: #eee;
+    text-align: center;
+    text-align-last: center;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+#server-select:focus {
+    border-color: #555;
+}
+
+#server-select:hover {
+    filter: brightness(0.5);
+}
+
+#server-select:active {
+    transform: scale(0.92);
+}
+
+#server-select option {
+    background-color: #333;
+    color: #eee;
+}
+
+#server-select-arrow {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #eee;
+    pointer-events: none;
+}
+
+#menu-error {
+    min-height: 22px;
+    margin-top: 12px;
+    font-size: 16px;
+    color: #ff5c5c;
+    text-shadow: 2px 2px 0px #1a1a1a;
+    text-align: center;
+}
+
 #play-btn {
     width: 300px;
+    max-width: 100%;
     padding: 15px;
     font-size: 24px;
     background-color: #4CAF50;
@@ -81,30 +204,6 @@ canvas {
 }
 
 #play-btn:active {
-    transform: scale(0.92);
-}
-
-#settings-btn {
-    position: fixed;
-    top: 20px;
-    left: 25px;
-    z-index: 150;
-    background: transparent;
-    border: none;
-    padding: 0;
-    color: #ffffff;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    filter: drop-shadow(2px 2px 0px rgba(0, 0, 0, 0.85));
-}
-
-#settings-btn:hover {
-    filter: drop-shadow(2px 2px 0px rgba(0, 0, 0, 0.85)) brightness(0.5);
-}
-
-#settings-btn:active {
     transform: scale(0.92);
 }
 
@@ -224,7 +323,7 @@ canvas {
     bottom: 30px;
     left: 30px;
     width: 320px;
-    max-width: calc(100vw - 60px);
+    max-width: calc(100% - 60px);
     display: flex;
     flex-direction: column;
     pointer-events: none;
@@ -350,24 +449,95 @@ canvas {
     border-color: #ffffff;
 }
 
-#settings-overlay {
+#mobile-controls {
+    display: none;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+body.touch-mode #mobile-controls {
+    display: block;
+}
+
+#mobile-joystick {
+    position: absolute;
+    bottom: 96px;
+    left: 24px;
+    width: 112px;
+    height: 112px;
+    background-color: rgba(0, 0, 0, 0.38);
+    border: 3px solid rgba(255, 255, 255, 0.25);
+    border-radius: 50%;
+    pointer-events: auto;
+    touch-action: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#mobile-joystick-thumb {
+    width: 46px;
+    height: 46px;
+    background-color: rgba(255, 255, 255, 0.55);
+    border: 3px solid #1a1a1a;
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+#mobile-sprint-btn {
+    position: absolute;
+    bottom: 108px;
+    right: 24px;
+    width: 72px;
+    height: 72px;
+    background-color: rgba(0, 0, 0, 0.55);
+    border: 3px solid #1a1a1a;
+    color: #ffffff;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    pointer-events: auto;
+    touch-action: none;
+}
+
+#mobile-sprint-btn.pressed {
+    background-color: #4CAF50;
+}
+
+#mobile-sprint-btn:hover {
+    filter: brightness(0.5);
+}
+
+#mobile-sprint-btn:active {
+    transform: scale(0.92);
+}
+
+#settings-overlay,
+#leave-overlay {
     position: fixed;
     inset: 0;
     background-color: rgba(0, 0, 0, 0.5);
     display: none;
     align-items: center;
     justify-content: center;
+    padding: 16px;
     z-index: 200;
+    pointer-events: auto;
 }
 
-#settings-overlay.open {
+#settings-overlay.open,
+#leave-overlay.open {
     display: flex;
 }
 
-#settings-dialog {
+#settings-dialog,
+#leave-dialog {
     position: relative;
     width: 340px;
-    max-width: calc(100vw - 40px);
+    max-width: 100%;
+    max-height: calc(100% - 20px);
+    overflow-y: auto;
     background-color: #242424;
     border: 4px solid #1a1a1a;
     padding: 20px 24px 24px 24px;
@@ -398,12 +568,58 @@ canvas {
     transform: scale(0.92);
 }
 
-#settings-title {
+#settings-title,
+#leave-title {
     margin: 0 0 18px 0;
     font-size: 26px;
     color: #eeeeee;
     text-shadow: 2px 2px 0px #1a1a1a;
     letter-spacing: 1px;
+}
+
+#leave-title {
+    margin-bottom: 12px;
+}
+
+#leave-text {
+    margin: 0 0 22px 0;
+    font-size: 16px;
+    color: #dddddd;
+    line-height: 1.4;
+}
+
+#leave-actions {
+    display: flex;
+    gap: 12px;
+}
+
+#leave-yes-btn,
+#leave-no-btn {
+    flex: 1;
+    padding: 12px;
+    font-size: 18px;
+    border: 4px solid #1a1a1a;
+    border-radius: 0;
+    color: #eeeeee;
+    cursor: pointer;
+}
+
+#leave-yes-btn {
+    background-color: #4CAF50;
+}
+
+#leave-no-btn {
+    background-color: #cc3f3f;
+}
+
+#leave-yes-btn:hover,
+#leave-no-btn:hover {
+    filter: brightness(0.5);
+}
+
+#leave-yes-btn:active,
+#leave-no-btn:active {
+    transform: scale(0.92);
 }
 
 .settings-list {
@@ -430,6 +646,37 @@ canvas {
 .setting-value {
     font-size: 14px;
     color: #bbbbbb;
+}
+
+.setting-size-row {
+    gap: 12px;
+}
+
+.ui-size-group {
+    display: flex;
+    gap: 6px;
+}
+
+.ui-size-btn {
+    padding: 6px 10px;
+    font-size: 14px;
+    background-color: #333333;
+    border: 3px solid #1a1a1a;
+    border-radius: 0;
+    color: #eeeeee;
+    cursor: pointer;
+}
+
+.ui-size-btn.active {
+    background-color: #4CAF50;
+}
+
+.ui-size-btn:hover {
+    filter: brightness(0.5);
+}
+
+.ui-size-btn:active {
+    transform: scale(0.92);
 }
 
 .setting-checkbox {
@@ -520,4 +767,325 @@ canvas {
 
 .setting-slider:active {
     transform: scale(0.92);
+}
+
+#ui-scale-layer.layout-tablet #top-left-controls {
+    top: 14px;
+    left: 16px;
+    gap: 12px;
+}
+
+#ui-scale-layer.layout-tablet #leaderboard {
+    top: 14px;
+    right: 16px;
+}
+
+#ui-scale-layer.layout-tablet #chat-wrapper {
+    bottom: 18px;
+    left: 16px;
+    width: 240px;
+}
+
+#ui-scale-layer.layout-tablet #chat-log {
+    height: 115px;
+}
+
+#ui-scale-layer.layout-tablet #inventory-layer {
+    bottom: 18px;
+    gap: 6px;
+}
+
+#ui-scale-layer.layout-tablet .slot {
+    width: 44px;
+    height: 44px;
+}
+
+#ui-scale-layer.layout-tablet #stats-layer {
+    bottom: 18px;
+    right: 16px;
+    gap: 8px;
+}
+
+#ui-scale-layer.layout-tablet .bar-container {
+    width: 160px;
+    height: 20px;
+}
+
+#ui-scale-layer.layout-tablet #mobile-joystick {
+    bottom: 158px;
+    left: 16px;
+}
+
+#ui-scale-layer.layout-tablet #mobile-sprint-btn {
+    bottom: 84px;
+    right: 16px;
+}
+
+#ui-scale-layer.layout-mobile #main-menu h1 {
+    font-size: 48px;
+    margin-bottom: 24px;
+}
+
+#ui-scale-layer.layout-mobile #player-name-input,
+#ui-scale-layer.layout-mobile #server-select-wrap,
+#ui-scale-layer.layout-mobile #play-btn {
+    width: 260px;
+}
+
+#ui-scale-layer.layout-mobile #player-name-input,
+#ui-scale-layer.layout-mobile #server-select {
+    padding: 12px 34px;
+    font-size: 18px;
+    margin-bottom: 0;
+}
+
+#ui-scale-layer.layout-mobile #player-name-input {
+    padding: 12px;
+    margin-bottom: 14px;
+}
+
+#ui-scale-layer.layout-mobile #server-select-wrap {
+    margin-bottom: 14px;
+}
+
+#ui-scale-layer.layout-mobile #play-btn {
+    padding: 12px;
+    font-size: 20px;
+}
+
+#ui-scale-layer.layout-mobile #top-left-controls {
+    top: 12px;
+    left: 12px;
+    gap: 10px;
+}
+
+#ui-scale-layer.layout-mobile #settings-btn svg,
+#ui-scale-layer.layout-mobile #leave-btn svg {
+    width: 28px;
+    height: 28px;
+}
+
+#ui-scale-layer.layout-mobile #leaderboard {
+    top: 12px;
+    right: 12px;
+}
+
+#ui-scale-layer.layout-mobile #perf-stats {
+    font-size: 13px;
+    gap: 8px;
+}
+
+#ui-scale-layer.layout-mobile #leaderboard-header {
+    font-size: 16px;
+    margin-bottom: 4px;
+}
+
+#ui-scale-layer.layout-mobile .leaderboard-entry {
+    font-size: 13px;
+}
+
+#ui-scale-layer.layout-mobile #stats-layer {
+    top: 50px;
+    left: 12px;
+    bottom: auto;
+    right: auto;
+    gap: 6px;
+}
+
+#ui-scale-layer.layout-mobile .bar-container {
+    width: 140px;
+    height: 18px;
+    border-width: 3px;
+}
+
+#ui-scale-layer.layout-mobile #chat-wrapper {
+    top: 98px;
+    left: 12px;
+    bottom: auto;
+    width: 205px;
+}
+
+#ui-scale-layer.layout-mobile #chat-log {
+    height: 92px;
+    font-size: 12px;
+    padding: 6px 8px;
+}
+
+#ui-scale-layer.layout-mobile #chat-input {
+    font-size: 12px;
+    padding: 6px 8px;
+}
+
+#ui-scale-layer.layout-mobile #inventory-layer {
+    bottom: 12px;
+    gap: 5px;
+}
+
+#ui-scale-layer.layout-mobile .slot {
+    width: 40px;
+    height: 40px;
+}
+
+#ui-scale-layer.layout-mobile #mobile-joystick {
+    bottom: 68px;
+    left: 14px;
+    width: 102px;
+    height: 102px;
+}
+
+#ui-scale-layer.layout-mobile #mobile-joystick-thumb {
+    width: 42px;
+    height: 42px;
+}
+
+#ui-scale-layer.layout-mobile #mobile-sprint-btn {
+    bottom: 78px;
+    right: 14px;
+    width: 64px;
+    height: 64px;
+    font-size: 12px;
+}
+
+#ui-scale-layer.layout-tiny #main-menu h1 {
+    font-size: 36px;
+    margin-bottom: 18px;
+}
+
+#ui-scale-layer.layout-tiny #player-name-input,
+#ui-scale-layer.layout-tiny #server-select-wrap,
+#ui-scale-layer.layout-tiny #play-btn {
+    width: 220px;
+}
+
+#ui-scale-layer.layout-tiny #stats-layer {
+    top: 46px;
+    left: 8px;
+}
+
+#ui-scale-layer.layout-tiny .bar-container {
+    width: 118px;
+    height: 16px;
+}
+
+#ui-scale-layer.layout-tiny #chat-wrapper {
+    top: 90px;
+    left: 8px;
+    width: 175px;
+}
+
+#ui-scale-layer.layout-tiny #chat-log {
+    height: 76px;
+}
+
+#ui-scale-layer.layout-tiny .slot {
+    width: 35px;
+    height: 35px;
+}
+
+#ui-scale-layer.layout-tiny #mobile-joystick {
+    width: 92px;
+    height: 92px;
+    bottom: 60px;
+    left: 10px;
+}
+
+#ui-scale-layer.layout-tiny #mobile-joystick-thumb {
+    width: 36px;
+    height: 36px;
+}
+
+#ui-scale-layer.layout-tiny #mobile-sprint-btn {
+    width: 58px;
+    height: 58px;
+    bottom: 68px;
+    right: 10px;
+    font-size: 11px;
+}
+
+#ui-scale-layer.layout-tiny #settings-dialog,
+#ui-scale-layer.layout-tiny #leave-dialog {
+    padding: 16px;
+}
+
+#ui-scale-layer.layout-tiny .ui-size-btn {
+    padding: 5px 7px;
+    font-size: 12px;
+}
+
+#ui-scale-layer.layout-short #main-menu h1 {
+    font-size: 40px;
+    margin-bottom: 14px;
+}
+
+#ui-scale-layer.layout-short #player-name-input,
+#ui-scale-layer.layout-short #server-select-wrap {
+    margin-bottom: 10px;
+}
+
+#ui-scale-layer.layout-short #player-name-input,
+#ui-scale-layer.layout-short #server-select,
+#ui-scale-layer.layout-short #play-btn {
+    padding: 10px 14px;
+    font-size: 16px;
+}
+
+#ui-scale-layer.layout-short #top-left-controls {
+    top: 10px;
+    left: 12px;
+}
+
+#ui-scale-layer.layout-short #leaderboard {
+    top: 10px;
+    right: 12px;
+}
+
+#ui-scale-layer.layout-short #stats-layer {
+    top: 48px;
+    left: 12px;
+    bottom: auto;
+    right: auto;
+    gap: 5px;
+}
+
+#ui-scale-layer.layout-short .bar-container {
+    width: 130px;
+    height: 16px;
+    border-width: 3px;
+}
+
+#ui-scale-layer.layout-short #chat-wrapper {
+    top: 90px;
+    left: 12px;
+    bottom: auto;
+    width: 195px;
+}
+
+#ui-scale-layer.layout-short #chat-log {
+    height: 64px;
+    font-size: 12px;
+}
+
+#ui-scale-layer.layout-short #inventory-layer {
+    bottom: 10px;
+    gap: 5px;
+}
+
+#ui-scale-layer.layout-short .slot {
+    width: 38px;
+    height: 38px;
+}
+
+#ui-scale-layer.layout-short #mobile-joystick {
+    bottom: 14px;
+    left: 14px;
+    width: 96px;
+    height: 96px;
+}
+
+#ui-scale-layer.layout-short #mobile-sprint-btn {
+    bottom: 22px;
+    right: 14px;
+    width: 60px;
+    height: 60px;
+    font-size: 11px;
 }
