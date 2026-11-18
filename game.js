@@ -5,10 +5,15 @@ document.addEventListener('contextmenu', e => e.preventDefault());
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d', { alpha: false });
 
+const uiScaleLayer = document.getElementById('ui-scale-layer');
 const mainMenu = document.getElementById('main-menu');
 const gameUI = document.getElementById('game-ui');
 const nameInput = document.getElementById('player-name-input');
+const serverSelect = document.getElementById('server-select');
+const server1Option = document.getElementById('server-1-option');
+const menuError = document.getElementById('menu-error');
 const playBtn = document.getElementById('play-btn');
+const statsLayer = document.getElementById('stats-layer');
 const healthFill = document.getElementById('health-fill');
 const energyFill = document.getElementById('energy-fill');
 const leaderboardHeader = document.getElementById('leaderboard-header');
@@ -21,14 +26,23 @@ const perfStats = document.getElementById('perf-stats');
 const fpsCounter = document.getElementById('fps-counter');
 const pingCounter = document.getElementById('ping-counter');
 const settingsBtn = document.getElementById('settings-btn');
+const leaveBtn = document.getElementById('leave-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
 const settingsCloseBtn = document.getElementById('settings-close-btn');
 const settingShowPing = document.getElementById('setting-show-ping');
 const settingShowFps = document.getElementById('setting-show-fps');
+const uiSizeButtons = document.querySelectorAll('.ui-size-btn');
 const settingMusicVolume = document.getElementById('setting-music-volume');
 const settingSoundVolume = document.getElementById('setting-sound-volume');
 const musicVolumeValue = document.getElementById('music-volume-value');
 const soundVolumeValue = document.getElementById('sound-volume-value');
+const leaveOverlay = document.getElementById('leave-overlay');
+const leaveYesBtn = document.getElementById('leave-yes-btn');
+const leaveNoBtn = document.getElementById('leave-no-btn');
+const mobileJoystick = document.getElementById('mobile-joystick');
+const mobileJoystickThumb = document.getElementById('mobile-joystick-thumb');
+const mobileSprintBtn = document.getElementById('mobile-sprint-btn');
+const inventoryLayer = document.getElementById('inventory-layer');
 const inventorySlots = document.querySelectorAll('#inventory-layer .slot');
 
 const LOGICAL_WIDTH = 1280;
@@ -95,14 +109,165 @@ let lastSentAngle = 0;
 let lastInputSendTime = 0;
 
 let isSettingsOpen = false;
+let isLeaveDialogOpen = false;
 let isChatMinimized = false;
+let isJoining = false;
+let serverPlayerCount = 0;
+let serverMaxPlayers = 5;
 let currentPingMs = null;
 let pingProbeUrl = null;
 let pingTimerId = null;
 
+const UI_SIZE_MULTIPLIERS = {
+    low: 0.8,
+    normal: 1.0,
+    big: 1.25
+};
+
+const initialDpr = window.devicePixelRatio || 1;
+const baseDpr = initialDpr < 1 ? 1 : initialDpr;
+let lastObservedDpr = initialDpr;
+let currentUiScale = 1;
+let joystickTouchId = null;
+let aimTouchId = null;
+let serverDeviceIsMobile = null;
+
+function applyServerDeviceMode(isMobile) {
+    if (typeof isMobile !== 'boolean') return;
+    serverDeviceIsMobile = isMobile;
+    document.body.classList.toggle('touch-mode', serverDeviceIsMobile);
+    if (!serverDeviceIsMobile) {
+        resetJoystick();
+        setMobileSprint(false);
+    }
+}
+
+async function fetchDeviceMode() {
+    try {
+        const res = await fetch('/api/device-mode', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (typeof data.isMobile === 'boolean') {
+            applyServerDeviceMode(data.isMobile);
+        }
+    } catch (_) {}
+}
+
+function layoutBottomHud() {
+    if (!uiScaleLayer || !gameUI || !inventoryLayer || !chatWrapper || !statsLayer) return;
+    if (gameUI.style.display === 'none') return;
+
+    const effW = window.innerWidth / currentUiScale;
+    const effH = window.innerHeight / currentUiScale;
+
+    if (effW <= 640 || effH <= 540) {
+        inventoryLayer.style.left = '';
+        inventoryLayer.style.transform = '';
+        chatWrapper.style.bottom = '';
+        return;
+    }
+
+    chatWrapper.style.bottom = '';
+    inventoryLayer.style.left = '';
+    inventoryLayer.style.transform = '';
+
+    const chatRight = chatWrapper.offsetLeft + chatWrapper.offsetWidth;
+    const statsLeft = statsLayer.offsetLeft;
+    const invWidth = inventoryLayer.offsetWidth;
+    if (!invWidth || !statsLeft) return;
+
+    const gap = 14;
+    const minLeft = chatRight + gap;
+    const maxRight = statsLeft - gap;
+    const centerLeft = (effW - invWidth) / 2;
+
+    if (maxRight - minLeft >= invWidth) {
+        if (centerLeft < minLeft || centerLeft + invWidth > maxRight) {
+            const clampedLeft = Math.max(minLeft, Math.min(maxRight - invWidth, centerLeft));
+            inventoryLayer.style.left = `${Math.round(clampedLeft)}px`;
+            inventoryLayer.style.transform = 'none';
+        }
+    } else {
+        chatWrapper.style.bottom = `${inventoryLayer.offsetHeight + 44}px`;
+    }
+}
+
+function updateServerDropdown(count, max) {
+    if (typeof count === 'number' && isFinite(count) && count >= 0) {
+        serverPlayerCount = count;
+    }
+    if (typeof max === 'number' && isFinite(max) && max > 0) {
+        serverMaxPlayers = max;
+    }
+    if (server1Option) {
+        server1Option.textContent = `Server 1 (${serverPlayerCount}/${serverMaxPlayers})`;
+    }
+}
+
+function setMenuError(message) {
+    if (menuError) {
+        menuError.textContent = message || '';
+    }
+}
+
+function enterGameUI() {
+    if (leaveBtn) leaveBtn.classList.add('visible');
+    if (mainMenu) mainMenu.classList.add('slide-up');
+    if (gameUI) {
+        gameUI.style.display = 'block';
+        layoutBottomHud();
+        setTimeout(() => { gameUI.style.opacity = '1'; }, 50);
+    }
+    setTimeout(() => {
+        if (mainMenu && !inMainMenu) mainMenu.style.display = 'none';
+    }, 600);
+}
+
+function returnToMainMenu() {
+    isJoining = false;
+    pendingJoinName = null;
+    myId = null;
+    inMainMenu = true;
+    serverPlayers = {};
+    ME.chats = [];
+    lastRenderedHealth = -1;
+    lastRenderedEnergy = -1;
+    lastLeaderboardSig = '';
+    resetJoystick();
+    setMobileSprint(false);
+    clearHeldInputs();
+    closeChat();
+    closeLeaveDialog();
+    if (leaveBtn) leaveBtn.classList.remove('visible');
+    if (chatLog) chatLog.textContent = '';
+    if (leaderboardList) leaderboardList.textContent = '';
+    if (gameUI) {
+        gameUI.style.opacity = '0';
+        gameUI.style.display = 'none';
+    }
+    if (mainMenu) {
+        mainMenu.style.display = 'flex';
+        void mainMenu.offsetWidth;
+        mainMenu.classList.remove('slide-up');
+    }
+}
+
+async function fetchInitialServerStatus() {
+    try {
+        const res = await fetch('/api/server-status', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const s1 = Array.isArray(data.servers) ? data.servers[0] : null;
+        if (s1) {
+            updateServerDropdown(s1.playerCount, s1.maxPlayers);
+        }
+    } catch (_) {}
+}
+
 const SETTINGS = {
     showPing: true,
     showFps: true,
+    uiSize: 'normal',
     musicVolume: 100,
     soundVolume: 100
 };
@@ -112,6 +277,32 @@ window.GAME_AUDIO_SETTINGS = {
     soundVolume: 1
 };
 
+function updateUiScale() {
+    const currentDpr = window.devicePixelRatio || 1;
+    lastObservedDpr = currentDpr;
+    const vvScale = window.visualViewport ? window.visualViewport.scale : 1;
+    const browserZoom = (currentDpr / baseDpr) * (vvScale > 0 ? vvScale : 1);
+    const inverseZoom = browserZoom > 0 ? 1 / browserZoom : 1;
+    const sizeMult = UI_SIZE_MULTIPLIERS[SETTINGS.uiSize] || 1;
+    currentUiScale = sizeMult * inverseZoom;
+
+    document.documentElement.style.setProperty('--ui-scale', String(currentUiScale));
+
+    if (uiScaleLayer) {
+        const effW = window.innerWidth / currentUiScale;
+        const effH = window.innerHeight / currentUiScale;
+        const isMobile = effW <= 640;
+        const isTablet = effW > 640 && effW <= 940;
+        const isTiny = effW <= 380;
+        const isShort = effH <= 540;
+        uiScaleLayer.classList.toggle('layout-tablet', isTablet);
+        uiScaleLayer.classList.toggle('layout-mobile', isMobile);
+        uiScaleLayer.classList.toggle('layout-tiny', isTiny);
+        uiScaleLayer.classList.toggle('layout-short', isShort);
+        layoutBottomHud();
+    }
+}
+
 function loadSettings() {
     try {
         const raw = localStorage.getItem('gvr_settings');
@@ -119,6 +310,9 @@ function loadSettings() {
             const parsed = JSON.parse(raw);
             if (typeof parsed.showPing === 'boolean') SETTINGS.showPing = parsed.showPing;
             if (typeof parsed.showFps === 'boolean') SETTINGS.showFps = parsed.showFps;
+            if (parsed.uiSize === 'low' || parsed.uiSize === 'normal' || parsed.uiSize === 'big') {
+                SETTINGS.uiSize = parsed.uiSize;
+            }
             if (typeof parsed.musicVolume === 'number' && isFinite(parsed.musicVolume)) {
                 SETTINGS.musicVolume = Math.max(0, Math.min(100, Math.round(parsed.musicVolume)));
             }
@@ -138,6 +332,10 @@ function saveSettings() {
 function applySettingsToUI() {
     if (settingShowPing) settingShowPing.checked = SETTINGS.showPing;
     if (settingShowFps) settingShowFps.checked = SETTINGS.showFps;
+    for (let i = 0; i < uiSizeButtons.length; i++) {
+        const btn = uiSizeButtons[i];
+        btn.classList.toggle('active', btn.dataset.uiSize === SETTINGS.uiSize);
+    }
     if (settingMusicVolume) settingMusicVolume.value = String(SETTINGS.musicVolume);
     if (settingSoundVolume) settingSoundVolume.value = String(SETTINGS.soundVolume);
     if (musicVolumeValue) musicVolumeValue.textContent = `${SETTINGS.musicVolume}%`;
@@ -155,10 +353,12 @@ function applySettingsToUI() {
     if (perfStats) {
         perfStats.classList.toggle('hidden', !SETTINGS.showFps && !SETTINGS.showPing);
     }
+    updateUiScale();
 }
 
 function openSettings() {
     if (!settingsOverlay) return;
+    if (isLeaveDialogOpen) closeLeaveDialog();
     isSettingsOpen = true;
     clearHeldInputs();
     if (document.activeElement === chatInput) {
@@ -173,6 +373,115 @@ function closeSettings() {
     isSettingsOpen = false;
     settingsOverlay.classList.remove('open');
     settingsOverlay.setAttribute('aria-hidden', 'true');
+}
+
+function openLeaveDialog() {
+    if (!leaveOverlay || inMainMenu) return;
+    if (isSettingsOpen) closeSettings();
+    isLeaveDialogOpen = true;
+    clearHeldInputs();
+    if (document.activeElement === chatInput) {
+        closeChat();
+    }
+    leaveOverlay.classList.add('open');
+    leaveOverlay.setAttribute('aria-hidden', 'false');
+}
+
+function closeLeaveDialog() {
+    if (!leaveOverlay) return;
+    isLeaveDialogOpen = false;
+    leaveOverlay.classList.remove('open');
+    leaveOverlay.setAttribute('aria-hidden', 'true');
+}
+
+function enableTouchMode() {
+    if (serverDeviceIsMobile !== null) {
+        document.body.classList.toggle('touch-mode', serverDeviceIsMobile);
+        return;
+    }
+    if (!document.body.classList.contains('touch-mode')) {
+        document.body.classList.add('touch-mode');
+    }
+}
+
+function detectTouchCapability() {
+    if (serverDeviceIsMobile !== null) {
+        document.body.classList.toggle('touch-mode', serverDeviceIsMobile);
+        return;
+    }
+    const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    if (hasTouch) {
+        enableTouchMode();
+    }
+}
+
+function setMobileSprint(active) {
+    const val = Boolean(active);
+    if (WORLD.INPUTS.keys.shift !== val) {
+        WORLD.INPUTS.keys.shift = val;
+        sendInput(true);
+    }
+    if (mobileSprintBtn) {
+        mobileSprintBtn.classList.toggle('pressed', val);
+    }
+}
+
+function resetJoystick() {
+    joystickTouchId = null;
+    if (mobileJoystickThumb) {
+        mobileJoystickThumb.style.transform = 'translate(0px, 0px)';
+    }
+    let changed = false;
+    if (WORLD.INPUTS.keys.w) { WORLD.INPUTS.keys.w = false; changed = true; }
+    if (WORLD.INPUTS.keys.s) { WORLD.INPUTS.keys.s = false; changed = true; }
+    if (WORLD.INPUTS.keys.a) { WORLD.INPUTS.keys.a = false; changed = true; }
+    if (WORLD.INPUTS.keys.d) { WORLD.INPUTS.keys.d = false; changed = true; }
+    if (changed) sendInput(true);
+}
+
+function updateJoystickFromPoint(clientX, clientY) {
+    if (!mobileJoystick) return;
+    const rect = mobileJoystick.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const maxRadius = rect.width * 0.42;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > maxRadius && dist > 0) {
+        dx = (dx / dist) * maxRadius;
+        dy = (dy / dist) * maxRadius;
+    }
+
+    if (mobileJoystickThumb) {
+        const scaleDiv = currentUiScale > 0 ? currentUiScale : 1;
+        mobileJoystickThumb.style.transform = `translate(${dx / scaleDiv}px, ${dy / scaleDiv}px)`;
+    }
+
+    const nx = maxRadius > 0 ? dx / maxRadius : 0;
+    const ny = maxRadius > 0 ? dy / maxRadius : 0;
+    const mag = Math.sqrt(nx * nx + ny * ny);
+    const deadzone = 0.2;
+
+    const nextUp = mag > deadzone && ny < -0.35;
+    const nextDown = mag > deadzone && ny > 0.35;
+    const nextLeft = mag > deadzone && nx < -0.35;
+    const nextRight = mag > deadzone && nx > 0.35;
+
+    let changed = false;
+    if (WORLD.INPUTS.keys.w !== nextUp) { WORLD.INPUTS.keys.w = nextUp; changed = true; }
+    if (WORLD.INPUTS.keys.s !== nextDown) { WORLD.INPUTS.keys.s = nextDown; changed = true; }
+    if (WORLD.INPUTS.keys.a !== nextLeft) { WORLD.INPUTS.keys.a = nextLeft; changed = true; }
+    if (WORLD.INPUTS.keys.d !== nextRight) { WORLD.INPUTS.keys.d = nextRight; changed = true; }
+
+    if (mag > deadzone && aimTouchId === null) {
+        const psX = (ME.x - (WORLD.CAMERA.x || 0) + ME.width / 2) * WORLD.SYSTEM.viewScale;
+        const psY = (ME.y - (WORLD.CAMERA.y || 0) + ME.height / 2) * WORLD.SYSTEM.viewScale;
+        WORLD.INPUTS.mouseX = psX + nx * 120;
+        WORLD.INPUTS.mouseY = psY + ny * 120;
+    }
+
+    if (changed) sendInput(true);
 }
 
 function setChatMinimized(minimized) {
@@ -224,6 +533,9 @@ let fpsFrames = 0;
 let fpsLastSample = performance.now();
 function startFpsCounter() {
     function tick(now) {
+        if ((window.devicePixelRatio || 1) !== lastObservedDpr) {
+            updateUiScale();
+        }
         fpsFrames++;
         const elapsed = now - fpsLastSample;
         if (elapsed >= 500) {
@@ -755,9 +1067,10 @@ function normalizeWsUrl(rawUrl) {
 }
 
 async function resolveWsUrl() {
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        const portPart = window.location.port ? ':' + window.location.port : '';
-        return 'ws://' + window.location.hostname + portPart;
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.run.app')) {
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return proto + '//' + window.location.host;
     }
     if (CLOUDFLARED_WSS_URL) return normalizeWsUrl(CLOUDFLARED_WSS_URL);
     try {
@@ -782,7 +1095,7 @@ async function connectToServer() {
     ws.onopen = () => {
         hasConnected = true;
         updatePingDisplay(performance.now() - wsConnectStart);
-        if (!inMainMenu && pendingJoinName !== null) {
+        if (pendingJoinName !== null) {
             ws.send(JSON.stringify({ type: 'join', name: pendingJoinName }));
             pendingJoinName = null;
         }
@@ -801,7 +1114,30 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'server_info') {
+            updateServerDropdown(data.playerCount, data.maxPlayers);
+            return;
+        }
+
+        if (data.type === 'left_server') {
+            updateServerDropdown(data.playerCount, data.maxPlayers);
+            return;
+        }
+
+        if (data.type === 'server_full') {
+            isJoining = false;
+            pendingJoinName = null;
+            inMainMenu = true;
+            updateServerDropdown(data.playerCount, data.maxPlayers);
+            setMenuError(data.message || `Server is full (${serverPlayerCount}/${serverMaxPlayers})`);
+            return;
+        }
+
         if (data.type === 'map_data') {
+            if (typeof data.isMobile === 'boolean') {
+                applyServerDeviceMode(data.isMobile);
+            }
+            updateServerDropdown(data.playerCount, data.maxPlayers);
             applyMapPayload(data.map);
             preRenderMap();
             WORLD.SYSTEM.isReady = true;
@@ -814,9 +1150,19 @@ async function connectToServer() {
         }
 
         if (data.type === 'init') {
+            if (typeof data.isMobile === 'boolean') {
+                applyServerDeviceMode(data.isMobile);
+            }
+            isJoining = false;
+            pendingJoinName = null;
             myId = data.id;
             myName = data.name;
             inMainMenu = false;
+            WORLD.CAMERA.x = null;
+            WORLD.CAMERA.y = null;
+            setMenuError('');
+            updateServerDropdown(data.playerCount, data.maxPlayers);
+            enterGameUI();
 
             applyMapPayload(data.map);
             preRenderMap();
@@ -945,7 +1291,14 @@ function resizeCanvas() {
     ctx.imageSmoothingEnabled = false;
 }
 
-window.addEventListener('resize', resizeCanvas);
+window.addEventListener('resize', () => {
+    resizeCanvas();
+    updateUiScale();
+});
+
+if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', updateUiScale);
+}
 
 function clearHeldInputs() {
     let changed = false;
@@ -972,6 +1325,13 @@ function closeChat() {
 }
 
 window.addEventListener('keydown', e => {
+    if (isLeaveDialogOpen) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeLeaveDialog();
+        }
+        return;
+    }
     if (isSettingsOpen) {
         if (e.key === 'Escape') {
             e.preventDefault();
@@ -1043,17 +1403,135 @@ window.addEventListener('DOMContentLoaded', () => {
     const savedName = localStorage.getItem('playerName');
     if (savedName && nameInput) nameInput.value = savedName;
 
+    detectTouchCapability();
+    fetchDeviceMode();
     loadSettings();
     applySettingsToUI();
     startFpsCounter();
 
     resizeCanvas();
+    updateUiScale();
     loadAssets();
+    fetchInitialServerStatus();
     connectToServer();
+
+    window.addEventListener('touchstart', enableTouchMode, { passive: true });
+
+    if (mobileJoystick) {
+        mobileJoystick.addEventListener('touchstart', (e) => {
+            if (inMainMenu || isSettingsOpen || isLeaveDialogOpen) return;
+            e.preventDefault();
+            if (joystickTouchId !== null) return;
+            const touch = e.changedTouches[0];
+            if (!touch) return;
+            joystickTouchId = touch.identifier;
+            updateJoystickFromPoint(touch.clientX, touch.clientY);
+        }, { passive: false });
+
+        mobileJoystick.addEventListener('touchmove', (e) => {
+            if (joystickTouchId === null) return;
+            e.preventDefault();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                if (t.identifier === joystickTouchId) {
+                    updateJoystickFromPoint(t.clientX, t.clientY);
+                    break;
+                }
+            }
+        }, { passive: false });
+
+        const endJoystick = (e) => {
+            if (joystickTouchId === null) return;
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                if (e.changedTouches[i].identifier === joystickTouchId) {
+                    resetJoystick();
+                    break;
+                }
+            }
+        };
+        mobileJoystick.addEventListener('touchend', endJoystick, { passive: true });
+        mobileJoystick.addEventListener('touchcancel', endJoystick, { passive: true });
+    }
+
+    if (mobileSprintBtn) {
+        mobileSprintBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            setMobileSprint(true);
+        }, { passive: false });
+        mobileSprintBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            setMobileSprint(false);
+        }, { passive: false });
+        mobileSprintBtn.addEventListener('touchcancel', () => {
+            setMobileSprint(false);
+        }, { passive: true });
+    }
+
+    canvas.addEventListener('touchstart', (e) => {
+        if (inMainMenu || isSettingsOpen || isLeaveDialogOpen) return;
+        if (aimTouchId === null && e.changedTouches[0]) {
+            aimTouchId = e.changedTouches[0].identifier;
+            WORLD.INPUTS.mouseX = e.changedTouches[0].clientX;
+            WORLD.INPUTS.mouseY = e.changedTouches[0].clientY;
+        }
+    }, { passive: true });
+
+    canvas.addEventListener('touchmove', (e) => {
+        if (aimTouchId === null) return;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            if (t.identifier === aimTouchId) {
+                WORLD.INPUTS.mouseX = t.clientX;
+                WORLD.INPUTS.mouseY = t.clientY;
+                break;
+            }
+        }
+    }, { passive: true });
+
+    const endAimTouch = (e) => {
+        if (aimTouchId === null) return;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            if (e.changedTouches[i].identifier === aimTouchId) {
+                aimTouchId = null;
+                break;
+            }
+        }
+    };
+    canvas.addEventListener('touchend', endAimTouch, { passive: true });
+    canvas.addEventListener('touchcancel', endAimTouch, { passive: true });
 
     if (settingsBtn) {
         settingsBtn.addEventListener('click', () => {
             openSettings();
+        });
+    }
+
+    if (leaveBtn) {
+        leaveBtn.addEventListener('click', () => {
+            openLeaveDialog();
+        });
+    }
+
+    if (leaveNoBtn) {
+        leaveNoBtn.addEventListener('click', () => {
+            closeLeaveDialog();
+        });
+    }
+
+    if (leaveYesBtn) {
+        leaveYesBtn.addEventListener('click', () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'leave' }));
+            }
+            returnToMainMenu();
+        });
+    }
+
+    if (leaveOverlay) {
+        leaveOverlay.addEventListener('click', (e) => {
+            if (e.target === leaveOverlay) {
+                closeLeaveDialog();
+            }
         });
     }
 
@@ -1084,6 +1562,17 @@ window.addEventListener('DOMContentLoaded', () => {
             SETTINGS.showFps = settingShowFps.checked;
             saveSettings();
             applySettingsToUI();
+        });
+    }
+
+    for (let i = 0; i < uiSizeButtons.length; i++) {
+        uiSizeButtons[i].addEventListener('click', () => {
+            const nextSize = uiSizeButtons[i].dataset.uiSize;
+            if (nextSize === 'low' || nextSize === 'normal' || nextSize === 'big') {
+                SETTINGS.uiSize = nextSize;
+                saveSettings();
+                applySettingsToUI();
+            }
         });
     }
 
@@ -1129,22 +1618,18 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (playBtn) {
         playBtn.addEventListener('click', () => {
-            if (!inMainMenu) return;
+            if (!inMainMenu || isJoining) return;
+            setMenuError('');
+
+            if (serverPlayerCount >= serverMaxPlayers) {
+                setMenuError(`Server is full (${serverPlayerCount}/${serverMaxPlayers})`);
+                return;
+            }
+
             const raw = nameInput ? nameInput.value.trim() : '';
             myName = raw || ('Goodbot' + (Math.floor(Math.random() * 900) + 100));
             localStorage.setItem('playerName', myName);
-            inMainMenu = false;
-            WORLD.CAMERA.x = null;
-            WORLD.CAMERA.y = null;
-
-            if (mainMenu) mainMenu.classList.add('slide-up');
-            if (gameUI) {
-                gameUI.style.display = 'block';
-                setTimeout(() => { gameUI.style.opacity = '1'; }, 50);
-            }
-            setTimeout(() => {
-                if (mainMenu) mainMenu.style.display = 'none';
-            }, 600);
+            isJoining = true;
 
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'join', name: myName }));
