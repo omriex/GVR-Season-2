@@ -142,7 +142,13 @@ function applyServerDeviceMode(isMobile) {
     }
 }
 
+function isNodeHostedOrigin() {
+    const host = window.location.hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host.endsWith('.run.app');
+}
+
 async function fetchDeviceMode() {
+    if (!isNodeHostedOrigin()) return;
     try {
         const res = await fetch('/api/device-mode', { cache: 'no-store' });
         if (!res.ok) return;
@@ -253,6 +259,7 @@ function returnToMainMenu() {
 }
 
 async function fetchInitialServerStatus() {
+    if (!isNodeHostedOrigin()) return;
     try {
         const res = await fetch('/api/server-status', { cache: 'no-store' });
         if (!res.ok) return;
@@ -514,7 +521,7 @@ function wsUrlToHttpProbe(wsUrl) {
 }
 
 async function measurePingOnce() {
-    if (!pingProbeUrl) return;
+    if (!pingProbeUrl || !ws || ws.readyState !== WebSocket.OPEN) return;
     const start = performance.now();
     try {
         await fetch(pingProbeUrl, { method: 'HEAD', mode: 'no-cors', cache: 'no-store' });
@@ -525,7 +532,6 @@ async function measurePingOnce() {
 function startPingMonitor(wsUrl) {
     pingProbeUrl = wsUrlToHttpProbe(wsUrl);
     if (pingTimerId !== null) return;
-    measurePingOnce();
     pingTimerId = setInterval(measurePingOnce, 2000);
 }
 
@@ -1095,6 +1101,7 @@ async function connectToServer() {
     ws.onopen = () => {
         hasConnected = true;
         updatePingDisplay(performance.now() - wsConnectStart);
+        measurePingOnce();
         if (pendingJoinName !== null) {
             ws.send(JSON.stringify({ type: 'join', name: pendingJoinName }));
             pendingJoinName = null;
