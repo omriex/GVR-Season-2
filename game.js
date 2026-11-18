@@ -1,4 +1,4 @@
-const CLOUDFLARED_WSS_URL = 'https://pharmacology-boxed-equality-seats.trycloudflare.com';
+const CLOUDFLARED_WSS_URL = 'https://mode-fire-sun-drive.trycloudflare.com';
 
 document.addEventListener('contextmenu', e => e.preventDefault());
 
