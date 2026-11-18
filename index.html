@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>GVR Season 2</title>
     <link rel="icon" type="image/png" href="assets/Goodbot.png">
     <link rel="apple-touch-icon" href="assets/Goodbot.png">
@@ -20,82 +20,127 @@
 <body>
     <canvas id="gameCanvas"></canvas>
 
-    <button id="settings-btn" type="button" aria-label="Settings">
-        <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true">
-            <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
-        </svg>
-    </button>
+    <div id="ui-scale-layer">
+        <div id="top-left-controls">
+            <button id="settings-btn" type="button" aria-label="Settings">
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true">
+                    <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
+                </svg>
+            </button>
+            <button id="leave-btn" type="button" aria-label="Leave server">
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+                    <path d="M13 4h7v16h-7"/>
+                    <path d="M3 12h11"/>
+                    <path d="M10 8l4 4-4 4"/>
+                </svg>
+            </button>
+        </div>
 
-    <div id="main-menu">
-        <h1>GVR Season 2</h1>
-        <input type="text" id="player-name-input" placeholder="ENTER NAME" maxlength="16" autocomplete="off" spellcheck="false">
-        <button id="play-btn">PLAY</button>
-    </div>
-
-    <div id="game-ui">
-        <div id="chat-wrapper">
-            <button id="chat-toggle-btn" type="button" aria-label="Minimize chat" aria-expanded="true">
-                <svg id="chat-toggle-icon" viewBox="0 0 16 10" width="14" height="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+        <div id="main-menu">
+            <h1>GVR Season 2</h1>
+            <input type="text" id="player-name-input" placeholder="ENTER NAME" maxlength="16" autocomplete="off" spellcheck="false">
+            <div id="server-select-wrap">
+                <select id="server-select" aria-label="Server">
+                    <option id="server-1-option" value="server-1" selected>Server 1 (0/5)</option>
+                </select>
+                <svg id="server-select-arrow" viewBox="0 0 16 10" width="14" height="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
                     <polyline points="2 2 8 8 14 2"/>
                 </svg>
-            </button>
-            <div id="chat-box">
-                <div id="chat-log"></div>
-                <input type="text" id="chat-input" maxlength="80" placeholder="Chat" autocomplete="off" spellcheck="false">
             </div>
+            <button id="play-btn">PLAY</button>
+            <div id="menu-error" aria-live="polite"></div>
         </div>
-        <div id="inventory-layer">
-            <div class="slot active" data-slot="0"></div>
-            <div class="slot" data-slot="1"></div>
-            <div class="slot" data-slot="2"></div>
-            <div class="slot" data-slot="3"></div>
-            <div class="slot" data-slot="4"></div>
-        </div>
-        <div id="stats-layer">
-            <div class="bar-container"><div class="bar-fill" id="health-fill"></div></div>
-            <div class="bar-container"><div class="bar-fill" id="energy-fill"></div></div>
-        </div>
-        <div id="leaderboard">
-            <div id="perf-stats">
-                <span id="fps-counter">0 FPS</span>
-                <span id="ping-counter">-- ms</span>
-            </div>
-            <div id="leaderboard-header">Leaderboard</div>
-            <div id="leaderboard-list"></div>
-        </div>
-    </div>
 
-    <div id="settings-overlay" aria-hidden="true">
-        <div id="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-            <button id="settings-close-btn" type="button" aria-label="Close settings">
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" aria-hidden="true">
-                    <line x1="5" y1="5" x2="19" y2="19"/>
-                    <line x1="19" y1="5" x2="5" y2="19"/>
-                </svg>
-            </button>
-            <h2 id="settings-title">Settings</h2>
-            <div class="settings-list">
-                <label class="setting-row setting-checkbox-row" for="setting-show-ping">
-                    <span class="setting-label">Show Ping</span>
-                    <input type="checkbox" id="setting-show-ping" class="setting-checkbox" checked>
-                </label>
-                <label class="setting-row setting-checkbox-row" for="setting-show-fps">
-                    <span class="setting-label">Show FPS</span>
-                    <input type="checkbox" id="setting-show-fps" class="setting-checkbox" checked>
-                </label>
-                <div class="setting-row setting-slider-row">
-                    <div class="setting-slider-header">
-                        <label class="setting-label" for="setting-music-volume">Music Volume</label>
-                        <span id="music-volume-value" class="setting-value">100%</span>
-                    </div>
-                    <input type="range" id="setting-music-volume" class="setting-slider" min="0" max="100" value="100">
+        <div id="game-ui">
+            <div id="chat-wrapper">
+                <button id="chat-toggle-btn" type="button" aria-label="Minimize chat" aria-expanded="true">
+                    <svg id="chat-toggle-icon" viewBox="0 0 16 10" width="14" height="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+                        <polyline points="2 2 8 8 14 2"/>
+                    </svg>
+                </button>
+                <div id="chat-box">
+                    <div id="chat-log"></div>
+                    <input type="text" id="chat-input" maxlength="80" placeholder="Chat" autocomplete="off" spellcheck="false">
                 </div>
-                <div class="setting-row setting-slider-row">
-                    <div class="setting-slider-header">
-                        <label class="setting-label" for="setting-sound-volume">Sound Volume</label>
-                        <span id="sound-volume-value" class="setting-value">100%</span>
+            </div>
+            <div id="inventory-layer">
+                <div class="slot active" data-slot="0"></div>
+                <div class="slot" data-slot="1"></div>
+                <div class="slot" data-slot="2"></div>
+                <div class="slot" data-slot="3"></div>
+                <div class="slot" data-slot="4"></div>
+            </div>
+            <div id="stats-layer">
+                <div class="bar-container"><div class="bar-fill" id="health-fill"></div></div>
+                <div class="bar-container"><div class="bar-fill" id="energy-fill"></div></div>
+            </div>
+            <div id="leaderboard">
+                <div id="perf-stats">
+                    <span id="fps-counter">0 FPS</span>
+                    <span id="ping-counter">-- ms</span>
+                </div>
+                <div id="leaderboard-header">Leaderboard</div>
+                <div id="leaderboard-list"></div>
+            </div>
+            <div id="mobile-controls" aria-hidden="true">
+                <div id="mobile-joystick">
+                    <div id="mobile-joystick-thumb"></div>
+                </div>
+                <button id="mobile-sprint-btn" type="button">SPRINT</button>
+            </div>
+        </div>
+
+        <div id="settings-overlay" aria-hidden="true">
+            <div id="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+                <button id="settings-close-btn" type="button" aria-label="Close settings">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" aria-hidden="true">
+                        <line x1="5" y1="5" x2="19" y2="19"/>
+                        <line x1="19" y1="5" x2="5" y2="19"/>
+                    </svg>
+                </button>
+                <h2 id="settings-title">Settings</h2>
+                <div class="settings-list">
+                    <label class="setting-row setting-checkbox-row" for="setting-show-ping">
+                        <span class="setting-label">Show Ping</span>
+                        <input type="checkbox" id="setting-show-ping" class="setting-checkbox" checked>
+                    </label>
+                    <label class="setting-row setting-checkbox-row" for="setting-show-fps">
+                        <span class="setting-label">Show FPS</span>
+                        <input type="checkbox" id="setting-show-fps" class="setting-checkbox" checked>
+                    </label>
+                    <div class="setting-row setting-size-row">
+                        <span class="setting-label">UI Size</span>
+                        <div class="ui-size-group" role="group" aria-label="UI Size">
+                            <button type="button" class="ui-size-btn" data-ui-size="low">Low</button>
+                            <button type="button" class="ui-size-btn active" data-ui-size="normal">Normal</button>
+                            <button type="button" class="ui-size-btn" data-ui-size="big">Big</button>
+                        </div>
                     </div>
-                    <input type="range" id="setting-sound-volume" class="setting-slider" min="0" max="100" value="100">
+                    <div class="setting-row setting-slider-row">
+                        <div class="setting-slider-header">
+                            <label class="setting-label" for="setting-music-volume">Music Volume</label>
+                            <span id="music-volume-value" class="setting-value">100%</span>
+                        </div>
+                        <input type="range" id="setting-music-volume" class="setting-slider" min="0" max="100" value="100">
+                    </div>
+                    <div class="setting-row setting-slider-row">
+                        <div class="setting-slider-header">
+                            <label class="setting-label" for="setting-sound-volume">Sound Volume</label>
+                            <span id="sound-volume-value" class="setting-value">100%</span>
+                        </div>
+                        <input type="range" id="setting-sound-volume" class="setting-slider" min="0" max="100" value="100">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="leave-overlay" aria-hidden="true">
+            <div id="leave-dialog" role="dialog" aria-modal="true" aria-labelledby="leave-title">
+                <h2 id="leave-title">Are you sure?</h2>
+                <p id="leave-text">Are you sure you want to leave this server?</p>
+                <div id="leave-actions">
+                    <button id="leave-yes-btn" type="button">Yes</button>
+                    <button id="leave-no-btn" type="button">No</button>
                 </div>
             </div>
         </div>
