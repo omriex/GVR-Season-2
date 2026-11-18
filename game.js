@@ -117,6 +117,9 @@ let myName = '';
 let inMainMenu = true;
 let serverPlayers = {};
 let serverEnemies = {};
+let stateSeq = 0;
+const lbBuf = [];
+const emptyChats = [];
 let pendingJoinName = null;
 let lastRenderedHealth = -1;
 let lastRenderedEnergy = -1;
@@ -133,6 +136,7 @@ const swingAnims = new Map();
 const enemyAggroUntil = new Map();
 const explosions = [];
 const floatingTexts = [];
+const pendingFloatingTexts = [];
 const MAX_EXPLOSION_PARTICLES = 240;
 const EXPLOSION_COLORS = ['#ff2a00', '#ff7b00', '#ffd000', '#ff4d00'];
 
@@ -278,6 +282,7 @@ function returnToMainMenu() {
     enemyAggroUntil.clear();
     explosions.length = 0;
     floatingTexts.length = 0;
+    pendingFloatingTexts.length = 0;
     ME.health = 1000;
     ME.maxHealth = 1000;
     ME.energy = 255;
@@ -714,40 +719,36 @@ function wsUrlToHttpProbe(wsUrl) {
 }
 
 async function measurePingOnce() {
-    if (!pingProbeUrl || !ws || ws.readyState !== WebSocket.OPEN) return;
-    const start = performance.now();
-    try {
-        await fetch(pingProbeUrl, { method: 'HEAD', mode: 'no-cors', cache: 'no-store' });
-        updatePingDisplay(performance.now() - start);
-    } catch (_) {}
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'ping', t: performance.now() }));
 }
 
 function startPingMonitor(wsUrl) {
     pingProbeUrl = wsUrlToHttpProbe(wsUrl);
     if (pingTimerId !== null) return;
-    pingTimerId = setInterval(measurePingOnce, 2000);
+    pingTimerId = setInterval(measurePingOnce, 2500);
 }
 
 let fpsFrames = 0;
 let fpsLastSample = performance.now();
-function startFpsCounter() {
-    function tick(now) {
-        if ((window.devicePixelRatio || 1) !== lastObservedDpr) {
-            updateUiScale();
-        }
-        fpsFrames++;
-        const elapsed = now - fpsLastSample;
-        if (elapsed >= 500) {
-            const fps = Math.round((fpsFrames * 1000) / elapsed);
-            fpsFrames = 0;
-            fpsLastSample = now;
-            if (fpsCounter && SETTINGS.showFps) {
-                fpsCounter.textContent = `${fps} FPS`;
-            }
-        }
-        requestAnimationFrame(tick);
+function sampleFps(now) {
+    if ((window.devicePixelRatio || 1) !== lastObservedDpr) {
+        updateUiScale();
     }
-    requestAnimationFrame(tick);
+    fpsFrames++;
+    const elapsed = now - fpsLastSample;
+    if (elapsed >= 500) {
+        const fps = Math.round((fpsFrames * 1000) / elapsed);
+        fpsFrames = 0;
+        fpsLastSample = now;
+        if (fpsCounter && SETTINGS.showFps) {
+            fpsCounter.textContent = `${fps} FPS`;
+        }
+    }
+}
+function startFpsCounter() {
+    fpsFrames = 0;
+    fpsLastSample = performance.now();
 }
 
 const tilesheetImg = new Image();
@@ -797,19 +798,33 @@ function ensureAudioContext() {
     return audioCtx;
 }
 
+const lastSoundAt = { swing: 0, hit: 0, explosion: 0 };
+
 function playSpatialSound(key, wx, wy) {
     const masterVol = window.GAME_AUDIO_SETTINGS ? Number(window.GAME_AUDIO_SETTINGS.soundVolume) : 1;
     if (!isFinite(masterVol) || masterVol <= 0.005) return;
+    const nowMs = performance.now();
+    const minGap = key === 'explosion' ? 60 : 45;
+    if (nowMs - (lastSoundAt[key] || 0) < minGap) return;
+
     const ctxAudio = ensureAudioContext();
     if (!ctxAudio || !soundBuffers[key]) return;
 
     const lx = myId !== null ? (ME.x + ME.width / 2) : ((WORLD.CAMERA.x || 0) + WORLD.CAMERA.width / 2);
     const ly = myId !== null ? (ME.y + ME.height / 2) : ((WORLD.CAMERA.y || 0) + WORLD.CAMERA.height / 2);
-    const dist = (typeof wx === 'number' && typeof wy === 'number') ? Math.hypot(wx - lx, wy - ly) : 0;
+    let dist = 0;
+    if (typeof wx === 'number' && typeof wy === 'number') {
+        const dx = wx - lx;
+        const dy = wy - ly;
+        const dSq = dx * dx + dy * dy;
+        if (dSq > 1080 * 1080) return;
+        dist = Math.sqrt(dSq);
+    }
     const falloff = Math.max(0, Math.min(1, 1 - Math.max(0, dist - 80) / 1000));
     const gainValue = falloff * falloff * masterVol;
     if (gainValue <= 0.005) return;
 
+    lastSoundAt[key] = nowMs;
     try {
         const source = ctxAudio.createBufferSource();
         source.buffer = soundBuffers[key];
@@ -864,11 +879,15 @@ function preRenderMap() {
     WORLD.MAP.bgChunks = [];
     WORLD.MAP.wallChunks = [];
     WORLD.MAP.fgChunks = [];
+    WORLD.MAP.wallChunkEmpty = [];
+    WORLD.MAP.fgChunkEmpty = [];
 
     for (let cy = 0; cy < numCY; cy++) {
         WORLD.MAP.bgChunks[cy] = [];
         WORLD.MAP.wallChunks[cy] = [];
         WORLD.MAP.fgChunks[cy] = [];
+        WORLD.MAP.wallChunkEmpty[cy] = [];
+        WORLD.MAP.fgChunkEmpty[cy] = [];
         for (let cx = 0; cx < numCX; cx++) {
             const bg = document.createElement('canvas');
             bg.width = bg.height = WORLD.MAP.chunkSize;
@@ -897,6 +916,9 @@ function renderChunk(cx, cy) {
     wcCtx.clearRect(0, 0, WORLD.MAP.chunkSize, WORLD.MAP.chunkSize);
     fgCtx.clearRect(0, 0, WORLD.MAP.chunkSize, WORLD.MAP.chunkSize);
 
+    WORLD.MAP.wallChunkEmpty[cy][cx] = true;
+    WORLD.MAP.fgChunkEmpty[cy][cx] = true;
+
     if (!tilesheetImg.complete || tilesheetImg.naturalWidth === 0) return;
 
     const tileSize = WORLD.MAP.tileSize;
@@ -917,6 +939,8 @@ function renderChunk(cx, cy) {
             for (let c = startCol; c < endCol; c++) {
                 const cell = rowArr[c];
                 if (cell) {
+                    if (layerName === 'wall') WORLD.MAP.wallChunkEmpty[cy][cx] = false;
+                    else if (layerName === 'tree') WORLD.MAP.fgChunkEmpty[cy][cx] = false;
                     const dx = (c * tileSize) - (cx * WORLD.MAP.chunkSize);
                     const dy = (r * tileSize) - (cy * WORLD.MAP.chunkSize);
                     drawTileCell(targetCtx, cell, dx, dy, tileSize);
@@ -1256,6 +1280,28 @@ function update(dt) {
         }
     }
 
+    if (pendingFloatingTexts.length > 0) {
+        const waitingPlayers = new Set();
+        for (let i = 0; i < pendingFloatingTexts.length; i++) {
+            const pft = pendingFloatingTexts[i];
+            if (waitingPlayers.has(pft.playerId) || hasFloatingTextBlocking(pft.playerId)) {
+                waitingPlayers.add(pft.playerId);
+                continue;
+            }
+            floatingTexts.push({
+                playerId: pft.playerId,
+                x: pft.x,
+                y: pft.y,
+                text: pft.text,
+                color: pft.color,
+                age: 0,
+                life: pft.life
+            });
+            pendingFloatingTexts.splice(i, 1);
+            i--;
+        }
+    }
+
     if (isAttackHeld && !inMainMenu && myId !== null && !isSettingsOpen && !isLeaveDialogOpen && !isShopOpen && document.activeElement !== chatInput) {
         triggerAttack();
     }
@@ -1331,6 +1377,67 @@ function clientHasLOS(x1, y1, x2, y2) {
     return true;
 }
 
+const labelSpriteCache = new Map();
+let labelSpriteScale = 0;
+
+if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => {
+        labelSpriteCache.clear();
+    });
+}
+
+function getLabelSprite(label, faction) {
+    const scale = Math.max(0.5, WORLD.SYSTEM.viewScale || 1);
+    if (labelSpriteScale !== scale) {
+        labelSpriteCache.clear();
+        labelSpriteScale = scale;
+    }
+    const key = `${faction}:${label}`;
+    let cached = labelSpriteCache.get(key);
+    if (cached) return cached;
+
+    const c = document.createElement('canvas');
+    const cctx = c.getContext('2d');
+    cctx.font = '15px Viga, sans-serif';
+    const textW = Math.ceil(cctx.measureText(label).width);
+    const padX = 6;
+    const w = Math.max(16, textW + padX * 2);
+    const h = 24;
+    c.width = Math.max(1, Math.ceil(w * scale));
+    c.height = Math.max(1, Math.ceil(h * scale));
+    cctx.scale(scale, scale);
+
+    cctx.font = '15px Viga, sans-serif';
+    cctx.textAlign = 'center';
+    cctx.textBaseline = 'alphabetic';
+    cctx.lineJoin = 'round';
+    cctx.lineWidth = 3;
+    cctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    if (faction === 'rarebot') cctx.fillStyle = '#f00000';
+    else if (faction === 'spectator') cctx.fillStyle = '#ffffff';
+    else cctx.fillStyle = '#d84aff';
+
+    const baselineY = 18;
+    cctx.strokeText(label, w / 2, baselineY);
+    cctx.fillText(label, w / 2, baselineY);
+
+    if (labelSpriteCache.size >= 64) {
+        const firstKey = labelSpriteCache.keys().next().value;
+        if (firstKey !== undefined) labelSpriteCache.delete(firstKey);
+    }
+    cached = {
+        canvas: c,
+        w,
+        h,
+        baselineY,
+        scale,
+        drawW: c.width / scale,
+        drawH: c.height / scale
+    };
+    labelSpriteCache.set(key, cached);
+    return cached;
+}
+
 function drawSubtleBars(x, topY, hp, maxHp, en, maxEn) {
     const barW = 34;
     const hpH = 3;
@@ -1340,7 +1447,6 @@ function drawSubtleBars(x, topY, hp, maxHp, en, maxEn) {
     const hpRatio = Math.max(0, Math.min(1, hp / Math.max(1, maxHp)));
     const enRatio = Math.max(0, Math.min(1, en / Math.max(1, maxEn)));
 
-    ctx.save();
     ctx.globalAlpha = 0.55;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
     ctx.fillRect(left - 1, top - 1, barW + 2, hpH + enH + 3);
@@ -1348,7 +1454,19 @@ function drawSubtleBars(x, topY, hp, maxHp, en, maxEn) {
     ctx.fillRect(left, top, Math.round(barW * hpRatio), hpH);
     ctx.fillStyle = '#d1ab38';
     ctx.fillRect(left, top + hpH + 1, Math.round(barW * enRatio), enH);
-    ctx.restore();
+    ctx.globalAlpha = 1;
+}
+
+const HANDS_SCALE = 1.15;
+
+function hasFloatingTextBlocking(playerId) {
+    for (let i = 0; i < floatingTexts.length; i++) {
+        const ft = floatingTexts[i];
+        if (ft.playerId === playerId && ft.age * 24 < 22) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function drawBotHands(x, y, sW, sH, angle, swingOffset) {
@@ -1358,13 +1476,13 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset) {
     if (botHandsImg.complete && botHandsImg.naturalWidth > 0) {
         const refW = goodbotImg.complete && goodbotImg.naturalWidth > 0 ? goodbotImg.naturalWidth : 512;
         const refH = goodbotImg.complete && goodbotImg.naturalHeight > 0 ? goodbotImg.naturalHeight : 512;
-        const hW = sW * (botHandsImg.naturalWidth / refW);
-        const hH = sH * (botHandsImg.naturalHeight / refH);
+        const hW = sW * (botHandsImg.naturalWidth / refW) * HANDS_SCALE;
+        const hH = sH * (botHandsImg.naturalHeight / refH) * HANDS_SCALE;
         ctx.drawImage(botHandsImg, -hW / 2, -hH / 2, hW, hH);
     } else {
-        const r = sW * 0.14;
-        const hx = sW * 0.46;
-        const hy = -sH * 0.48;
+        const r = sW * 0.14 * HANDS_SCALE;
+        const hx = sW * 0.46 * HANDS_SCALE;
+        const hy = -sH * 0.48 * HANDS_SCALE;
         ctx.fillStyle = '#2d2d30';
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = Math.max(1.5, sW * 0.045);
@@ -1400,19 +1518,10 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
     }
 
     if (label) {
-        ctx.save();
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'alphabetic';
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-        ctx.font = '15px Viga, sans-serif';
-        if (faction === 'rarebot') ctx.fillStyle = '#f00000';
-        else if (faction === 'spectator') ctx.fillStyle = '#ffffff';
-        else ctx.fillStyle = '#d84aff';
-        ctx.strokeText(label, x, y - sH / 2 - 10);
-        ctx.fillText(label, x, y - sH / 2 - 10);
-        ctx.restore();
+        const lbl = getLabelSprite(label, faction);
+        const drawX = Math.round((x - lbl.w / 2) * lbl.scale) / lbl.scale;
+        const drawY = Math.round((y - sH / 2 - 10 - lbl.baselineY) * lbl.scale) / lbl.scale;
+        ctx.drawImage(lbl.canvas, drawX, drawY, lbl.drawW, lbl.drawH);
     }
 
     if (bars) {
@@ -1534,6 +1643,10 @@ function render() {
         }
     }
 
+    const camW = WORLD.CAMERA.width;
+    const camH = WORLD.CAMERA.height;
+    const cullPad = 96;
+
     if (!inMainMenu && myId !== null) {
         const nowMs = performance.now();
         const meCX = ME.x + ME.width / 2;
@@ -1541,8 +1654,11 @@ function render() {
 
         for (const id in serverEnemies) {
             const e = serverEnemies[id];
-            const eRX = (e.renderX ?? e.x) - camX + e.width / 2;
-            const eRY = (e.renderY ?? e.y) - camY + e.height / 2;
+            const ew = e.width || 48;
+            const eh = e.height || 48;
+            const eRX = (e.renderX ?? e.x) - camX + ew / 2;
+            const eRY = (e.renderY ?? e.y) - camY + eh / 2;
+            if (eRX < -cullPad || eRX > camW + cullPad || eRY < -cullPad || eRY > camH + cullPad) continue;
             const es = Math.min(2, Math.max(0.3, e.scale || 1));
             const key = `enemy:${id}`;
             const showBars = ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs;
@@ -1552,24 +1668,24 @@ function render() {
                 energy: e.energy ?? 50,
                 maxEnergy: e.maxEnergy ?? 50
             } : null;
-            drawEntity(eRX, eRY, e.width, e.height, e.renderAngle ?? 0, es, 'Rarebot', 'rarebot', true, getSwingOffset(key, nowMs), bars);
+            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, 'Rarebot', 'rarebot', true, getSwingOffset(key, nowMs), bars);
         }
 
         for (const id in serverPlayers) {
             const p = serverPlayers[id];
+            const pw = p.width || 48;
+            const ph = p.height || 48;
             const pFaction = p.faction || 'goodbot';
-            const pRX = (p.renderX ?? p.x) - camX + p.width / 2;
-            const pRY = (p.renderY ?? p.y) - camY + p.height / 2;
+            const pRX = (p.renderX ?? p.x) - camX + pw / 2;
+            const pRY = (p.renderY ?? p.y) - camY + ph / 2;
+            if (pRX < -cullPad || pRX > camW + cullPad || pRY < -cullPad || pRY > camH + cullPad) continue;
             const ps = Math.min(2, Math.max(0.3, p.scale || 1));
             const key = `player:${id}`;
             let showBars = false;
             if (ME.faction === 'goodbot' && pFaction === 'rarebot') {
                 showBars = (enemyAggroUntil.get(key) || 0) > nowMs;
             } else if (ME.faction === 'rarebot' && pFaction === 'goodbot') {
-                const onScreen = pRX >= -40 && pRX <= WORLD.CAMERA.width + 40 && pRY >= -40 && pRY <= WORLD.CAMERA.height + 40;
-                if (onScreen) {
-                    showBars = clientHasLOS(meCX, meCY, (p.renderX ?? p.x) + p.width / 2, (p.renderY ?? p.y) + p.height / 2);
-                }
+                showBars = clientHasLOS(meCX, meCY, (p.renderX ?? p.x) + pw / 2, (p.renderY ?? p.y) + ph / 2);
             }
             const bars = showBars ? {
                 health: p.health ?? 255,
@@ -1577,7 +1693,7 @@ function render() {
                 energy: p.energy ?? 50,
                 maxEnergy: p.maxEnergy ?? (pFaction === 'rarebot' ? 50 : 255)
             } : null;
-            drawEntity(pRX, pRY, p.width, p.height, p.renderAngle ?? 0, ps, p.name, pFaction, pFaction !== 'spectator', getSwingOffset(key, nowMs), bars);
+            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, p.name, pFaction, pFaction !== 'spectator', getSwingOffset(key, nowMs), bars);
         }
 
         const pRenderX = ME.x - camX + ME.width / 2;
@@ -1588,6 +1704,7 @@ function render() {
 
     for (let cy = startCY; cy <= endCY; cy++) {
         for (let cx = startCX; cx <= endCX; cx++) {
+            if (WORLD.MAP.wallChunkEmpty && WORLD.MAP.wallChunkEmpty[cy][cx]) continue;
             const dx = cx * WORLD.MAP.chunkSize - camX;
             const dy = cy * WORLD.MAP.chunkSize - camY;
             ctx.drawImage(WORLD.MAP.wallChunks[cy][cx], dx, dy, WORLD.MAP.chunkSize + 1, WORLD.MAP.chunkSize + 1);
@@ -1596,6 +1713,7 @@ function render() {
 
     for (let cy = startCY; cy <= endCY; cy++) {
         for (let cx = startCX; cx <= endCX; cx++) {
+            if (WORLD.MAP.fgChunkEmpty && WORLD.MAP.fgChunkEmpty[cy][cx]) continue;
             const dx = cx * WORLD.MAP.chunkSize - camX;
             const dy = cy * WORLD.MAP.chunkSize - camY;
             ctx.drawImage(WORLD.MAP.fgChunks[cy][cx], dx, dy, WORLD.MAP.chunkSize + 1, WORLD.MAP.chunkSize + 1);
@@ -1603,17 +1721,19 @@ function render() {
     }
 
     if (explosions.length > 0) {
-        ctx.save();
         for (let i = 0; i < explosions.length; i++) {
             const pt = explosions[i];
+            const px = pt.x - camX;
+            const py = pt.y - camY;
+            if (px < -24 || px > camW + 24 || py < -24 || py > camH + 24) continue;
             const alpha = Math.max(0, 1 - pt.age / pt.life);
             ctx.globalAlpha = alpha * 0.85;
             ctx.fillStyle = pt.color;
             ctx.beginPath();
-            ctx.arc(pt.x - camX, pt.y - camY, pt.radius * (0.6 + 0.4 * alpha), 0, Math.PI * 2);
+            ctx.arc(px, py, pt.radius * (0.6 + 0.4 * alpha), 0, Math.PI * 2);
             ctx.fill();
         }
-        ctx.restore();
+        ctx.globalAlpha = 1;
     }
 
     if (!inMainMenu && myId !== null) {
@@ -1625,7 +1745,6 @@ function render() {
             ctx.lineJoin = 'round';
             ctx.lineWidth = 3;
             ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-            ctx.fillStyle = '#ffe100';
             for (let i = 0; i < floatingTexts.length; i++) {
                 const ft = floatingTexts[i];
                 const alpha = Math.max(0, 1 - ft.age / ft.life);
@@ -1642,6 +1761,7 @@ function render() {
                 const sx = tx - camX;
                 const sy = ty - camY - ft.age * 24;
                 ctx.globalAlpha = alpha;
+                ctx.fillStyle = ft.color || '#ffe100';
                 ctx.strokeText(ft.text, sx, sy);
                 ctx.fillText(ft.text, sx, sy);
             }
@@ -1670,6 +1790,7 @@ function render() {
 function gameLoop(now) {
     if (!WORLD.SYSTEM.isReady) return;
     requestAnimationFrame(gameLoop);
+    sampleFps(now);
 
     let dt = (now - WORLD.SYSTEM.lastTime) / 1000;
     WORLD.SYSTEM.lastTime = now;
@@ -1906,6 +2027,7 @@ async function connectToServer() {
                     x: Number(g.x) || 0,
                     y: Number(g.y) || 0,
                     text: `+${Math.max(1, Math.floor(Number(g.amount) || 0))}`,
+                    color: '#ffe100',
                     age: 0,
                     life: 1.3
                 });
@@ -1913,15 +2035,46 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'round_heal' && Array.isArray(data.heals)) {
+            for (let i = 0; i < data.heals.length; i++) {
+                const h = data.heals[i];
+                const hpGain = Math.max(0, Math.floor(Number(h.hpGain) || 0));
+                const energyGain = Math.max(0, Math.floor(Number(h.energyGain) || 0));
+                const hx = Number(h.x) || 0;
+                const hy = Number(h.y) || 0;
+                if (hpGain > 0) {
+                    pendingFloatingTexts.push({
+                        playerId: h.id,
+                        x: hx,
+                        y: hy,
+                        text: `+${hpGain}`,
+                        color: '#32ff32',
+                        life: 1.3
+                    });
+                }
+                if (energyGain > 0) {
+                    pendingFloatingTexts.push({
+                        playerId: h.id,
+                        x: hx,
+                        y: hy,
+                        text: `+${energyGain}`,
+                        color: '#d1ab38',
+                        life: 1.3
+                    });
+                }
+            }
+            return;
+        }
+
         if (data.type === 'state') {
-            const next = {};
-            const lbEntries = [];
+            stateSeq++;
+            lbBuf.length = 0;
             for (const id in data.players) {
                 const incoming = data.players[id];
                 const numId = parseInt(id, 10);
                 const pScraps = Math.max(0, Math.floor(incoming.scraps ?? 0));
                 const pFaction = incoming.faction || 'goodbot';
-                lbEntries.push({ id: numId, name: incoming.name, scraps: pScraps, faction: pFaction });
+                lbBuf.push({ id: numId, name: incoming.name, scraps: pScraps, faction: pFaction });
                 if (numId === myId) {
                     ME.serverX = incoming.x;
                     ME.serverY = incoming.y;
@@ -1945,29 +2098,49 @@ async function connectToServer() {
                 if (existing) {
                     const dx = incoming.x - existing.renderX;
                     const dy = incoming.y - existing.renderY;
-                    const jumped = (dx * dx + dy * dy) > (120 * 120);
-                    Object.assign(existing, incoming);
-                    if (!Array.isArray(incoming.chats)) existing.chats = [];
+                    const jumped = (dx * dx + dy * dy) > 14400;
+                    existing.x = incoming.x;
+                    existing.y = incoming.y;
+                    existing.vx = incoming.vx;
+                    existing.vy = incoming.vy;
+                    existing.angle = incoming.angle;
+                    existing.scale = incoming.scale ?? 1;
+                    existing.width = incoming.width || 48;
+                    existing.height = incoming.height || 48;
+                    existing.name = incoming.name;
+                    existing.faction = pFaction;
+                    existing.health = incoming.health;
+                    existing.maxHealth = incoming.maxHealth;
+                    existing.energy = incoming.energy;
+                    existing.maxEnergy = incoming.maxEnergy;
+                    existing.scraps = pScraps;
+                    existing.chats = Array.isArray(incoming.chats) ? incoming.chats : emptyChats;
+                    existing._seq = stateSeq;
                     if (jumped) {
                         existing.renderX = incoming.x;
                         existing.renderY = incoming.y;
                     }
-                    next[id] = existing;
                 } else {
-                    next[id] = {
+                    serverPlayers[id] = {
                         ...incoming,
-                        chats: Array.isArray(incoming.chats) ? incoming.chats : [],
+                        width: incoming.width || 48,
+                        height: incoming.height || 48,
+                        chats: Array.isArray(incoming.chats) ? incoming.chats : emptyChats,
                         renderX: incoming.x,
                         renderY: incoming.y,
-                        renderAngle: incoming.angle || 0
+                        renderAngle: incoming.angle || 0,
+                        _seq: stateSeq
                     };
                 }
             }
-            lbEntries.sort((a, b) => a.id - b.id);
-            updateLeaderboard(lbEntries.map(e => ({ name: e.name, scraps: e.scraps, faction: e.faction })));
-            serverPlayers = next;
+            for (const id in serverPlayers) {
+                if (serverPlayers[id]._seq !== stateSeq) {
+                    delete serverPlayers[id];
+                }
+            }
+            lbBuf.sort((a, b) => a.id - b.id);
+            updateLeaderboard(lbBuf);
 
-            const nextEnemies = {};
             if (data.enemies && typeof data.enemies === 'object') {
                 for (const id in data.enemies) {
                     const incoming = data.enemies[id];
@@ -1975,24 +2148,42 @@ async function connectToServer() {
                     if (existing) {
                         const dx = incoming.x - existing.renderX;
                         const dy = incoming.y - existing.renderY;
-                        const jumped = (dx * dx + dy * dy) > (120 * 120);
-                        Object.assign(existing, incoming);
+                        const jumped = (dx * dx + dy * dy) > 14400;
+                        existing.x = incoming.x;
+                        existing.y = incoming.y;
+                        existing.vx = incoming.vx;
+                        existing.vy = incoming.vy;
+                        existing.angle = incoming.angle;
+                        existing.scale = incoming.scale ?? 1;
+                        existing.width = incoming.width || 48;
+                        existing.height = incoming.height || 48;
+                        existing.health = incoming.health;
+                        existing.maxHealth = incoming.maxHealth;
+                        existing.energy = incoming.energy;
+                        existing.maxEnergy = incoming.maxEnergy;
+                        existing._seq = stateSeq;
                         if (jumped) {
                             existing.renderX = incoming.x;
                             existing.renderY = incoming.y;
                         }
-                        nextEnemies[id] = existing;
                     } else {
-                        nextEnemies[id] = {
+                        serverEnemies[id] = {
                             ...incoming,
+                            width: incoming.width || 48,
+                            height: incoming.height || 48,
                             renderX: incoming.x,
                             renderY: incoming.y,
-                            renderAngle: incoming.angle || 0
+                            renderAngle: incoming.angle || 0,
+                            _seq: stateSeq
                         };
                     }
                 }
             }
-            serverEnemies = nextEnemies;
+            for (const id in serverEnemies) {
+                if (serverEnemies[id]._seq !== stateSeq) {
+                    delete serverEnemies[id];
+                }
+            }
             return;
         }
 
@@ -2024,6 +2215,7 @@ function resizeCanvas() {
     WORLD.CAMERA.width = canvas.width / WORLD.SYSTEM.viewScale;
     WORLD.CAMERA.height = canvas.height / WORLD.SYSTEM.viewScale;
     ctx.imageSmoothingEnabled = false;
+    labelSpriteCache.clear();
 }
 
 window.addEventListener('resize', () => {
