@@ -16,6 +16,8 @@ const playBtn = document.getElementById('play-btn');
 const statsLayer = document.getElementById('stats-layer');
 const healthFill = document.getElementById('health-fill');
 const energyFill = document.getElementById('energy-fill');
+const healthValue = document.getElementById('health-value');
+const energyValue = document.getElementById('energy-value');
 const leaderboardHeader = document.getElementById('leaderboard-header');
 const leaderboardList = document.getElementById('leaderboard-list');
 const chatLog = document.getElementById('chat-log');
@@ -677,16 +679,18 @@ function loadAssets() {
 }
 
 function updateStatsUI() {
-    const roundedHealth = Math.round(ME.health);
-    const roundedEnergy = Math.ceil(ME.energy);
+    const roundedHealth = Math.max(0, Math.min(255, Math.round(ME.health)));
+    const roundedEnergy = Math.max(0, Math.min(255, Math.ceil(ME.energy)));
 
-    if (roundedHealth !== lastRenderedHealth && healthFill) {
-        healthFill.style.width = `${(roundedHealth / 255) * 100}%`;
+    if (roundedHealth !== lastRenderedHealth) {
+        if (healthFill) healthFill.style.width = `${(roundedHealth / 255) * 100}%`;
+        if (healthValue) healthValue.textContent = String(roundedHealth);
         lastRenderedHealth = roundedHealth;
     }
 
-    if (roundedEnergy !== lastRenderedEnergy && energyFill) {
-        energyFill.style.width = `${(roundedEnergy / 255) * 100}%`;
+    if (roundedEnergy !== lastRenderedEnergy) {
+        if (energyFill) energyFill.style.width = `${(roundedEnergy / 255) * 100}%`;
+        if (energyValue) energyValue.textContent = String(roundedEnergy);
         lastRenderedEnergy = roundedEnergy;
     }
 }
@@ -709,7 +713,11 @@ function appendChatLog(name, text) {
     if (!chatLog) return;
     const entry = document.createElement('div');
     entry.className = 'chat-log-entry';
-    entry.textContent = `${name}: ${text}`;
+    const nameEl = document.createElement('span');
+    nameEl.className = 'chat-log-name';
+    nameEl.textContent = name;
+    entry.appendChild(nameEl);
+    entry.appendChild(document.createTextNode(`: ${text}`));
     chatLog.appendChild(entry);
     while (chatLog.children.length > 50) {
         chatLog.removeChild(chatLog.firstChild);
@@ -875,7 +883,7 @@ function drawPlayer(x, y, width, height, angle, scale, label) {
         ctx.lineWidth = 3;
         ctx.strokeStyle = 'rgba(0,0,0,0.85)';
         ctx.font = '15px Viga, sans-serif';
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = '#d84aff';
         ctx.strokeText(label, x, y - sH / 2 - 10);
         ctx.fillText(label, x, y - sH / 2 - 10);
     }
@@ -1181,8 +1189,8 @@ async function connectToServer() {
             ME.vx = 0;
             ME.vy = 0;
             ME.scale = 1;
-            ME.health = data.health ?? 255;
-            ME.energy = data.energy ?? 255;
+            ME.health = Math.max(0, Math.min(255, data.health ?? 255));
+            ME.energy = Math.max(0, Math.min(255, data.energy ?? 255));
             ME.chats = [];
             updateStatsUI();
             updateLeaderboard([myName]);
@@ -1235,8 +1243,8 @@ async function connectToServer() {
                     ME.vx = incoming.vx;
                     ME.vy = incoming.vy;
                     ME.scale = incoming.scale ?? 1;
-                    if (incoming.health !== undefined) ME.health = incoming.health;
-                    if (incoming.energy !== undefined) ME.energy = incoming.energy;
+                    if (incoming.health !== undefined) ME.health = Math.max(0, Math.min(255, incoming.health));
+                    if (incoming.energy !== undefined) ME.energy = Math.max(0, Math.min(255, incoming.energy));
                     ME.chats = Array.isArray(incoming.chats) ? incoming.chats : [];
                     updateStatsUI();
                     continue;
