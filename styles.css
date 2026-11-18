@@ -229,6 +229,14 @@ canvas {
     gap: 12px;
 }
 
+#scraps-counter {
+    font-size: 20px;
+    line-height: 1.1;
+    color: #ffe100;
+    text-align: right;
+    text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+}
+
 .bar-container {
     position: relative;
     width: 220px;
@@ -326,18 +334,40 @@ canvas {
 }
 
 #leaderboard-list {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
+    display: grid;
+    grid-template-columns: auto minmax(36px, auto);
+    column-gap: 16px;
+    row-gap: 3px;
+    align-items: baseline;
 }
 
 #leaderboard-list.hidden {
     display: none;
 }
 
-.leaderboard-entry {
+.leaderboard-col-label {
+    font-size: 11px;
+    line-height: 1.1;
+    color: rgba(255, 255, 255, 0.85);
+    text-align: right;
+    justify-self: end;
+    text-shadow: 1px 1px 0px rgba(0, 0, 0, 0.85);
+    margin-bottom: 2px;
+}
+
+.leaderboard-name {
     font-size: 16px;
     color: #d84aff;
+    justify-self: start;
+    text-align: left;
+    text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+}
+
+.leaderboard-score {
+    font-size: 16px;
+    color: #ffffff;
+    justify-self: end;
+    text-align: right;
     text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
 }
 
@@ -356,6 +386,29 @@ canvas {
     display: flex;
     flex-direction: column;
     pointer-events: none;
+}
+
+#shop-btn {
+    align-self: flex-start;
+    margin-bottom: 6px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: #ffffff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    filter: drop-shadow(2px 2px 0px rgba(0, 0, 0, 0.85));
+}
+
+#shop-btn:hover {
+    filter: drop-shadow(2px 2px 0px rgba(0, 0, 0, 0.85)) brightness(0.5);
+}
+
+#shop-btn:active {
+    transform: scale(0.92);
 }
 
 #chat-toggle-btn {
@@ -547,7 +600,8 @@ body.touch-mode #mobile-controls {
 }
 
 #settings-overlay,
-#leave-overlay {
+#leave-overlay,
+#shop-overlay {
     position: fixed;
     inset: 0;
     background-color: rgba(0, 0, 0, 0.5);
@@ -560,12 +614,14 @@ body.touch-mode #mobile-controls {
 }
 
 #settings-overlay.open,
-#leave-overlay.open {
+#leave-overlay.open,
+#shop-overlay.open {
     display: flex;
 }
 
 #settings-dialog,
-#leave-dialog {
+#leave-dialog,
+#shop-dialog {
     position: relative;
     width: 340px;
     max-width: 100%;
@@ -577,7 +633,13 @@ body.touch-mode #mobile-controls {
     color: #eeeeee;
 }
 
-#settings-close-btn {
+#shop-dialog {
+    width: auto;
+    min-width: 496px;
+}
+
+#settings-close-btn,
+#shop-close-btn {
     position: absolute;
     top: 12px;
     right: 12px;
@@ -593,21 +655,122 @@ body.touch-mode #mobile-controls {
     justify-content: center;
 }
 
-#settings-close-btn:hover {
+#settings-close-btn:hover,
+#shop-close-btn:hover {
     filter: brightness(0.5);
 }
 
-#settings-close-btn:active {
+#settings-close-btn:active,
+#shop-close-btn:active {
     transform: scale(0.92);
 }
 
 #settings-title,
-#leave-title {
+#leave-title,
+#shop-title {
     margin: 0 0 18px 0;
     font-size: 26px;
     color: #eeeeee;
     text-shadow: 2px 2px 0px #1a1a1a;
     letter-spacing: 1px;
+}
+
+#shop-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 84px);
+    gap: 10px;
+    justify-content: start;
+}
+
+.shop-item-slot {
+    position: relative;
+    width: 84px;
+    height: 84px;
+    background-color: #333333;
+    border: 4px solid #1a1a1a;
+    padding: 6px;
+    color: #eeeeee;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.shop-item-slot:hover {
+    filter: brightness(0.5);
+}
+
+.shop-item-slot:active {
+    transform: scale(0.92);
+}
+
+.shop-item-name {
+    font-size: 13px;
+    line-height: 1.1;
+    color: #eeeeee;
+    text-align: center;
+    text-shadow: 1px 1px 0px #1a1a1a;
+    pointer-events: none;
+}
+
+.shop-item-cost {
+    font-size: 12px;
+    line-height: 1;
+    color: #ffe100;
+    text-shadow: 1px 1px 0px #1a1a1a;
+    pointer-events: none;
+}
+
+#shop-tooltip {
+    position: fixed;
+    display: none;
+    pointer-events: none;
+    z-index: 250;
+    min-width: 180px;
+    max-width: 240px;
+    background-color: rgba(18, 18, 18, 0.96);
+    border: 4px solid #1a1a1a;
+    padding: 10px 12px;
+    color: #eeeeee;
+}
+
+#shop-tooltip.visible {
+    display: block;
+}
+
+#shop-tooltip-title {
+    font-size: 16px;
+    color: #ffffff;
+    text-shadow: 1px 1px 0px #000000;
+    margin-bottom: 3px;
+}
+
+#shop-tooltip-cost {
+    font-size: 13px;
+    color: #ffe100;
+    margin-bottom: 6px;
+}
+
+#shop-tooltip-desc {
+    font-size: 13px;
+    color: #cccccc;
+    line-height: 1.3;
+    margin-bottom: 8px;
+}
+
+#shop-tooltip-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    padding-top: 6px;
+}
+
+.shop-tooltip-stat {
+    font-size: 13px;
+    color: #dddddd;
 }
 
 #leave-title {
@@ -839,6 +1002,10 @@ body.touch-mode #mobile-controls {
     gap: 8px;
 }
 
+#ui-scale-layer.layout-tablet #scraps-counter {
+    font-size: 16px;
+}
+
 #ui-scale-layer.layout-tablet .bar-container {
     width: 160px;
     height: 20px;
@@ -917,8 +1084,13 @@ body.touch-mode #mobile-controls {
     margin-bottom: 4px;
 }
 
-#ui-scale-layer.layout-mobile .leaderboard-entry {
+#ui-scale-layer.layout-mobile .leaderboard-name,
+#ui-scale-layer.layout-mobile .leaderboard-score {
     font-size: 13px;
+}
+
+#ui-scale-layer.layout-mobile .leaderboard-col-label {
+    font-size: 10px;
 }
 
 #ui-scale-layer.layout-mobile #stats-layer {
@@ -927,6 +1099,11 @@ body.touch-mode #mobile-controls {
     bottom: auto;
     right: auto;
     gap: 6px;
+}
+
+#ui-scale-layer.layout-mobile #scraps-counter {
+    font-size: 14px;
+    text-align: left;
 }
 
 #ui-scale-layer.layout-mobile .bar-container {
@@ -940,10 +1117,15 @@ body.touch-mode #mobile-controls {
 }
 
 #ui-scale-layer.layout-mobile #chat-wrapper {
-    top: 98px;
+    top: 120px;
     left: 12px;
     bottom: auto;
     width: 205px;
+}
+
+#ui-scale-layer.layout-mobile #shop-btn svg {
+    width: 26px;
+    height: 26px;
 }
 
 #ui-scale-layer.layout-mobile #chat-log {
@@ -987,6 +1169,32 @@ body.touch-mode #mobile-controls {
     font-size: 12px;
 }
 
+#ui-scale-layer.layout-mobile #shop-dialog {
+    min-width: 0;
+    width: auto;
+    max-width: 100%;
+}
+
+#ui-scale-layer.layout-mobile #shop-grid {
+    grid-template-columns: repeat(5, 52px);
+    gap: 6px;
+}
+
+#ui-scale-layer.layout-mobile .shop-item-slot {
+    width: 52px;
+    height: 52px;
+    border-width: 3px;
+    padding: 3px;
+}
+
+#ui-scale-layer.layout-mobile .shop-item-name {
+    font-size: 10px;
+}
+
+#ui-scale-layer.layout-mobile .shop-item-cost {
+    font-size: 10px;
+}
+
 #ui-scale-layer.layout-tiny #main-menu h1 {
     font-size: 36px;
     margin-bottom: 18px;
@@ -1003,13 +1211,17 @@ body.touch-mode #mobile-controls {
     left: 8px;
 }
 
+#ui-scale-layer.layout-tiny #scraps-counter {
+    font-size: 13px;
+}
+
 #ui-scale-layer.layout-tiny .bar-container {
     width: 118px;
     height: 16px;
 }
 
 #ui-scale-layer.layout-tiny #chat-wrapper {
-    top: 90px;
+    top: 112px;
     left: 8px;
     width: 175px;
 }
@@ -1044,8 +1256,19 @@ body.touch-mode #mobile-controls {
 }
 
 #ui-scale-layer.layout-tiny #settings-dialog,
-#ui-scale-layer.layout-tiny #leave-dialog {
+#ui-scale-layer.layout-tiny #leave-dialog,
+#ui-scale-layer.layout-tiny #shop-dialog {
     padding: 16px;
+}
+
+#ui-scale-layer.layout-tiny #shop-grid {
+    grid-template-columns: repeat(5, 44px);
+    gap: 5px;
+}
+
+#ui-scale-layer.layout-tiny .shop-item-slot {
+    width: 44px;
+    height: 44px;
 }
 
 #ui-scale-layer.layout-tiny .ui-size-btn {
@@ -1088,18 +1311,24 @@ body.touch-mode #mobile-controls {
     gap: 5px;
 }
 
+#ui-scale-layer.layout-short #scraps-counter {
+    font-size: 13px;
+    text-align: left;
+}
+
 #ui-scale-layer.layout-short .bar-container {
     width: 130px;
     height: 16px;
     border-width: 3px;
 }
 
+#ui-scale-layer.layout-short #bar-value,
 #ui-scale-layer.layout-short .bar-value {
     font-size: 10px;
 }
 
 #ui-scale-layer.layout-short #chat-wrapper {
-    top: 90px;
+    top: 112px;
     left: 12px;
     bottom: auto;
     width: 195px;
