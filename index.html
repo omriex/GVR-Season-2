@@ -79,13 +79,25 @@
             </div>
             <div id="stats-layer">
                 <div id="scraps-counter">Scraps: <span id="scraps-value">0</span></div>
-                <div class="bar-container"><div class="bar-fill" id="health-fill"></div><span class="bar-value" id="health-value">255</span></div>
+                <div class="bar-container"><div class="bar-fill" id="health-fill"></div><span class="bar-value" id="health-value">1000</span></div>
                 <div class="bar-container"><div class="bar-fill" id="energy-fill"></div><span class="bar-value" id="energy-value">255</span></div>
+            </div>
+            <div id="game-state-banner">
+                <div id="game-state-title">Waiting to start...</div>
+                <div id="game-state-divider" class="hidden"></div>
+                <div id="game-state-desc" class="hidden">Eliminate all the enemies</div>
+                <button id="game-start-btn" type="button">Start</button>
             </div>
             <div id="leaderboard">
                 <div id="perf-stats">
                     <span id="fps-counter">0 FPS</span>
                     <span id="ping-counter">-- ms</span>
+                </div>
+                <div id="entity-counter">
+                    <div class="entity-row entity-goodbots">Goodbots: <span id="goodbots-count">0</span></div>
+                    <div class="entity-row entity-rarebots">Rarebots: <span id="rarebots-count">0</span></div>
+                    <div class="entity-divider"></div>
+                    <div class="entity-row entity-wave">Wave: <span id="wave-count">0</span></div>
                 </div>
                 <div id="leaderboard-header">Leaderboard</div>
                 <div id="leaderboard-list"></div>
@@ -94,6 +106,7 @@
                 <div id="mobile-joystick">
                     <div id="mobile-joystick-thumb"></div>
                 </div>
+                <button id="mobile-attack-btn" type="button">HIT</button>
                 <button id="mobile-sprint-btn" type="button">SPRINT</button>
             </div>
         </div>
