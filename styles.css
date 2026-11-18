@@ -230,6 +230,7 @@ canvas {
 }
 
 .bar-container {
+    position: relative;
     width: 220px;
     height: 24px;
     background-color: #333;
@@ -242,12 +243,40 @@ canvas {
     width: 100%;
 }
 
+.bar-value {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    line-height: 1;
+    pointer-events: none;
+    white-space: nowrap;
+    text-shadow:
+        -1px -1px 0 #000000,
+         1px -1px 0 #000000,
+        -1px  1px 0 #000000,
+         1px  1px 0 #000000,
+         0px -1px 0 #000000,
+         0px  1px 0 #000000,
+        -1px  0px 0 #000000,
+         1px  0px 0 #000000;
+}
+
 #health-fill {
     background-color: #cc3f3f;
 }
 
+#health-value {
+    color: #cc3f3f;
+}
+
 #energy-fill {
     background-color: #d1ab38;
+}
+
+#energy-value {
+    color: #d1ab38;
 }
 
 #leaderboard {
@@ -308,7 +337,7 @@ canvas {
 
 .leaderboard-entry {
     font-size: 16px;
-    color: #ffffff;
+    color: #d84aff;
     text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
 }
 
@@ -392,6 +421,10 @@ canvas {
     word-break: break-word;
     user-select: text;
     -webkit-user-select: text;
+}
+
+.chat-log-name {
+    color: #d84aff;
 }
 
 #chat-input {
@@ -811,6 +844,10 @@ body.touch-mode #mobile-controls {
     height: 20px;
 }
 
+#ui-scale-layer.layout-tablet .bar-value {
+    font-size: 11px;
+}
+
 #ui-scale-layer.layout-tablet #mobile-joystick {
     bottom: 158px;
     left: 16px;
@@ -896,6 +933,10 @@ body.touch-mode #mobile-controls {
     width: 140px;
     height: 18px;
     border-width: 3px;
+}
+
+#ui-scale-layer.layout-mobile .bar-value {
+    font-size: 10px;
 }
 
 #ui-scale-layer.layout-mobile #chat-wrapper {
@@ -1051,6 +1092,10 @@ body.touch-mode #mobile-controls {
     width: 130px;
     height: 16px;
     border-width: 3px;
+}
+
+#ui-scale-layer.layout-short .bar-value {
+    font-size: 10px;
 }
 
 #ui-scale-layer.layout-short #chat-wrapper {
