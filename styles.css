@@ -77,11 +77,35 @@ canvas {
 }
 
 #play-btn:hover {
-    background-color: #45a049;
+    filter: brightness(0.5);
 }
 
 #play-btn:active {
-    transform: scale(0.98);
+    transform: scale(0.92);
+}
+
+#settings-btn {
+    position: fixed;
+    top: 20px;
+    left: 25px;
+    z-index: 150;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: #ffffff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    filter: drop-shadow(2px 2px 0px rgba(0, 0, 0, 0.85));
+}
+
+#settings-btn:hover {
+    filter: drop-shadow(2px 2px 0px rgba(0, 0, 0, 0.85)) brightness(0.5);
+}
+
+#settings-btn:active {
+    transform: scale(0.92);
 }
 
 #game-ui {
@@ -136,13 +160,41 @@ canvas {
     pointer-events: auto;
 }
 
+#perf-stats {
+    display: flex;
+    justify-content: flex-end;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 16px;
+    color: #ffffff;
+    text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+    margin-bottom: 4px;
+    pointer-events: none;
+}
+
+#perf-stats.hidden,
+#fps-counter.hidden,
+#ping-counter.hidden {
+    display: none;
+}
+
 #leaderboard-header {
+    display: inline-block;
     font-size: 20px;
     text-decoration: underline;
     text-underline-offset: 4px;
     cursor: pointer;
     text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
     margin-bottom: 6px;
+    transform-origin: right center;
+}
+
+#leaderboard-header:hover {
+    filter: brightness(0.5);
+}
+
+#leaderboard-header:active {
+    transform: scale(0.92);
 }
 
 #leaderboard-list {
@@ -167,12 +219,55 @@ canvas {
     -webkit-user-select: text;
 }
 
-#chat-box {
+#chat-wrapper {
     position: absolute;
     bottom: 30px;
     left: 30px;
     width: 320px;
     max-width: calc(100vw - 60px);
+    display: flex;
+    flex-direction: column;
+    pointer-events: none;
+}
+
+#chat-toggle-btn {
+    width: 100%;
+    height: 18px;
+    background-color: rgba(0, 0, 0, 0.5);
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0;
+    padding: 0;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+#chat-toggle-btn:hover {
+    filter: brightness(0.5);
+}
+
+#chat-toggle-btn:active {
+    transform: scale(0.92);
+}
+
+#chat-wrapper.minimized #chat-box {
+    display: none;
+}
+
+#chat-wrapper.minimized #chat-toggle-btn {
+    border-bottom: none;
+}
+
+#chat-wrapper.minimized #chat-toggle-icon {
+    transform: rotate(180deg);
+}
+
+#chat-box {
+    width: 100%;
     background-color: rgba(0, 0, 0, 0.5);
     border-radius: 0;
     display: flex;
@@ -212,6 +307,14 @@ canvas {
     outline: none;
 }
 
+#chat-input:hover {
+    filter: brightness(0.5);
+}
+
+#chat-input:active {
+    transform: scale(0.92);
+}
+
 #chat-input::placeholder {
     color: rgba(255, 255, 255, 0.45);
 }
@@ -235,7 +338,186 @@ canvas {
     cursor: pointer;
 }
 
+.slot:hover {
+    filter: brightness(0.5);
+}
+
+.slot:active {
+    transform: scale(0.92);
+}
+
 .slot.active {
     border-color: #ffffff;
 }
 
+#settings-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+}
+
+#settings-overlay.open {
+    display: flex;
+}
+
+#settings-dialog {
+    position: relative;
+    width: 340px;
+    max-width: calc(100vw - 40px);
+    background-color: #242424;
+    border: 4px solid #1a1a1a;
+    padding: 20px 24px 24px 24px;
+    color: #eeeeee;
+}
+
+#settings-close-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: #888888;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#settings-close-btn:hover {
+    filter: brightness(0.5);
+}
+
+#settings-close-btn:active {
+    transform: scale(0.92);
+}
+
+#settings-title {
+    margin: 0 0 18px 0;
+    font-size: 26px;
+    color: #eeeeee;
+    text-shadow: 2px 2px 0px #1a1a1a;
+    letter-spacing: 1px;
+}
+
+.settings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.setting-checkbox-row {
+    cursor: pointer;
+}
+
+.setting-label {
+    font-size: 16px;
+    color: #eeeeee;
+}
+
+.setting-value {
+    font-size: 14px;
+    color: #bbbbbb;
+}
+
+.setting-checkbox {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    background-color: #333333;
+    border: 3px solid #1a1a1a;
+    border-radius: 0;
+    cursor: pointer;
+    position: relative;
+    margin: 0;
+}
+
+.setting-checkbox:hover {
+    filter: brightness(0.5);
+}
+
+.setting-checkbox:active {
+    transform: scale(0.92);
+}
+
+.setting-checkbox:checked {
+    background-color: #4CAF50;
+}
+
+.setting-checkbox:checked::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 1px;
+    width: 5px;
+    height: 10px;
+    border: solid #ffffff;
+    border-width: 0 3px 3px 0;
+    transform: rotate(45deg);
+}
+
+.setting-slider-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+}
+
+.setting-slider-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.setting-slider {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    height: 12px;
+    background-color: #333333;
+    border: 3px solid #1a1a1a;
+    border-radius: 0;
+    outline: none;
+    cursor: pointer;
+    margin: 0;
+}
+
+.setting-slider::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px;
+    height: 22px;
+    background-color: #4CAF50;
+    border: 3px solid #1a1a1a;
+    border-radius: 0;
+    cursor: pointer;
+}
+
+.setting-slider::-moz-range-thumb {
+    width: 18px;
+    height: 22px;
+    background-color: #4CAF50;
+    border: 3px solid #1a1a1a;
+    border-radius: 0;
+    cursor: pointer;
+}
+
+.setting-slider:hover {
+    filter: brightness(0.5);
+}
+
+.setting-slider:active {
+    transform: scale(0.92);
+}
