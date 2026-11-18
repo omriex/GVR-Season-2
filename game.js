@@ -15,6 +15,20 @@ const leaderboardHeader = document.getElementById('leaderboard-header');
 const leaderboardList = document.getElementById('leaderboard-list');
 const chatLog = document.getElementById('chat-log');
 const chatInput = document.getElementById('chat-input');
+const chatWrapper = document.getElementById('chat-wrapper');
+const chatToggleBtn = document.getElementById('chat-toggle-btn');
+const perfStats = document.getElementById('perf-stats');
+const fpsCounter = document.getElementById('fps-counter');
+const pingCounter = document.getElementById('ping-counter');
+const settingsBtn = document.getElementById('settings-btn');
+const settingsOverlay = document.getElementById('settings-overlay');
+const settingsCloseBtn = document.getElementById('settings-close-btn');
+const settingShowPing = document.getElementById('setting-show-ping');
+const settingShowFps = document.getElementById('setting-show-fps');
+const settingMusicVolume = document.getElementById('setting-music-volume');
+const settingSoundVolume = document.getElementById('setting-sound-volume');
+const musicVolumeValue = document.getElementById('music-volume-value');
+const soundVolumeValue = document.getElementById('sound-volume-value');
 const inventorySlots = document.querySelectorAll('#inventory-layer .slot');
 
 const LOGICAL_WIDTH = 1280;
@@ -79,6 +93,151 @@ let menuCamVY = 45;
 let lastInputKeySig = '';
 let lastSentAngle = 0;
 let lastInputSendTime = 0;
+
+let isSettingsOpen = false;
+let isChatMinimized = false;
+let currentPingMs = null;
+let pingProbeUrl = null;
+let pingTimerId = null;
+
+const SETTINGS = {
+    showPing: true,
+    showFps: true,
+    musicVolume: 100,
+    soundVolume: 100
+};
+
+window.GAME_AUDIO_SETTINGS = {
+    musicVolume: 1,
+    soundVolume: 1
+};
+
+function loadSettings() {
+    try {
+        const raw = localStorage.getItem('gvr_settings');
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (typeof parsed.showPing === 'boolean') SETTINGS.showPing = parsed.showPing;
+            if (typeof parsed.showFps === 'boolean') SETTINGS.showFps = parsed.showFps;
+            if (typeof parsed.musicVolume === 'number' && isFinite(parsed.musicVolume)) {
+                SETTINGS.musicVolume = Math.max(0, Math.min(100, Math.round(parsed.musicVolume)));
+            }
+            if (typeof parsed.soundVolume === 'number' && isFinite(parsed.soundVolume)) {
+                SETTINGS.soundVolume = Math.max(0, Math.min(100, Math.round(parsed.soundVolume)));
+            }
+        }
+    } catch (_) {}
+}
+
+function saveSettings() {
+    try {
+        localStorage.setItem('gvr_settings', JSON.stringify(SETTINGS));
+    } catch (_) {}
+}
+
+function applySettingsToUI() {
+    if (settingShowPing) settingShowPing.checked = SETTINGS.showPing;
+    if (settingShowFps) settingShowFps.checked = SETTINGS.showFps;
+    if (settingMusicVolume) settingMusicVolume.value = String(SETTINGS.musicVolume);
+    if (settingSoundVolume) settingSoundVolume.value = String(SETTINGS.soundVolume);
+    if (musicVolumeValue) musicVolumeValue.textContent = `${SETTINGS.musicVolume}%`;
+    if (soundVolumeValue) soundVolumeValue.textContent = `${SETTINGS.soundVolume}%`;
+
+    window.GAME_AUDIO_SETTINGS.musicVolume = SETTINGS.musicVolume / 100;
+    window.GAME_AUDIO_SETTINGS.soundVolume = SETTINGS.soundVolume / 100;
+
+    if (fpsCounter) {
+        fpsCounter.classList.toggle('hidden', !SETTINGS.showFps);
+    }
+    if (pingCounter) {
+        pingCounter.classList.toggle('hidden', !SETTINGS.showPing);
+    }
+    if (perfStats) {
+        perfStats.classList.toggle('hidden', !SETTINGS.showFps && !SETTINGS.showPing);
+    }
+}
+
+function openSettings() {
+    if (!settingsOverlay) return;
+    isSettingsOpen = true;
+    clearHeldInputs();
+    if (document.activeElement === chatInput) {
+        closeChat();
+    }
+    settingsOverlay.classList.add('open');
+    settingsOverlay.setAttribute('aria-hidden', 'false');
+}
+
+function closeSettings() {
+    if (!settingsOverlay) return;
+    isSettingsOpen = false;
+    settingsOverlay.classList.remove('open');
+    settingsOverlay.setAttribute('aria-hidden', 'true');
+}
+
+function setChatMinimized(minimized) {
+    isChatMinimized = Boolean(minimized);
+    if (chatWrapper) {
+        chatWrapper.classList.toggle('minimized', isChatMinimized);
+    }
+    if (chatToggleBtn) {
+        chatToggleBtn.setAttribute('aria-expanded', isChatMinimized ? 'false' : 'true');
+        chatToggleBtn.setAttribute('aria-label', isChatMinimized ? 'Maximize chat' : 'Minimize chat');
+    }
+    if (isChatMinimized && document.activeElement === chatInput) {
+        chatInput.blur();
+    }
+}
+
+function updatePingDisplay(ms) {
+    if (typeof ms !== 'number' || !isFinite(ms) || ms < 0) return;
+    currentPingMs = Math.round(ms);
+    if (pingCounter) {
+        pingCounter.textContent = `${currentPingMs} ms`;
+    }
+}
+
+function wsUrlToHttpProbe(wsUrl) {
+    if (!wsUrl) return null;
+    if (wsUrl.startsWith('wss://')) return 'https://' + wsUrl.slice(6);
+    if (wsUrl.startsWith('ws://')) return 'http://' + wsUrl.slice(5);
+    return wsUrl;
+}
+
+async function measurePingOnce() {
+    if (!pingProbeUrl) return;
+    const start = performance.now();
+    try {
+        await fetch(pingProbeUrl, { method: 'HEAD', mode: 'no-cors', cache: 'no-store' });
+        updatePingDisplay(performance.now() - start);
+    } catch (_) {}
+}
+
+function startPingMonitor(wsUrl) {
+    pingProbeUrl = wsUrlToHttpProbe(wsUrl);
+    if (pingTimerId !== null) return;
+    measurePingOnce();
+    pingTimerId = setInterval(measurePingOnce, 2000);
+}
+
+let fpsFrames = 0;
+let fpsLastSample = performance.now();
+function startFpsCounter() {
+    function tick(now) {
+        fpsFrames++;
+        const elapsed = now - fpsLastSample;
+        if (elapsed >= 500) {
+            const fps = Math.round((fpsFrames * 1000) / elapsed);
+            fpsFrames = 0;
+            fpsLastSample = now;
+            if (fpsCounter && SETTINGS.showFps) {
+                fpsCounter.textContent = `${fps} FPS`;
+            }
+        }
+        requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+}
 
 const tilesheetImg = new Image();
 const goodbotImg = new Image();
@@ -616,10 +775,13 @@ async function connectToServer() {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
     const wsUrl = await resolveWsUrl();
+    startPingMonitor(wsUrl);
+    const wsConnectStart = performance.now();
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
         hasConnected = true;
+        updatePingDisplay(performance.now() - wsConnectStart);
         if (!inMainMenu && pendingJoinName !== null) {
             ws.send(JSON.stringify({ type: 'join', name: pendingJoinName }));
             pendingJoinName = null;
@@ -631,6 +793,11 @@ async function connectToServer() {
         try {
             data = JSON.parse(event.data);
         } catch (_) {
+            return;
+        }
+
+        if (data.type === 'pong' && typeof data.t === 'number') {
+            updatePingDisplay(performance.now() - data.t);
             return;
         }
 
@@ -793,6 +960,7 @@ function clearHeldInputs() {
 
 function openChat() {
     if (!chatInput) return;
+    if (isChatMinimized) setChatMinimized(false);
     clearHeldInputs();
     chatInput.focus();
 }
@@ -804,6 +972,13 @@ function closeChat() {
 }
 
 window.addEventListener('keydown', e => {
+    if (isSettingsOpen) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeSettings();
+        }
+        return;
+    }
     if (e.key === 'Enter') {
         if (inMainMenu) {
             if (playBtn) playBtn.click();
@@ -868,9 +1043,71 @@ window.addEventListener('DOMContentLoaded', () => {
     const savedName = localStorage.getItem('playerName');
     if (savedName && nameInput) nameInput.value = savedName;
 
+    loadSettings();
+    applySettingsToUI();
+    startFpsCounter();
+
     resizeCanvas();
     loadAssets();
     connectToServer();
+
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', () => {
+            openSettings();
+        });
+    }
+
+    if (settingsCloseBtn) {
+        settingsCloseBtn.addEventListener('click', () => {
+            closeSettings();
+        });
+    }
+
+    if (settingsOverlay) {
+        settingsOverlay.addEventListener('click', (e) => {
+            if (e.target === settingsOverlay) {
+                closeSettings();
+            }
+        });
+    }
+
+    if (settingShowPing) {
+        settingShowPing.addEventListener('change', () => {
+            SETTINGS.showPing = settingShowPing.checked;
+            saveSettings();
+            applySettingsToUI();
+        });
+    }
+
+    if (settingShowFps) {
+        settingShowFps.addEventListener('change', () => {
+            SETTINGS.showFps = settingShowFps.checked;
+            saveSettings();
+            applySettingsToUI();
+        });
+    }
+
+    if (settingMusicVolume) {
+        settingMusicVolume.addEventListener('input', () => {
+            SETTINGS.musicVolume = Number(settingMusicVolume.value);
+            saveSettings();
+            applySettingsToUI();
+        });
+    }
+
+    if (settingSoundVolume) {
+        settingSoundVolume.addEventListener('input', () => {
+            SETTINGS.soundVolume = Number(settingSoundVolume.value);
+            saveSettings();
+            applySettingsToUI();
+        });
+    }
+
+    if (chatToggleBtn) {
+        chatToggleBtn.addEventListener('click', () => {
+            setChatMinimized(!isChatMinimized);
+        });
+    }
 
     if (chatInput) {
         chatInput.addEventListener('focus', () => {
