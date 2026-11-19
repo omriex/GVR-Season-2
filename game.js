@@ -71,13 +71,15 @@ const LOGICAL_HEIGHT = 720;
 const WORLD = {
     MAP: {
         tileSize: 64,
-        chunkSize: 1024,
+        chunkSize: 512,
         columns: 0,
         rows: 0,
         mapData: null,
         bgChunks: [],
         wallChunks: [],
-        fgChunks: []
+        fgChunks: [],
+        wallChunkBounds: [],
+        fgChunkBounds: []
     },
     CAMERA: { x: null, y: null, width: LOGICAL_WIDTH, height: LOGICAL_HEIGHT },
     INPUTS: {
@@ -141,6 +143,8 @@ const recoilAnims = new Map();
 const equipAnims = new Map();
 const leftPunchAnims = new Map();
 const enemyAggroUntil = new Map();
+const enemyAlertBadges = new Map();
+const alertCommWaves = [];
 const serverProjectiles = new Map();
 const explosions = [];
 const floatingTexts = [];
@@ -293,6 +297,8 @@ function returnToMainMenu() {
     equipAnims.clear();
     leftPunchAnims.clear();
     enemyAggroUntil.clear();
+    enemyAlertBadges.clear();
+    alertCommWaves.length = 0;
     serverProjectiles.clear();
     myInventory = [null, null, null, null, null];
     activeSlot = 0;
@@ -867,7 +873,8 @@ const soundBuffers = {
     bulletImpact1: null,
     bulletImpact2: null,
     bulletImpact3: null,
-    bulletWallImpact: null
+    bulletWallImpact: null,
+    grapple1: null
 };
 
 function ensureAudioContext() {
@@ -891,7 +898,8 @@ function ensureAudioContext() {
             bulletImpact1: 'sounds/bullet impact 1.mp3',
             bulletImpact2: 'sounds/bullet impact 2.mp3',
             bulletImpact3: 'sounds/bullet impact 3.mp3',
-            bulletWallImpact: 'sounds/bullet wall impact.mp3'
+            bulletWallImpact: 'sounds/bullet wall impact.mp3',
+            grapple1: 'sounds/grapple 1.mp3'
         };
         Promise.all(
             Object.entries(files).map(async ([key, url]) => {
@@ -920,7 +928,8 @@ const lastSoundAt = {
     bulletImpact1: 0,
     bulletImpact2: 0,
     bulletImpact3: 0,
-    bulletWallImpact: 0
+    bulletWallImpact: 0,
+    grapple1: 0
 };
 
 function playSpatialSound(key, wx, wy) {
@@ -1015,6 +1024,8 @@ function preRenderMap() {
     WORLD.MAP.fgChunks = [];
     WORLD.MAP.wallChunkEmpty = [];
     WORLD.MAP.fgChunkEmpty = [];
+    WORLD.MAP.wallChunkBounds = [];
+    WORLD.MAP.fgChunkBounds = [];
 
     for (let cy = 0; cy < numCY; cy++) {
         WORLD.MAP.bgChunks[cy] = [];
@@ -1022,6 +1033,8 @@ function preRenderMap() {
         WORLD.MAP.fgChunks[cy] = [];
         WORLD.MAP.wallChunkEmpty[cy] = [];
         WORLD.MAP.fgChunkEmpty[cy] = [];
+        WORLD.MAP.wallChunkBounds[cy] = [];
+        WORLD.MAP.fgChunkBounds[cy] = [];
         for (let cx = 0; cx < numCX; cx++) {
             const bg = document.createElement('canvas');
             bg.width = bg.height = WORLD.MAP.chunkSize;
@@ -1038,7 +1051,7 @@ function preRenderMap() {
 }
 
 function renderChunk(cx, cy) {
-    const bgCtx = WORLD.MAP.bgChunks[cy][cx].getContext('2d', { alpha: true });
+    const bgCtx = WORLD.MAP.bgChunks[cy][cx].getContext('2d', { alpha: false });
     const wcCtx = WORLD.MAP.wallChunks[cy][cx].getContext('2d', { alpha: true });
     const fgCtx = WORLD.MAP.fgChunks[cy][cx].getContext('2d', { alpha: true });
 
@@ -1046,20 +1059,27 @@ function renderChunk(cx, cy) {
     wcCtx.imageSmoothingEnabled = false;
     fgCtx.imageSmoothingEnabled = false;
 
-    bgCtx.clearRect(0, 0, WORLD.MAP.chunkSize, WORLD.MAP.chunkSize);
+    bgCtx.fillStyle = '#000000';
+    bgCtx.fillRect(0, 0, WORLD.MAP.chunkSize, WORLD.MAP.chunkSize);
     wcCtx.clearRect(0, 0, WORLD.MAP.chunkSize, WORLD.MAP.chunkSize);
     fgCtx.clearRect(0, 0, WORLD.MAP.chunkSize, WORLD.MAP.chunkSize);
 
     WORLD.MAP.wallChunkEmpty[cy][cx] = true;
     WORLD.MAP.fgChunkEmpty[cy][cx] = true;
+    WORLD.MAP.wallChunkBounds[cy][cx] = null;
+    WORLD.MAP.fgChunkBounds[cy][cx] = null;
 
     if (!tilesheetImg.complete || tilesheetImg.naturalWidth === 0) return;
 
+    const cs = WORLD.MAP.chunkSize;
     const tileSize = WORLD.MAP.tileSize;
-    const startCol = Math.max(0, Math.floor((cx * WORLD.MAP.chunkSize) / tileSize));
-    const endCol = Math.min(WORLD.MAP.columns, Math.ceil(((cx + 1) * WORLD.MAP.chunkSize) / tileSize));
-    const startRow = Math.max(0, Math.floor((cy * WORLD.MAP.chunkSize) / tileSize));
-    const endRow = Math.min(WORLD.MAP.rows, Math.ceil(((cy + 1) * WORLD.MAP.chunkSize) / tileSize));
+    const startCol = Math.max(0, Math.floor((cx * cs) / tileSize));
+    const endCol = Math.min(WORLD.MAP.columns, Math.ceil(((cx + 1) * cs) / tileSize));
+    const startRow = Math.max(0, Math.floor((cy * cs) / tileSize));
+    const endRow = Math.min(WORLD.MAP.rows, Math.ceil(((cy + 1) * cs) / tileSize));
+
+    let wMinX = cs, wMinY = cs, wMaxX = 0, wMaxY = 0;
+    let fMinX = cs, fMinY = cs, fMaxX = 0, fMaxY = 0;
 
     const layerOrder = ['floor1', 'floor2', 'wall', 'tree'];
     for (const layerName of layerOrder) {
@@ -1073,14 +1093,42 @@ function renderChunk(cx, cy) {
             for (let c = startCol; c < endCol; c++) {
                 const cell = rowArr[c];
                 if (cell) {
-                    if (layerName === 'wall') WORLD.MAP.wallChunkEmpty[cy][cx] = false;
-                    else if (layerName === 'tree') WORLD.MAP.fgChunkEmpty[cy][cx] = false;
-                    const dx = (c * tileSize) - (cx * WORLD.MAP.chunkSize);
-                    const dy = (r * tileSize) - (cy * WORLD.MAP.chunkSize);
+                    const dx = (c * tileSize) - (cx * cs);
+                    const dy = (r * tileSize) - (cy * cs);
+                    if (layerName === 'wall') {
+                        WORLD.MAP.wallChunkEmpty[cy][cx] = false;
+                        if (dx < wMinX) wMinX = dx;
+                        if (dy < wMinY) wMinY = dy;
+                        if (dx + tileSize > wMaxX) wMaxX = dx + tileSize;
+                        if (dy + tileSize > wMaxY) wMaxY = dy + tileSize;
+                    } else if (layerName === 'tree') {
+                        WORLD.MAP.fgChunkEmpty[cy][cx] = false;
+                        if (dx < fMinX) fMinX = dx;
+                        if (dy < fMinY) fMinY = dy;
+                        if (dx + tileSize > fMaxX) fMaxX = dx + tileSize;
+                        if (dy + tileSize > fMaxY) fMaxY = dy + tileSize;
+                    }
                     drawTileCell(targetCtx, cell, dx, dy, tileSize);
                 }
             }
         }
+    }
+
+    if (!WORLD.MAP.wallChunkEmpty[cy][cx]) {
+        WORLD.MAP.wallChunkBounds[cy][cx] = {
+            minX: Math.max(0, wMinX),
+            minY: Math.max(0, wMinY),
+            maxX: Math.min(cs, wMaxX),
+            maxY: Math.min(cs, wMaxY)
+        };
+    }
+    if (!WORLD.MAP.fgChunkEmpty[cy][cx]) {
+        WORLD.MAP.fgChunkBounds[cy][cx] = {
+            minX: Math.max(0, fMinX),
+            minY: Math.max(0, fMinY),
+            maxX: Math.min(cs, fMaxX),
+            maxY: Math.min(cs, fMaxY)
+        };
     }
 }
 
@@ -1436,6 +1484,15 @@ function update(dt) {
         }
     }
 
+    for (let i = alertCommWaves.length - 1; i >= 0; i--) {
+        const w = alertCommWaves[i];
+        w.age += dt;
+        if (w.age >= w.life) {
+            alertCommWaves[i] = alertCommWaves[alertCommWaves.length - 1];
+            alertCommWaves.pop();
+        }
+    }
+
     if (pendingFloatingTexts.length > 0) {
         const waitingPlayers = new Set();
         for (let i = 0; i < pendingFloatingTexts.length; i++) {
@@ -1709,6 +1766,30 @@ function getLeftPunchOffset(entityKey, nowMs) {
     return { dy: -16 * mag, rot: 0.28 * mag };
 }
 
+const scaledSpriteCache = new Map();
+let scaledSpriteViewScale = 0;
+
+function getScaledSpriteCanvas(key, img, sx, sy, sw, sh, logicalW, logicalH) {
+    if (!img || !img.complete || img.naturalWidth === 0) return null;
+    const vs = Math.max(0.5, WORLD.SYSTEM.viewScale || 1);
+    if (scaledSpriteViewScale !== vs) {
+        scaledSpriteCache.clear();
+        scaledSpriteViewScale = vs;
+    }
+    let cached = scaledSpriteCache.get(key);
+    if (cached) return cached;
+
+    const mipScale = vs * 1.25;
+    const c = document.createElement('canvas');
+    c.width = Math.max(8, Math.ceil(logicalW * mipScale));
+    c.height = Math.max(8, Math.ceil(logicalH * mipScale));
+    const cctx = c.getContext('2d');
+    cctx.imageSmoothingEnabled = false;
+    cctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+    scaledSpriteCache.set(key, c);
+    return c;
+}
+
 function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, entityKey, nowMs) {
     ctx.save();
     ctx.translate(x, y);
@@ -1726,34 +1807,55 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
             const fullH = pistolImg.naturalHeight;
             const pH = fullH * pxScaleY;
             const leftW = Math.min(splitX, pistolImg.naturalWidth);
+            const leftDrawW = leftW * pxScaleX;
+            const rightW = pistolImg.naturalWidth - leftW;
+            const rightDrawW = rightW * pxScaleX;
+            const leftMip = getScaledSpriteCanvas(`${weapon}_L`, pistolImg, 0, 0, leftW, fullH, (leftW / refW) * 48 * HANDS_SCALE, (fullH / refH) * 48 * HANDS_SCALE) || pistolImg;
             const bodyScale = sW / 48;
             const leftPunch = getLeftPunchOffset(entityKey, nowMs);
             if (leftPunch) {
                 ctx.save();
                 ctx.translate(0, leftPunch.dy * bodyScale);
                 ctx.rotate(leftPunch.rot);
-                ctx.drawImage(pistolImg, 0, 0, leftW, fullH, -splitX * pxScaleX, -596 * pxScaleY, leftW * pxScaleX, pH);
+                if (leftMip !== pistolImg) {
+                    ctx.drawImage(leftMip, -splitX * pxScaleX, -596 * pxScaleY, leftDrawW, pH);
+                } else {
+                    ctx.drawImage(pistolImg, 0, 0, leftW, fullH, -splitX * pxScaleX, -596 * pxScaleY, leftDrawW, pH);
+                }
                 ctx.restore();
             } else {
-                ctx.drawImage(pistolImg, 0, 0, leftW, fullH, -splitX * pxScaleX, -596 * pxScaleY, leftW * pxScaleX, pH);
+                if (leftMip !== pistolImg) {
+                    ctx.drawImage(leftMip, -splitX * pxScaleX, -596 * pxScaleY, leftDrawW, pH);
+                } else {
+                    ctx.drawImage(pistolImg, 0, 0, leftW, fullH, -splitX * pxScaleX, -596 * pxScaleY, leftDrawW, pH);
+                }
             }
 
-            const rightW = pistolImg.naturalWidth - leftW;
             if (rightW > 0) {
+                const rightMip = getScaledSpriteCanvas(`${weapon}_R`, pistolImg, leftW, 0, rightW, fullH, (rightW / refW) * 48 * HANDS_SCALE, (fullH / refH) * 48 * HANDS_SCALE) || pistolImg;
                 const equip = getEquipTransform(entityKey, nowMs);
                 const recoil = getRecoilTransform(entityKey, nowMs);
                 const rDx = equip ? equip.dx * bodyScale : 0;
                 const rDy = (equip ? equip.dy * bodyScale : 0) + (recoil ? recoil.dy * bodyScale : 0);
                 const rRot = (equip ? equip.rot : 0) + (recoil ? recoil.rot : 0);
-                ctx.save();
-                if (rDx !== 0 || rDy !== 0) {
-                    ctx.translate(rDx, rDy);
+                const needRightXform = rDx !== 0 || rDy !== 0 || rRot !== 0;
+                if (needRightXform) {
+                    ctx.save();
+                    if (rDx !== 0 || rDy !== 0) {
+                        ctx.translate(rDx, rDy);
+                    }
+                    if (rRot !== 0) {
+                        ctx.rotate(rRot);
+                    }
                 }
-                if (rRot !== 0) {
-                    ctx.rotate(rRot);
+                if (rightMip !== pistolImg) {
+                    ctx.drawImage(rightMip, 0, -596 * pxScaleY, rightDrawW, pH);
+                } else {
+                    ctx.drawImage(pistolImg, leftW, 0, rightW, fullH, 0, -596 * pxScaleY, rightDrawW, pH);
                 }
-                ctx.drawImage(pistolImg, leftW, 0, rightW, fullH, 0, -596 * pxScaleY, rightW * pxScaleX, pH);
-                ctx.restore();
+                if (needRightXform) {
+                    ctx.restore();
+                }
             }
             ctx.restore();
             return;
@@ -1764,7 +1866,18 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
     if (handsImg.complete && handsImg.naturalWidth > 0) {
         const hW = sW * (handsImg.naturalWidth / refW) * HANDS_SCALE;
         const hH = sH * (handsImg.naturalHeight / refH) * HANDS_SCALE;
-        ctx.drawImage(handsImg, -hW / 2, -hH / 2, hW, hH);
+        const handsKey = spriteKind === 'prototype' ? 'proto_hands' : 'bot_hands';
+        const handsMip = getScaledSpriteCanvas(
+            handsKey,
+            handsImg,
+            0,
+            0,
+            handsImg.naturalWidth,
+            handsImg.naturalHeight,
+            48 * (handsImg.naturalWidth / refW) * HANDS_SCALE,
+            48 * (handsImg.naturalHeight / refH) * HANDS_SCALE
+        ) || handsImg;
+        ctx.drawImage(handsMip, -hW / 2, -hH / 2, hW, hH);
     } else {
         const r = sW * 0.14 * HANDS_SCALE;
         const hx = sW * 0.46 * HANDS_SCALE;
@@ -1788,8 +1901,14 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
     const sW = width * scale;
     const sH = height * scale;
     let spriteImg = goodbotImg;
-    if (spriteKind === 'prototype') spriteImg = prototypeRarebotImg;
-    else if (faction === 'rarebot') spriteImg = rarebotImg;
+    let bodyKey = 'body_goodbot';
+    if (spriteKind === 'prototype') {
+        spriteImg = prototypeRarebotImg;
+        bodyKey = 'body_proto';
+    } else if (faction === 'rarebot') {
+        spriteImg = rarebotImg;
+        bodyKey = 'body_rarebot';
+    }
     const isSpectator = faction === 'spectator';
 
     if (showHands && !isSpectator) {
@@ -1797,11 +1916,12 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
     }
 
     if (spriteImg.complete && spriteImg.naturalWidth > 0) {
+        const bodyMip = getScaledSpriteCanvas(bodyKey, spriteImg, 0, 0, spriteImg.naturalWidth, spriteImg.naturalHeight, width, height) || spriteImg;
         ctx.save();
         if (isSpectator) ctx.globalAlpha = 0.5;
         ctx.translate(x, y);
         ctx.rotate(angle);
-        ctx.drawImage(spriteImg, -sW / 2, -sH / 2, sW, sH);
+        ctx.drawImage(bodyMip, -sW / 2, -sH / 2, sW, sH);
         ctx.restore();
     }
 
@@ -1904,39 +2024,74 @@ function drawChatBubbles(chats, x, bottomY) {
     }
 }
 
+function drawClippedChunk(chunkCanvas, worldX0, worldY0, bounds, camX, camY, visW, visH) {
+    const rx0 = worldX0 + bounds.minX;
+    const ry0 = worldY0 + bounds.minY;
+    const rx1 = worldX0 + bounds.maxX;
+    const ry1 = worldY0 + bounds.maxY;
+    const ix0 = rx0 > camX ? rx0 : camX;
+    const iy0 = ry0 > camY ? ry0 : camY;
+    const ix1 = rx1 < camX + visW ? rx1 : camX + visW;
+    const iy1 = ry1 < camY + visH ? ry1 : camY + visH;
+    const sw = ix1 - ix0;
+    const sh = iy1 - iy0;
+    if (sw <= 0 || sh <= 0) return;
+    ctx.drawImage(chunkCanvas, ix0 - worldX0, iy0 - worldY0, sw, sh, ix0 - camX, iy0 - camY, sw, sh);
+}
+
 function render() {
     if (!WORLD.SYSTEM.isReady) return;
     if (!WORLD.MAP.bgChunks.length || !WORLD.MAP.bgChunks[0].length) return;
 
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const camX = Math.floor(WORLD.CAMERA.x || 0);
+    const camY = Math.floor(WORLD.CAMERA.y || 0);
+    const camW = WORLD.CAMERA.width;
+    const camH = WORLD.CAMERA.height;
+    const visW = Math.ceil(camW);
+    const visH = Math.ceil(camH);
+    const cs = WORLD.MAP.chunkSize;
+    const mapW = WORLD.MAP.columns * WORLD.MAP.tileSize;
+    const mapH = WORLD.MAP.rows * WORLD.MAP.tileSize;
+
+    if (camX < 0 || camY < 0 || camX + visW > mapW || camY + visH > mapH) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
 
     ctx.save();
     ctx.scale(WORLD.SYSTEM.viewScale, WORLD.SYSTEM.viewScale);
     ctx.imageSmoothingEnabled = false;
 
-    const camX = Math.floor(WORLD.CAMERA.x || 0);
-    const camY = Math.floor(WORLD.CAMERA.y || 0);
-
-    const startCX = Math.max(0, Math.floor(camX / WORLD.MAP.chunkSize));
-    const endCX = Math.min(WORLD.MAP.bgChunks[0].length - 1, Math.floor((camX + WORLD.CAMERA.width) / WORLD.MAP.chunkSize));
-    const startCY = Math.max(0, Math.floor(camY / WORLD.MAP.chunkSize));
-    const endCY = Math.min(WORLD.MAP.bgChunks.length - 1, Math.floor((camY + WORLD.CAMERA.height) / WORLD.MAP.chunkSize));
+    const startCX = Math.max(0, Math.floor(camX / cs));
+    const endCX = Math.min(WORLD.MAP.bgChunks[0].length - 1, Math.floor((camX + visW) / cs));
+    const startCY = Math.max(0, Math.floor(camY / cs));
+    const endCY = Math.min(WORLD.MAP.bgChunks.length - 1, Math.floor((camY + visH) / cs));
 
     for (let cy = startCY; cy <= endCY; cy++) {
+        const wy0 = cy * cs;
+        const maxLocalH = Math.min(cs, mapH - wy0);
+        if (maxLocalH <= 0) continue;
         for (let cx = startCX; cx <= endCX; cx++) {
-            const dx = cx * WORLD.MAP.chunkSize - camX;
-            const dy = cy * WORLD.MAP.chunkSize - camY;
-            ctx.drawImage(WORLD.MAP.bgChunks[cy][cx], dx, dy, WORLD.MAP.chunkSize + 1, WORLD.MAP.chunkSize + 1);
+            const wx0 = cx * cs;
+            const maxLocalW = Math.min(cs, mapW - wx0);
+            if (maxLocalW <= 0) continue;
+            drawClippedChunk(
+                WORLD.MAP.bgChunks[cy][cx],
+                wx0,
+                wy0,
+                { minX: 0, minY: 0, maxX: maxLocalW, maxY: maxLocalH },
+                camX,
+                camY,
+                visW,
+                visH
+            );
         }
     }
 
-    const camW = WORLD.CAMERA.width;
-    const camH = WORLD.CAMERA.height;
     const cullPad = 96;
+    const nowMs = performance.now();
 
     if (!inMainMenu && myId !== null) {
-        const nowMs = performance.now();
         const meCX = ME.x + ME.width / 2;
         const meCY = ME.y + ME.height / 2;
 
@@ -1953,7 +2108,17 @@ function render() {
                 if (bulletImg.complete && bulletImg.naturalWidth > 0) {
                     const bw = bulletImg.naturalWidth * bulletScale;
                     const bh = bulletImg.naturalHeight * bulletScale;
-                    ctx.drawImage(bulletImg, -bw / 2, -bh / 2, bw, bh);
+                    const bulletMip = getScaledSpriteCanvas(
+                        proj.variant === 'rarebot' ? 'bullet_rarebot' : 'bullet_goodbot',
+                        bulletImg,
+                        0,
+                        0,
+                        bulletImg.naturalWidth,
+                        bulletImg.naturalHeight,
+                        bw,
+                        bh
+                    ) || bulletImg;
+                    ctx.drawImage(bulletMip, -bw / 2, -bh / 2, bw, bh);
                 } else {
                     ctx.fillStyle = proj.variant === 'rarebot' ? '#ff2a2a' : '#b833ff';
                     ctx.fillRect(-2, -12, 4, 24);
@@ -2020,21 +2185,78 @@ function render() {
     }
 
     for (let cy = startCY; cy <= endCY; cy++) {
+        const wy0 = cy * cs;
         for (let cx = startCX; cx <= endCX; cx++) {
-            if (WORLD.MAP.wallChunkEmpty && WORLD.MAP.wallChunkEmpty[cy][cx]) continue;
-            const dx = cx * WORLD.MAP.chunkSize - camX;
-            const dy = cy * WORLD.MAP.chunkSize - camY;
-            ctx.drawImage(WORLD.MAP.wallChunks[cy][cx], dx, dy, WORLD.MAP.chunkSize + 1, WORLD.MAP.chunkSize + 1);
+            const bounds = WORLD.MAP.wallChunkBounds[cy] ? WORLD.MAP.wallChunkBounds[cy][cx] : null;
+            if (!bounds) continue;
+            drawClippedChunk(WORLD.MAP.wallChunks[cy][cx], cx * cs, wy0, bounds, camX, camY, visW, visH);
         }
     }
 
     for (let cy = startCY; cy <= endCY; cy++) {
+        const wy0 = cy * cs;
         for (let cx = startCX; cx <= endCX; cx++) {
-            if (WORLD.MAP.fgChunkEmpty && WORLD.MAP.fgChunkEmpty[cy][cx]) continue;
-            const dx = cx * WORLD.MAP.chunkSize - camX;
-            const dy = cy * WORLD.MAP.chunkSize - camY;
-            ctx.drawImage(WORLD.MAP.fgChunks[cy][cx], dx, dy, WORLD.MAP.chunkSize + 1, WORLD.MAP.chunkSize + 1);
+            const bounds = WORLD.MAP.fgChunkBounds[cy] ? WORLD.MAP.fgChunkBounds[cy][cx] : null;
+            if (!bounds) continue;
+            drawClippedChunk(WORLD.MAP.fgChunks[cy][cx], cx * cs, wy0, bounds, camX, camY, visW, visH);
         }
+    }
+
+    if (alertCommWaves.length > 0) {
+        ctx.save();
+        for (let i = 0; i < alertCommWaves.length; i++) {
+            const w = alertCommWaves[i];
+            const p = Math.max(0, Math.min(1, w.age / w.life));
+            const alpha = (1 - p) * 0.8;
+            const wx = w.x - camX;
+            const wy = w.y - camY;
+            const r = 18 + p * 190;
+            ctx.strokeStyle = `rgba(255, 70, 50, ${alpha.toFixed(3)})`;
+            ctx.lineWidth = 3 * (1 - p * 0.5);
+            ctx.beginPath();
+            ctx.arc(wx, wy, r, 0, Math.PI * 2);
+            ctx.stroke();
+
+            if (p < 0.7) {
+                const tx = w.targetX - camX;
+                const ty = w.targetY - camY;
+                ctx.strokeStyle = `rgba(255, 130, 60, ${((1 - p / 0.7) * 0.75).toFixed(3)})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(wx, wy);
+                ctx.lineTo(tx, ty);
+                ctx.stroke();
+            }
+        }
+        ctx.restore();
+    }
+
+    if (!inMainMenu && myId !== null && enemyAlertBadges.size > 0) {
+        ctx.save();
+        ctx.font = 'bold 20px Viga, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 3.5;
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+        for (const [eid, badge] of enemyAlertBadges) {
+            if (nowMs >= badge.until) {
+                enemyAlertBadges.delete(eid);
+                continue;
+            }
+            const e = serverEnemies[eid];
+            if (!e) continue;
+            const ex = (e.renderX ?? e.x) + (e.width || 48) / 2 - camX;
+            const ey = (e.renderY ?? e.y) - 34 - camY;
+            if (ex < -48 || ex > camW + 48 || ey < -48 || ey > camH + 48) continue;
+            const rem = (badge.until - nowMs) / 1100;
+            ctx.globalAlpha = Math.max(0, Math.min(1, rem * 1.4));
+            ctx.fillStyle = badge.isMessenger ? '#ff9900' : '#ff2a2a';
+            const pop = Math.sin(Math.min(1, 1 - rem) * Math.PI) * 5;
+            ctx.strokeText('!', ex, ey - pop);
+            ctx.fillText('!', ex, ey - pop);
+        }
+        ctx.restore();
     }
 
     if (explosions.length > 0) {
@@ -2342,6 +2564,27 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'rarebot_alert_comm') {
+            const nowMs = performance.now();
+            alertCommWaves.push({
+                x: Number(data.x) || 0,
+                y: Number(data.y) || 0,
+                targetX: Number(data.targetX) || Number(data.x) || 0,
+                targetY: Number(data.targetY) || Number(data.y) || 0,
+                age: 0,
+                life: 0.9
+            });
+            if (data.messengerId !== undefined && data.messengerId !== null) {
+                enemyAlertBadges.set(String(data.messengerId), { until: nowMs + 1100, isMessenger: true });
+            }
+            if (Array.isArray(data.alertedIds)) {
+                for (let i = 0; i < data.alertedIds.length; i++) {
+                    enemyAlertBadges.set(String(data.alertedIds[i]), { until: nowMs + 1100, isMessenger: false });
+                }
+            }
+            return;
+        }
+
         if (data.type === 'inventory_update') {
             if (Array.isArray(data.inventory)) {
                 myInventory = data.inventory.slice(0, 5);
@@ -2421,6 +2664,8 @@ async function connectToServer() {
             playSpatialSound('hitDeal', attX, attY);
             if (data.weaponKind === 'ranged') {
                 playRandomBulletImpact(data.x, data.y);
+            } else if (data.weaponKind === 'grapple') {
+                playSpatialSound('grapple1', data.x, data.y);
             }
             if (data.kind === 'player' && data.id === myId) {
                 const dmgVal = Math.max(1, Math.round(Number(data.damage) || 0));
@@ -2654,6 +2899,7 @@ function resizeCanvas() {
     WORLD.CAMERA.height = canvas.height / WORLD.SYSTEM.viewScale;
     ctx.imageSmoothingEnabled = false;
     labelSpriteCache.clear();
+    scaledSpriteCache.clear();
 }
 
 window.addEventListener('resize', () => {
@@ -3072,6 +3318,12 @@ window.addEventListener('DOMContentLoaded', () => {
         chatInput.addEventListener('focus', () => {
             clearHeldInputs();
         });
+    }
+
+    if (chatLog) {
+        chatLog.addEventListener('selectstart', e => e.preventDefault());
+        chatLog.addEventListener('copy', e => e.preventDefault());
+        chatLog.addEventListener('cut', e => e.preventDefault());
     }
 
     for (let i = 0; i < inventorySlots.length; i++) {
