@@ -1,4 +1,4 @@
-const CLOUDFLARED_WSS_URL = 'https://bonto.page';
+const CLOUDFLARED_WSS_URL = 'https://goodbots.bonto.page';
 
 document.addEventListener('contextmenu', e => e.preventDefault());
 
