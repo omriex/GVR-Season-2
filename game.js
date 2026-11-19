@@ -186,7 +186,7 @@ function applyServerDeviceMode(isMobile) {
 
 function isNodeHostedOrigin() {
     const host = window.location.hostname;
-    return host === 'localhost' || host === '127.0.0.1' || host.endsWith('.run.app');
+    return host !== 'goodbots.duckdns.org' && !host.endsWith('.github.io');
 }
 
 async function fetchDeviceMode() {
@@ -1816,8 +1816,7 @@ function normalizeWsUrl(rawUrl) {
 }
 
 async function resolveWsUrl() {
-    const host = window.location.hostname;
-    if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.run.app')) {
+    if (isNodeHostedOrigin()) {
         const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         return proto + '//' + window.location.host;
     }
