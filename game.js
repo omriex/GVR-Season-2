@@ -1,4 +1,4 @@
-const CLOUDFLARED_WSS_URL = 'https://effort-cameras-pierre-arbitration.trycloudflare.com';
+const CLOUDFLARED_WSS_URL = 'https://bonto.page';
 
 document.addEventListener('contextmenu', e => e.preventDefault());
 
