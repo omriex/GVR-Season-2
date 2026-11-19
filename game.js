@@ -130,6 +130,18 @@ let lastRenderedMaxEnergy = -1;
 let lastRenderedScraps = -1;
 let lastLeaderboardSig = '';
 let hasConnected = false;
+let isConnectingWs = false;
+const sessionToken = (() => {
+    try {
+        const existing = sessionStorage.getItem('gvr_session_token');
+        if (existing) return existing;
+        const created = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        sessionStorage.setItem('gvr_session_token', created);
+        return created;
+    } catch (_) {
+        return Math.random().toString(36).slice(2) + Date.now().toString(36);
+    }
+})();
 let activeSlot = 0;
 let myInventory = [null, null, null, null, null];
 let lastAttackSentAt = 0;
@@ -863,6 +875,20 @@ let audioCtx = null;
 let soundBuffersLoaded = false;
 let soundBuffersLoading = false;
 let lastBulletImpactIdx = -1;
+const soundBufferPromises = {};
+const SOUND_FILES = {
+    swing: 'sounds/swing.mp3',
+    hit: 'sounds/hit.mp3',
+    explosion: 'sounds/explosion.mp3',
+    hitReceive: 'sounds/hit receive.mp3',
+    hitDeal: 'sounds/hit deal.mp3',
+    laserShot: 'sounds/laser shot.mp3',
+    bulletImpact1: 'sounds/bullet impact 1.mp3',
+    bulletImpact2: 'sounds/bullet impact 2.mp3',
+    bulletImpact3: 'sounds/bullet impact 3.mp3',
+    bulletWallImpact: 'sounds/bullet wall impact.mp3',
+    grapple1: 'sounds/grapple 1.mp3'
+};
 const soundBuffers = {
     swing: null,
     hit: null,
@@ -877,6 +903,22 @@ const soundBuffers = {
     grapple1: null
 };
 
+function loadSoundBuffer(key, ctxAudio) {
+    if (!ctxAudio || !SOUND_FILES[key] || soundBuffers[key]) return Promise.resolve();
+    if (soundBufferPromises[key]) return soundBufferPromises[key];
+    soundBufferPromises[key] = fetch(encodeURI(SOUND_FILES[key]))
+        .then(res => (res.ok ? res.arrayBuffer() : null))
+        .then(arr => (arr ? ctxAudio.decodeAudioData(arr) : null))
+        .then(decoded => {
+            if (decoded) soundBuffers[key] = decoded;
+        })
+        .catch(() => {})
+        .finally(() => {
+            delete soundBufferPromises[key];
+        });
+    return soundBufferPromises[key];
+}
+
 function ensureAudioContext() {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return null;
@@ -888,28 +930,8 @@ function ensureAudioContext() {
     }
     if (!soundBuffersLoaded && !soundBuffersLoading) {
         soundBuffersLoading = true;
-        const files = {
-            swing: 'sounds/swing.mp3',
-            hit: 'sounds/hit.mp3',
-            explosion: 'sounds/explosion.mp3',
-            hitReceive: 'sounds/hit receive.mp3',
-            hitDeal: 'sounds/hit deal.mp3',
-            laserShot: 'sounds/laser shot.mp3',
-            bulletImpact1: 'sounds/bullet impact 1.mp3',
-            bulletImpact2: 'sounds/bullet impact 2.mp3',
-            bulletImpact3: 'sounds/bullet impact 3.mp3',
-            bulletWallImpact: 'sounds/bullet wall impact.mp3',
-            grapple1: 'sounds/grapple 1.mp3'
-        };
         Promise.all(
-            Object.entries(files).map(async ([key, url]) => {
-                try {
-                    const res = await fetch(url);
-                    if (!res.ok) return;
-                    const arr = await res.arrayBuffer();
-                    soundBuffers[key] = await audioCtx.decodeAudioData(arr);
-                } catch (_) {}
-            })
+            Object.keys(SOUND_FILES).map(key => loadSoundBuffer(key, audioCtx))
         ).finally(() => {
             soundBuffersLoaded = true;
             soundBuffersLoading = false;
@@ -940,7 +962,11 @@ function playSpatialSound(key, wx, wy) {
     if (nowMs - (lastSoundAt[key] || 0) < minGap) return;
 
     const ctxAudio = ensureAudioContext();
-    if (!ctxAudio || !soundBuffers[key]) return;
+    if (!ctxAudio) return;
+    if (!soundBuffers[key]) {
+        loadSoundBuffer(key, ctxAudio);
+        return;
+    }
 
     const lx = myId !== null ? (ME.x + ME.width / 2) : ((WORLD.CAMERA.x || 0) + WORLD.CAMERA.width / 2);
     const ly = myId !== null ? (ME.y + ME.height / 2) : ((WORLD.CAMERA.y || 0) + WORLD.CAMERA.height / 2);
@@ -953,7 +979,7 @@ function playSpatialSound(key, wx, wy) {
         dist = Math.sqrt(dSq);
     }
     const falloff = Math.max(0, Math.min(1, 1 - Math.max(0, dist - 80) / 1000));
-    const volumeMult = (key === 'hitReceive' || key === 'hitDeal') ? 0.1 : 1;
+    const volumeMult = (key === 'hitReceive' || key === 'hitDeal') ? 0.1 : (key === 'grapple1' ? 1.35 : 1);
     const gainValue = falloff * falloff * masterVol * volumeMult;
     if (gainValue <= 0.005) return;
 
@@ -2372,22 +2398,29 @@ async function resolveWsUrl() {
 }
 
 async function connectToServer() {
+    if (isConnectingWs) return;
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    isConnectingWs = true;
 
-    const wsUrl = await resolveWsUrl();
-    startPingMonitor(wsUrl);
-    const wsConnectStart = performance.now();
-    ws = new WebSocket(wsUrl);
+    let wsUrl;
+    try {
+        wsUrl = await resolveWsUrl();
+        startPingMonitor(wsUrl);
+        const wsConnectStart = performance.now();
+        ws = new WebSocket(wsUrl);
 
-    ws.onopen = () => {
-        hasConnected = true;
-        updatePingDisplay(performance.now() - wsConnectStart);
-        measurePingOnce();
-        if (pendingJoinName !== null) {
-            ws.send(JSON.stringify({ type: 'join', name: pendingJoinName }));
-            pendingJoinName = null;
-        }
-    };
+        ws.onopen = () => {
+            hasConnected = true;
+            updatePingDisplay(performance.now() - wsConnectStart);
+            measurePingOnce();
+            if (pendingJoinName !== null) {
+                ws.send(JSON.stringify({ type: 'join', name: pendingJoinName, sessionToken }));
+                pendingJoinName = null;
+            }
+        };
+    } finally {
+        isConnectingWs = false;
+    }
 
     ws.onmessage = (event) => {
         let data;
@@ -3476,7 +3509,7 @@ window.addEventListener('DOMContentLoaded', () => {
             isJoining = true;
 
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'join', name: myName }));
+                ws.send(JSON.stringify({ type: 'join', name: myName, sessionToken }));
             } else {
                 pendingJoinName = myName;
                 connectToServer();
