@@ -139,6 +139,7 @@ let lastEquippedItemKey = null;
 const swingAnims = new Map();
 const recoilAnims = new Map();
 const equipAnims = new Map();
+const leftPunchAnims = new Map();
 const enemyAggroUntil = new Map();
 const serverProjectiles = new Map();
 const explosions = [];
@@ -290,6 +291,7 @@ function returnToMainMenu() {
     swingAnims.clear();
     recoilAnims.clear();
     equipAnims.clear();
+    leftPunchAnims.clear();
     enemyAggroUntil.clear();
     serverProjectiles.clear();
     myInventory = [null, null, null, null, null];
@@ -1685,6 +1687,28 @@ function getEquipTransform(entityKey, nowMs) {
     return { dx: -20 * rem, dy: 11 * rem, rot: -0.92 * rem };
 }
 
+function getLeftPunchOffset(entityKey, nowMs) {
+    if (!entityKey) return null;
+    const startedAt = leftPunchAnims.get(entityKey);
+    if (!startedAt) return null;
+    const duration = 240;
+    const elapsed = nowMs - startedAt;
+    if (elapsed < 0 || elapsed >= duration) {
+        leftPunchAnims.delete(entityKey);
+        return null;
+    }
+    const p = elapsed / duration;
+    let mag;
+    if (p < 0.28) {
+        const t = p / 0.28;
+        mag = 1 - (1 - t) * (1 - t);
+    } else {
+        const t = (p - 0.28) / 0.72;
+        mag = Math.pow(1 - t, 2);
+    }
+    return { dy: -16 * mag, rot: 0.28 * mag };
+}
+
 function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, entityKey, nowMs) {
     ctx.save();
     ctx.translate(x, y);
@@ -1702,13 +1726,22 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
             const fullH = pistolImg.naturalHeight;
             const pH = fullH * pxScaleY;
             const leftW = Math.min(splitX, pistolImg.naturalWidth);
-            ctx.drawImage(pistolImg, 0, 0, leftW, fullH, -splitX * pxScaleX, -596 * pxScaleY, leftW * pxScaleX, pH);
+            const bodyScale = sW / 48;
+            const leftPunch = getLeftPunchOffset(entityKey, nowMs);
+            if (leftPunch) {
+                ctx.save();
+                ctx.translate(0, leftPunch.dy * bodyScale);
+                ctx.rotate(leftPunch.rot);
+                ctx.drawImage(pistolImg, 0, 0, leftW, fullH, -splitX * pxScaleX, -596 * pxScaleY, leftW * pxScaleX, pH);
+                ctx.restore();
+            } else {
+                ctx.drawImage(pistolImg, 0, 0, leftW, fullH, -splitX * pxScaleX, -596 * pxScaleY, leftW * pxScaleX, pH);
+            }
 
             const rightW = pistolImg.naturalWidth - leftW;
             if (rightW > 0) {
                 const equip = getEquipTransform(entityKey, nowMs);
                 const recoil = getRecoilTransform(entityKey, nowMs);
-                const bodyScale = sW / 48;
                 const rDx = equip ? equip.dx * bodyScale : 0;
                 const rDy = (equip ? equip.dy * bodyScale : 0) + (recoil ? recoil.dy * bodyScale : 0);
                 const rRot = (equip ? equip.rot : 0) + (recoil ? recoil.rot : 0);
@@ -2042,7 +2075,7 @@ function render() {
                     tx = (fp.renderX ?? fp.x) + fp.width / 2;
                     ty = (fp.renderY ?? fp.y) - 26;
                 }
-                const sx = tx - camX;
+                const sx = tx + (ft.xOff || 0) - camX;
                 const sy = ty - camY - ft.age * 24;
                 ctx.globalAlpha = alpha;
                 ctx.fillStyle = ft.color || '#ffe100';
@@ -2293,6 +2326,22 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'left_punch') {
+            const key = `${data.kind}:${data.id}`;
+            const nowMs = performance.now();
+            leftPunchAnims.set(key, nowMs);
+            playSpatialSound('swing', data.x, data.y);
+            if (ME.faction === 'goodbot' && data.kind === 'enemy') {
+                if (data.targetId === myId) {
+                    enemyAggroUntil.set(key, nowMs + 8000);
+                } else if (typeof data.x === 'number' && typeof data.y === 'number') {
+                    const dist = Math.hypot(data.x - (ME.x + ME.width / 2), data.y - (ME.y + ME.height / 2));
+                    if (dist <= 135) enemyAggroUntil.set(key, nowMs + 8000);
+                }
+            }
+            return;
+        }
+
         if (data.type === 'inventory_update') {
             if (Array.isArray(data.inventory)) {
                 myInventory = data.inventory.slice(0, 5);
@@ -2373,8 +2422,21 @@ async function connectToServer() {
             if (data.weaponKind === 'ranged') {
                 playRandomBulletImpact(data.x, data.y);
             }
-            if (data.kind === 'player' && data.id === myId && ME.faction === 'goodbot') {
-                enemyAggroUntil.set(`${data.attackerKind}:${data.attackerId}`, performance.now() + 8000);
+            if (data.kind === 'player' && data.id === myId) {
+                const dmgVal = Math.max(1, Math.round(Number(data.damage) || 0));
+                floatingTexts.push({
+                    playerId: myId,
+                    x: ME.x + ME.width / 2,
+                    y: ME.y,
+                    xOff: (Math.random() - 0.5) * 18,
+                    text: `-${dmgVal}`,
+                    color: '#ff3030',
+                    age: 0,
+                    life: 1.3
+                });
+                if (ME.faction === 'goodbot') {
+                    enemyAggroUntil.set(`${data.attackerKind}:${data.attackerId}`, performance.now() + 8000);
+                }
             }
             return;
         }
