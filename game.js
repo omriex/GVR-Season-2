@@ -129,16 +129,25 @@ let lastRenderedScraps = -1;
 let lastLeaderboardSig = '';
 let hasConnected = false;
 let activeSlot = 0;
+let myInventory = [null, null, null, null, null];
 let lastAttackSentAt = 0;
+let lastLocalShotAt = 0;
 let isAttackHeld = false;
+let dragState = null;
+let lastEquippedItemKey = null;
 
 const swingAnims = new Map();
+const recoilAnims = new Map();
+const equipAnims = new Map();
 const enemyAggroUntil = new Map();
+const serverProjectiles = new Map();
 const explosions = [];
 const floatingTexts = [];
 const pendingFloatingTexts = [];
 const MAX_EXPLOSION_PARTICLES = 240;
 const EXPLOSION_COLORS = ['#ff2a00', '#ff7b00', '#ffd000', '#ff4d00'];
+const GOODBOT_BULLET_EXPLOSION_COLORS = ['#d84aff', '#a800ff', '#f0aaff', '#ffffff'];
+const RAREBOT_BULLET_EXPLOSION_COLORS = ['#ff2a00', '#ff5e3a', '#ff9900', '#ffffff'];
 
 let menuCamX = null;
 let menuCamY = null;
@@ -279,7 +288,16 @@ function returnToMainMenu() {
     serverPlayers = {};
     serverEnemies = {};
     swingAnims.clear();
+    recoilAnims.clear();
+    equipAnims.clear();
     enemyAggroUntil.clear();
+    serverProjectiles.clear();
+    myInventory = [null, null, null, null, null];
+    activeSlot = 0;
+    lastEquippedItemKey = null;
+    renderInventorySlots();
+    selectSlot(0, false);
+    hideShopTooltip();
     explosions.length = 0;
     floatingTexts.length = 0;
     pendingFloatingTexts.length = 0;
@@ -471,20 +489,64 @@ function closeLeaveDialog() {
     leaveOverlay.setAttribute('aria-hidden', 'true');
 }
 
+const ITEM_SLOT_IMAGES = {
+    'goodbot-pistol': 'assets/Goodbot Pistol Slot.png'
+};
+
 const SHOP_ITEMS = [
     {
-        id: 'placeholder-item',
-        title: 'Item',
-        description: 'An item',
-        cost: 0,
+        id: 'goodbot-pistol',
+        title: 'Goodbot Pistol',
+        description: 'Lightweight plasma firearm',
+        cost: 15,
+        slotImage: 'assets/Goodbot Pistol Slot.png',
         stats: [
-            { label: 'Damage', value: 0 },
-            { label: 'Firerate', value: 0 }
+            { label: 'Damage', value: 50 },
+            { label: 'Firerate', value: '400ms' }
         ]
     }
 ];
 
-function positionShopTooltipForSlot(slot) {
+const ITEM_BY_ID = Object.fromEntries(SHOP_ITEMS.map(item => [item.id, item]));
+
+function getMyEquippedWeapon() {
+    if (ME.faction !== 'goodbot') return 'hands';
+    const itemId = myInventory[activeSlot];
+    if (itemId === 'goodbot-pistol') return 'goodbot-pistol';
+    return 'hands';
+}
+
+function syncEquipAnimation(forceSwitch = false) {
+    if (myId === null || ME.faction !== 'goodbot') {
+        lastEquippedItemKey = null;
+        return;
+    }
+    const curItem = myInventory[activeSlot] || null;
+    if (curItem && (curItem !== lastEquippedItemKey || forceSwitch)) {
+        equipAnims.set(`player:${myId}`, performance.now());
+    }
+    lastEquippedItemKey = curItem;
+}
+
+function renderInventorySlots() {
+    if (!inventorySlots || inventorySlots.length === 0) return;
+    for (let i = 0; i < inventorySlots.length; i++) {
+        const slotEl = inventorySlots[i];
+        slotEl.textContent = '';
+        const itemId = myInventory[i];
+        const imgSrc = itemId ? ITEM_SLOT_IMAGES[itemId] : null;
+        if (imgSrc) {
+            const img = document.createElement('img');
+            img.className = 'slot-item-img';
+            img.src = imgSrc;
+            img.alt = itemId;
+            img.draggable = false;
+            slotEl.appendChild(img);
+        }
+    }
+}
+
+function positionShopTooltipForSlot(slot, preferAbove = false) {
     if (!shopTooltip || !slot) return;
     const scale = currentUiScale > 0 ? currentUiScale : 1;
     const rect = slot.getBoundingClientRect();
@@ -493,28 +555,44 @@ function positionShopTooltipForSlot(slot) {
     const tipW = shopTooltip.offsetWidth;
     const tipH = shopTooltip.offsetHeight;
 
-    let left = rect.right / scale + 10;
-    if (left + tipW > effW - 8) {
-        left = rect.left / scale - tipW - 10;
-    }
-    if (left < 8) {
-        left = Math.max(8, Math.min(effW - tipW - 8, rect.left / scale));
-    }
+    let left;
+    let top;
+    if (preferAbove) {
+        left = rect.left / scale + (rect.width / scale - tipW) / 2;
+        left = Math.max(8, Math.min(effW - tipW - 8, left));
+        top = rect.top / scale - tipH - 10;
+        if (top < 8) {
+            top = Math.min(effH - tipH - 8, rect.bottom / scale + 10);
+        }
+    } else {
+        left = rect.right / scale + 10;
+        if (left + tipW > effW - 8) {
+            left = rect.left / scale - tipW - 10;
+        }
+        if (left < 8) {
+            left = Math.max(8, Math.min(effW - tipW - 8, rect.left / scale));
+        }
 
-    let top = rect.top / scale;
-    if (top + tipH > effH - 8) {
-        top = Math.max(8, effH - tipH - 8);
+        top = rect.top / scale;
+        if (top + tipH > effH - 8) {
+            top = Math.max(8, effH - tipH - 8);
+        }
+        if (top < 8) top = 8;
     }
-    if (top < 8) top = 8;
 
     shopTooltip.style.left = `${Math.round(left)}px`;
     shopTooltip.style.top = `${Math.round(top)}px`;
 }
 
-function showShopTooltip(item, slot) {
+function showShopTooltip(item, slot, showCost = true, preferAbove = false) {
     if (!shopTooltip) return;
     if (shopTooltipTitle) shopTooltipTitle.textContent = item.title;
-    if (shopTooltipCost) shopTooltipCost.textContent = `Cost: ${item.cost} Scraps`;
+    if (shopTooltipCost) {
+        shopTooltipCost.style.display = showCost ? '' : 'none';
+        if (showCost) {
+            shopTooltipCost.textContent = `Cost: ${item.cost} Scraps`;
+        }
+    }
     if (shopTooltipDesc) shopTooltipDesc.textContent = item.description;
     if (shopTooltipStats) {
         shopTooltipStats.textContent = '';
@@ -528,7 +606,7 @@ function showShopTooltip(item, slot) {
     }
     shopTooltip.classList.add('visible');
     shopTooltip.setAttribute('aria-hidden', 'false');
-    positionShopTooltipForSlot(slot);
+    positionShopTooltipForSlot(slot, preferAbove);
 }
 
 function hideShopTooltip() {
@@ -546,15 +624,23 @@ function renderShopItems() {
         slot.type = 'button';
         slot.className = 'shop-item-slot';
 
-        const nameEl = document.createElement('span');
-        nameEl.className = 'shop-item-name';
-        nameEl.textContent = item.title;
+        if (item.slotImage) {
+            const iconEl = document.createElement('img');
+            iconEl.className = 'shop-item-icon';
+            iconEl.src = item.slotImage;
+            iconEl.alt = item.title;
+            iconEl.draggable = false;
+            slot.appendChild(iconEl);
+        } else {
+            const nameEl = document.createElement('span');
+            nameEl.className = 'shop-item-name';
+            nameEl.textContent = item.title;
+            slot.appendChild(nameEl);
+        }
 
         const costEl = document.createElement('span');
         costEl.className = 'shop-item-cost';
         costEl.textContent = String(item.cost);
-
-        slot.appendChild(nameEl);
         slot.appendChild(costEl);
 
         slot.addEventListener('pointerenter', () => {
@@ -571,6 +657,9 @@ function renderShopItems() {
         });
         slot.addEventListener('click', () => {
             showShopTooltip(item, slot);
+            if (ws && ws.readyState === WebSocket.OPEN && myId !== null) {
+                ws.send(JSON.stringify({ type: 'buy_item', itemId: item.id }));
+            }
         });
 
         shopGrid.appendChild(slot);
@@ -754,15 +843,29 @@ function startFpsCounter() {
 const tilesheetImg = new Image();
 const goodbotImg = new Image();
 const rarebotImg = new Image();
+const prototypeRarebotImg = new Image();
 const botHandsImg = new Image();
+const prototypeRarebotHandsImg = new Image();
+const goodbotPistolImg = new Image();
+const rarebotPistolImg = new Image();
+const goodbotBulletImg = new Image();
+const rarebotBulletImg = new Image();
 
 let audioCtx = null;
 let soundBuffersLoaded = false;
 let soundBuffersLoading = false;
+let lastBulletImpactIdx = -1;
 const soundBuffers = {
     swing: null,
     hit: null,
-    explosion: null
+    explosion: null,
+    hitReceive: null,
+    hitDeal: null,
+    laserShot: null,
+    bulletImpact1: null,
+    bulletImpact2: null,
+    bulletImpact3: null,
+    bulletWallImpact: null
 };
 
 function ensureAudioContext() {
@@ -779,7 +882,14 @@ function ensureAudioContext() {
         const files = {
             swing: 'sounds/swing.mp3',
             hit: 'sounds/hit.mp3',
-            explosion: 'sounds/explosion.mp3'
+            explosion: 'sounds/explosion.mp3',
+            hitReceive: 'sounds/hit receive.mp3',
+            hitDeal: 'sounds/hit deal.mp3',
+            laserShot: 'sounds/laser shot.mp3',
+            bulletImpact1: 'sounds/bullet impact 1.mp3',
+            bulletImpact2: 'sounds/bullet impact 2.mp3',
+            bulletImpact3: 'sounds/bullet impact 3.mp3',
+            bulletWallImpact: 'sounds/bullet wall impact.mp3'
         };
         Promise.all(
             Object.entries(files).map(async ([key, url]) => {
@@ -798,13 +908,24 @@ function ensureAudioContext() {
     return audioCtx;
 }
 
-const lastSoundAt = { swing: 0, hit: 0, explosion: 0 };
+const lastSoundAt = {
+    swing: 0,
+    hit: 0,
+    explosion: 0,
+    hitReceive: 0,
+    hitDeal: 0,
+    laserShot: 0,
+    bulletImpact1: 0,
+    bulletImpact2: 0,
+    bulletImpact3: 0,
+    bulletWallImpact: 0
+};
 
 function playSpatialSound(key, wx, wy) {
     const masterVol = window.GAME_AUDIO_SETTINGS ? Number(window.GAME_AUDIO_SETTINGS.soundVolume) : 1;
     if (!isFinite(masterVol) || masterVol <= 0.005) return;
     const nowMs = performance.now();
-    const minGap = key === 'explosion' ? 60 : 45;
+    const minGap = key === 'explosion' ? 60 : ((key === 'swing' || key === 'hit') ? 45 : 15);
     if (nowMs - (lastSoundAt[key] || 0) < minGap) return;
 
     const ctxAudio = ensureAudioContext();
@@ -821,7 +942,8 @@ function playSpatialSound(key, wx, wy) {
         dist = Math.sqrt(dSq);
     }
     const falloff = Math.max(0, Math.min(1, 1 - Math.max(0, dist - 80) / 1000));
-    const gainValue = falloff * falloff * masterVol;
+    const volumeMult = (key === 'hitReceive' || key === 'hitDeal') ? 0.1 : 1;
+    const gainValue = falloff * falloff * masterVol * volumeMult;
     if (gainValue <= 0.005) return;
 
     lastSoundAt[key] = nowMs;
@@ -834,6 +956,16 @@ function playSpatialSound(key, wx, wy) {
         gainNode.connect(ctxAudio.destination);
         source.start(0);
     } catch (_) {}
+}
+
+function playRandomBulletImpact(wx, wy) {
+    const candidates = [];
+    for (let i = 0; i < 3; i++) {
+        if (i !== lastBulletImpactIdx) candidates.push(i);
+    }
+    const picked = candidates[Math.floor(Math.random() * candidates.length)];
+    lastBulletImpactIdx = picked;
+    playSpatialSound(`bulletImpact${picked + 1}`, wx, wy);
 }
 
 function applyMapPayload(rawMap) {
@@ -960,7 +1092,13 @@ function loadAssets() {
     }
     goodbotImg.src = 'assets/Goodbot.png';
     rarebotImg.src = 'assets/Rarebot.png';
+    prototypeRarebotImg.src = 'assets/Prototype Rarebot.png';
     botHandsImg.src = 'assets/Bot Hands.png';
+    prototypeRarebotHandsImg.src = 'assets/Prototype Rarebot Hands.png';
+    goodbotPistolImg.src = 'assets/Goodbot Pistol.png';
+    rarebotPistolImg.src = 'assets/Rarebot Pistol.png';
+    goodbotBulletImg.src = 'assets/Goodbot Bullet.png';
+    rarebotBulletImg.src = 'assets/Rarebot Bullet.png';
 }
 
 function updateStatsUI() {
@@ -1090,13 +1228,20 @@ function appendChatLog(name, text, faction = 'goodbot') {
     chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function selectSlot(idx) {
+function selectSlot(idx, notifyServer = true) {
     if (!inventorySlots || inventorySlots.length === 0) return;
     if (idx < 0 || idx >= inventorySlots.length) return;
+    const prevSlot = activeSlot;
     activeSlot = idx;
     for (let i = 0; i < inventorySlots.length; i++) {
         if (i === activeSlot) inventorySlots[i].classList.add('active');
         else inventorySlots[i].classList.remove('active');
+    }
+    if (notifyServer) {
+        syncEquipAnimation(prevSlot !== idx);
+        if (ws && ws.readyState === WebSocket.OPEN && myId !== null) {
+            ws.send(JSON.stringify({ type: 'select_slot', slot: idx }));
+        }
     }
 }
 
@@ -1256,6 +1401,15 @@ function update(dt) {
         e.renderAngle += diff * (1 - Math.exp(-dt * 20));
     }
 
+    for (const [id, proj] of serverProjectiles) {
+        proj.x += proj.vx * dt;
+        proj.y += proj.vy * dt;
+        proj.age += dt;
+        if (proj.age >= 2.0) {
+            serverProjectiles.delete(id);
+        }
+    }
+
     for (let i = explosions.length - 1; i >= 0; i--) {
         const pt = explosions[i];
         pt.age += dt;
@@ -1326,6 +1480,28 @@ function spawnExplosionParticles(wx, wy) {
             life: 0.35 + Math.random() * 0.35,
             age: 0,
             color: EXPLOSION_COLORS[Math.floor(Math.random() * EXPLOSION_COLORS.length)]
+        });
+    }
+}
+
+function spawnBulletWallParticles(wx, wy, variant) {
+    const palette = variant === 'rarebot' ? RAREBOT_BULLET_EXPLOSION_COLORS : GOODBOT_BULLET_EXPLOSION_COLORS;
+    const count = 12;
+    for (let i = 0; i < count; i++) {
+        if (explosions.length >= MAX_EXPLOSION_PARTICLES) {
+            explosions.shift();
+        }
+        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.55;
+        const speed = 65 + Math.random() * 145;
+        explosions.push({
+            x: wx + (Math.random() - 0.5) * 4,
+            y: wy + (Math.random() - 0.5) * 4,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            radius: 2 + Math.random() * 2.5,
+            life: 0.16 + Math.random() * 0.14,
+            age: 0,
+            color: palette[Math.floor(Math.random() * palette.length)]
         });
     }
 }
@@ -1469,16 +1645,93 @@ function hasFloatingTextBlocking(playerId) {
     return false;
 }
 
-function drawBotHands(x, y, sW, sH, angle, swingOffset) {
+function getRecoilTransform(entityKey, nowMs) {
+    if (!entityKey) return null;
+    const startedAt = recoilAnims.get(entityKey);
+    if (!startedAt) return null;
+    const duration = 135;
+    const elapsed = nowMs - startedAt;
+    if (elapsed < 0 || elapsed >= duration) {
+        recoilAnims.delete(entityKey);
+        return null;
+    }
+    const p = elapsed / duration;
+    let mag;
+    if (p < 0.24) {
+        const t = p / 0.24;
+        mag = 1 - (1 - t) * (1 - t);
+    } else {
+        const t = (p - 0.24) / 0.76;
+        mag = Math.pow(1 - t, 2.2);
+    }
+    return { dy: mag * 10, rot: mag * 0.045 };
+}
+
+function getEquipTransform(entityKey, nowMs) {
+    if (!entityKey) return null;
+    const startedAt = equipAnims.get(entityKey);
+    if (!startedAt) return null;
+    const duration = 200;
+    const elapsed = nowMs - startedAt;
+    if (elapsed < 0 || elapsed >= duration) {
+        equipAnims.delete(entityKey);
+        return null;
+    }
+    const p = elapsed / duration;
+    const c1 = 1.25;
+    const c3 = c1 + 1;
+    const ease = 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
+    const rem = 1 - ease;
+    return { dx: -20 * rem, dy: 11 * rem, rot: -0.92 * rem };
+}
+
+function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, entityKey, nowMs) {
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(angle + swingOffset);
-    if (botHandsImg.complete && botHandsImg.naturalWidth > 0) {
-        const refW = goodbotImg.complete && goodbotImg.naturalWidth > 0 ? goodbotImg.naturalWidth : 512;
-        const refH = goodbotImg.complete && goodbotImg.naturalHeight > 0 ? goodbotImg.naturalHeight : 512;
-        const hW = sW * (botHandsImg.naturalWidth / refW) * HANDS_SCALE;
-        const hH = sH * (botHandsImg.naturalHeight / refH) * HANDS_SCALE;
-        ctx.drawImage(botHandsImg, -hW / 2, -hH / 2, hW, hH);
+    const isPistol = weapon === 'goodbot-pistol' || weapon === 'pistol';
+    ctx.rotate(angle + (isPistol ? 0 : swingOffset));
+    const refW = goodbotImg.complete && goodbotImg.naturalWidth > 0 ? goodbotImg.naturalWidth : 512;
+    const refH = goodbotImg.complete && goodbotImg.naturalHeight > 0 ? goodbotImg.naturalHeight : 512;
+
+    if (isPistol) {
+        const pistolImg = weapon === 'pistol' ? rarebotPistolImg : goodbotPistolImg;
+        if (pistolImg.complete && pistolImg.naturalWidth > 0) {
+            const pxScaleX = (sW / refW) * HANDS_SCALE;
+            const pxScaleY = (sH / refH) * HANDS_SCALE;
+            const splitX = 284;
+            const fullH = pistolImg.naturalHeight;
+            const pH = fullH * pxScaleY;
+            const leftW = Math.min(splitX, pistolImg.naturalWidth);
+            ctx.drawImage(pistolImg, 0, 0, leftW, fullH, -splitX * pxScaleX, -596 * pxScaleY, leftW * pxScaleX, pH);
+
+            const rightW = pistolImg.naturalWidth - leftW;
+            if (rightW > 0) {
+                const equip = getEquipTransform(entityKey, nowMs);
+                const recoil = getRecoilTransform(entityKey, nowMs);
+                const bodyScale = sW / 48;
+                const rDx = equip ? equip.dx * bodyScale : 0;
+                const rDy = (equip ? equip.dy * bodyScale : 0) + (recoil ? recoil.dy * bodyScale : 0);
+                const rRot = (equip ? equip.rot : 0) + (recoil ? recoil.rot : 0);
+                ctx.save();
+                if (rDx !== 0 || rDy !== 0) {
+                    ctx.translate(rDx, rDy);
+                }
+                if (rRot !== 0) {
+                    ctx.rotate(rRot);
+                }
+                ctx.drawImage(pistolImg, leftW, 0, rightW, fullH, 0, -596 * pxScaleY, rightW * pxScaleX, pH);
+                ctx.restore();
+            }
+            ctx.restore();
+            return;
+        }
+    }
+
+    const handsImg = spriteKind === 'prototype' ? prototypeRarebotHandsImg : botHandsImg;
+    if (handsImg.complete && handsImg.naturalWidth > 0) {
+        const hW = sW * (handsImg.naturalWidth / refW) * HANDS_SCALE;
+        const hH = sH * (handsImg.naturalHeight / refH) * HANDS_SCALE;
+        ctx.drawImage(handsImg, -hW / 2, -hH / 2, hW, hH);
     } else {
         const r = sW * 0.14 * HANDS_SCALE;
         const hx = sW * 0.46 * HANDS_SCALE;
@@ -1498,14 +1751,16 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset) {
     ctx.restore();
 }
 
-function drawEntity(x, y, width, height, angle, scale, label, faction, showHands, swingOffset, bars) {
+function drawEntity(x, y, width, height, angle, scale, label, faction, showHands, swingOffset, bars, spriteKind = null, weapon = 'hands', entityKey = null, nowMs = 0) {
     const sW = width * scale;
     const sH = height * scale;
-    const spriteImg = faction === 'rarebot' ? rarebotImg : goodbotImg;
+    let spriteImg = goodbotImg;
+    if (spriteKind === 'prototype') spriteImg = prototypeRarebotImg;
+    else if (faction === 'rarebot') spriteImg = rarebotImg;
     const isSpectator = faction === 'spectator';
 
     if (showHands && !isSpectator) {
-        drawBotHands(x, y, sW, sH, angle, swingOffset);
+        drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, entityKey, nowMs);
     }
 
     if (spriteImg.complete && spriteImg.naturalWidth > 0) {
@@ -1652,6 +1907,28 @@ function render() {
         const meCX = ME.x + ME.width / 2;
         const meCY = ME.y + ME.height / 2;
 
+        if (serverProjectiles.size > 0) {
+            const bulletScale = (48 / 512) * HANDS_SCALE * 1.35;
+            for (const [, proj] of serverProjectiles) {
+                const bx = proj.x - camX;
+                const by = proj.y - camY;
+                if (bx < -48 || bx > camW + 48 || by < -48 || by > camH + 48) continue;
+                const bulletImg = proj.variant === 'rarebot' ? rarebotBulletImg : goodbotBulletImg;
+                ctx.save();
+                ctx.translate(bx, by);
+                ctx.rotate(proj.angle || 0);
+                if (bulletImg.complete && bulletImg.naturalWidth > 0) {
+                    const bw = bulletImg.naturalWidth * bulletScale;
+                    const bh = bulletImg.naturalHeight * bulletScale;
+                    ctx.drawImage(bulletImg, -bw / 2, -bh / 2, bw, bh);
+                } else {
+                    ctx.fillStyle = proj.variant === 'rarebot' ? '#ff2a2a' : '#b833ff';
+                    ctx.fillRect(-2, -12, 4, 24);
+                }
+                ctx.restore();
+            }
+        }
+
         for (const id in serverEnemies) {
             const e = serverEnemies[id];
             const ew = e.width || 48;
@@ -1662,13 +1939,16 @@ function render() {
             const es = Math.min(2, Math.max(0.3, e.scale || 1));
             const key = `enemy:${id}`;
             const showBars = ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs;
+            const eKind = e.kind || 'rarebot';
+            const eWeapon = e.weapon || 'hands';
+            const eLabel = e.name || (eKind === 'prototype' ? 'Prototype Rarebot' : 'Rarebot');
             const bars = showBars ? {
-                health: e.health ?? 255,
-                maxHealth: e.maxHealth ?? 255,
-                energy: e.energy ?? 50,
-                maxEnergy: e.maxEnergy ?? 50
+                health: e.health ?? (eKind === 'prototype' ? 120 : 255),
+                maxHealth: e.maxHealth ?? (eKind === 'prototype' ? 120 : 255),
+                energy: e.energy ?? (eKind === 'prototype' ? 100 : 50),
+                maxEnergy: e.maxEnergy ?? (eKind === 'prototype' ? 100 : 50)
             } : null;
-            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, 'Rarebot', 'rarebot', true, getSwingOffset(key, nowMs), bars);
+            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, eLabel, 'rarebot', true, getSwingOffset(key, nowMs), bars, eKind, eWeapon, key, nowMs);
         }
 
         for (const id in serverPlayers) {
@@ -1684,22 +1964,26 @@ function render() {
             let showBars = false;
             if (ME.faction === 'goodbot' && pFaction === 'rarebot') {
                 showBars = (enemyAggroUntil.get(key) || 0) > nowMs;
+            } else if (ME.faction === 'goodbot' && pFaction === 'goodbot') {
+                const adx = ((p.renderX ?? p.x) + pw / 2) - meCX;
+                const ady = ((p.renderY ?? p.y) + ph / 2) - meCY;
+                showBars = (adx * adx + ady * ady) <= 260 * 260;
             } else if (ME.faction === 'rarebot' && pFaction === 'goodbot') {
                 showBars = clientHasLOS(meCX, meCY, (p.renderX ?? p.x) + pw / 2, (p.renderY ?? p.y) + ph / 2);
             }
             const bars = showBars ? {
-                health: p.health ?? 255,
+                health: p.health ?? (pFaction === 'rarebot' ? 255 : 1000),
                 maxHealth: p.maxHealth ?? (pFaction === 'rarebot' ? 255 : 1000),
-                energy: p.energy ?? 50,
+                energy: p.energy ?? (pFaction === 'rarebot' ? 50 : 255),
                 maxEnergy: p.maxEnergy ?? (pFaction === 'rarebot' ? 50 : 255)
             } : null;
-            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, p.name, pFaction, pFaction !== 'spectator', getSwingOffset(key, nowMs), bars);
+            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, p.name, pFaction, pFaction !== 'spectator', getSwingOffset(key, nowMs), bars, null, p.weapon || 'hands', key, nowMs);
         }
 
         const pRenderX = ME.x - camX + ME.width / 2;
         const pRenderY = ME.y - camY + ME.height / 2;
         const myKey = `player:${myId}`;
-        drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, myName, ME.faction, ME.faction !== 'spectator', getSwingOffset(myKey, nowMs), null);
+        drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, myName, ME.faction, ME.faction !== 'spectator', getSwingOffset(myKey, nowMs), null, null, getMyEquippedWeapon(), myKey, nowMs);
     }
 
     for (let cy = startCY; cy <= endCY; cy++) {
@@ -1935,6 +2219,11 @@ async function connectToServer() {
             ME.energy = Math.max(0, Math.min(ME.maxEnergy, data.energy ?? ME.maxEnergy));
             ME.scraps = Math.max(0, Math.floor(data.scraps ?? 0));
             ME.chats = [];
+            myInventory = Array.isArray(data.inventory) ? data.inventory.slice(0, 5) : [null, null, null, null, null];
+            while (myInventory.length < 5) myInventory.push(null);
+            activeSlot = Number.isInteger(data.activeSlot) ? Math.max(0, Math.min(4, data.activeSlot)) : 0;
+            lastEquippedItemKey = myInventory[activeSlot] || null;
+            renderInventorySlots();
             lastRenderedHealth = -1;
             lastRenderedEnergy = -1;
             lastRenderedMaxHealth = -1;
@@ -1944,7 +2233,7 @@ async function connectToServer() {
             if (data.gameState) {
                 applyGameStateUI(data.gameState);
             }
-            selectSlot(0);
+            selectSlot(activeSlot, false);
             if (chatLog) {
                 chatLog.textContent = '';
                 if (Array.isArray(data.chatLog)) {
@@ -2004,8 +2293,86 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'inventory_update') {
+            if (Array.isArray(data.inventory)) {
+                myInventory = data.inventory.slice(0, 5);
+                while (myInventory.length < 5) myInventory.push(null);
+            }
+            if (Number.isInteger(data.activeSlot)) {
+                activeSlot = Math.max(0, Math.min(4, data.activeSlot));
+            }
+            if (typeof data.scraps === 'number') {
+                ME.scraps = Math.max(0, Math.floor(data.scraps));
+            }
+            renderInventorySlots();
+            selectSlot(activeSlot, false);
+            syncEquipAnimation(false);
+            updateStatsUI();
+            return;
+        }
+
+        if (data.type === 'ranged_shot') {
+            if (typeof data.projId === 'number') {
+                serverProjectiles.set(data.projId, {
+                    id: data.projId,
+                    variant: data.variant || 'goodbot',
+                    x: Number(data.projX) || 0,
+                    y: Number(data.projY) || 0,
+                    vx: Number(data.vx) || 0,
+                    vy: Number(data.vy) || 0,
+                    angle: Number(data.angle) || 0,
+                    age: 0
+                });
+            }
+            const nowMs = performance.now();
+            if (!(data.kind === 'player' && data.id === myId && nowMs - lastLocalShotAt < 250)) {
+                recoilAnims.set(`${data.kind}:${data.id}`, nowMs);
+                playSpatialSound('laserShot', data.x, data.y);
+            }
+            if (ME.faction === 'goodbot' && data.kind === 'enemy' && typeof data.x === 'number' && typeof data.y === 'number') {
+                const dist = Math.hypot(data.x - (ME.x + ME.width / 2), data.y - (ME.y + ME.height / 2));
+                if (dist <= 360) {
+                    enemyAggroUntil.set(`enemy:${data.id}`, nowMs + 8000);
+                }
+            }
+            return;
+        }
+
+        if (data.type === 'projectile_wall_hit') {
+            if (typeof data.id === 'number') {
+                serverProjectiles.delete(data.id);
+            }
+            spawnBulletWallParticles(data.x, data.y, data.variant || 'goodbot');
+            playSpatialSound('bulletWallImpact', data.tileX, data.tileY);
+            return;
+        }
+
         if (data.type === 'entity_hit') {
+            if (data.projectileId) {
+                serverProjectiles.delete(data.projectileId);
+            }
             playSpatialSound('hit', data.x, data.y);
+            playSpatialSound('hitReceive', data.x, data.y);
+            let attX = typeof data.attackerX === 'number' ? data.attackerX : data.x;
+            let attY = typeof data.attackerY === 'number' ? data.attackerY : data.y;
+            if (data.attackerKind === 'player') {
+                if (data.attackerId === myId) {
+                    attX = ME.x + ME.width / 2;
+                    attY = ME.y + ME.height / 2;
+                } else if (serverPlayers[data.attackerId]) {
+                    const ap = serverPlayers[data.attackerId];
+                    attX = (ap.renderX ?? ap.x) + ap.width / 2;
+                    attY = (ap.renderY ?? ap.y) + ap.height / 2;
+                }
+            } else if (data.attackerKind === 'enemy' && serverEnemies[data.attackerId]) {
+                const ae = serverEnemies[data.attackerId];
+                attX = (ae.renderX ?? ae.x) + ae.width / 2;
+                attY = (ae.renderY ?? ae.y) + ae.height / 2;
+            }
+            playSpatialSound('hitDeal', attX, attY);
+            if (data.weaponKind === 'ranged') {
+                playRandomBulletImpact(data.x, data.y);
+            }
             if (data.kind === 'player' && data.id === myId && ME.faction === 'goodbot') {
                 enemyAggroUntil.set(`${data.attackerKind}:${data.attackerId}`, performance.now() + 8000);
             }
@@ -2113,6 +2480,11 @@ async function connectToServer() {
                     existing.energy = incoming.energy;
                     existing.maxEnergy = incoming.maxEnergy;
                     existing.scraps = pScraps;
+                    const nextWeapon = incoming.weapon || 'hands';
+                    if (existing.weapon !== nextWeapon && nextWeapon !== 'hands') {
+                        equipAnims.set(`player:${id}`, performance.now());
+                    }
+                    existing.weapon = nextWeapon;
                     existing.chats = Array.isArray(incoming.chats) ? incoming.chats : emptyChats;
                     existing._seq = stateSeq;
                     if (jumped) {
@@ -2122,6 +2494,7 @@ async function connectToServer() {
                 } else {
                     serverPlayers[id] = {
                         ...incoming,
+                        weapon: incoming.weapon || 'hands',
                         width: incoming.width || 48,
                         height: incoming.height || 48,
                         chats: Array.isArray(incoming.chats) ? incoming.chats : emptyChats,
@@ -2156,6 +2529,8 @@ async function connectToServer() {
                         existing.scale = incoming.scale ?? 1;
                         existing.width = incoming.width || 48;
                         existing.height = incoming.height || 48;
+                        existing.kind = incoming.kind || 'rarebot';
+                        existing.weapon = incoming.weapon || 'hands';
                         existing.health = incoming.health;
                         existing.maxHealth = incoming.maxHealth;
                         existing.energy = incoming.energy;
@@ -2168,6 +2543,8 @@ async function connectToServer() {
                     } else {
                         serverEnemies[id] = {
                             ...incoming,
+                            kind: incoming.kind || 'rarebot',
+                            weapon: incoming.weapon || 'hands',
                             width: incoming.width || 48,
                             height: incoming.height || 48,
                             renderX: incoming.x,
@@ -2344,14 +2721,23 @@ function triggerAttack() {
     if (ME.faction === 'spectator') return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-    const cooldown = ME.faction === 'rarebot' ? 508 : 428;
+    const equippedWeapon = getMyEquippedWeapon();
+    const isPistol = equippedWeapon === 'goodbot-pistol';
+    const cooldown = isPistol ? 408 : (ME.faction === 'rarebot' ? 508 : 428);
     const nowMs = performance.now();
     if (nowMs - lastAttackSentAt < cooldown) return;
     lastAttackSentAt = nowMs;
 
-    swingAnims.set(`player:${myId}`, nowMs);
-    playSpatialSound('swing', ME.x + ME.width / 2, ME.y + ME.height / 2);
-    ws.send(JSON.stringify({ type: 'attack' }));
+    if (isPistol) {
+        lastLocalShotAt = nowMs;
+        recoilAnims.set(`player:${myId}`, nowMs);
+        playSpatialSound('laserShot', ME.x + ME.width / 2, ME.y + ME.height / 2);
+        ws.send(JSON.stringify({ type: 'attack', angle: ME.angle }));
+    } else {
+        swingAnims.set(`player:${myId}`, nowMs);
+        playSpatialSound('swing', ME.x + ME.width / 2, ME.y + ME.height / 2);
+        ws.send(JSON.stringify({ type: 'attack', angle: ME.angle }));
+    }
 }
 
 window.addEventListener('mousedown', (e) => {
@@ -2627,10 +3013,123 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     for (let i = 0; i < inventorySlots.length; i++) {
-        inventorySlots[i].addEventListener('click', () => {
-            selectSlot(i);
+        inventorySlots[i].addEventListener('pointerenter', () => {
+            if (dragState || isShopOpen) return;
+            const itemId = myInventory[i];
+            const itemDef = itemId ? ITEM_BY_ID[itemId] : null;
+            if (itemDef) {
+                showShopTooltip(itemDef, inventorySlots[i], false, true);
+            }
+        });
+        inventorySlots[i].addEventListener('pointerleave', () => {
+            if (!isShopOpen) {
+                hideShopTooltip();
+            }
+        });
+        inventorySlots[i].addEventListener('pointerdown', (e) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            if (!isShopOpen) {
+                hideShopTooltip();
+            }
+            const itemId = myInventory[i];
+            if (!itemId) {
+                selectSlot(i);
+                return;
+            }
+            e.preventDefault();
+            dragState = {
+                fromSlot: i,
+                itemId,
+                pointerId: e.pointerId,
+                startX: e.clientX,
+                startY: e.clientY,
+                active: false,
+                ghostEl: null,
+                overSlot: -1
+            };
         });
     }
+
+    const cleanupInventoryDrag = () => {
+        for (let j = 0; j < inventorySlots.length; j++) {
+            inventorySlots[j].classList.remove('dragging-source');
+            inventorySlots[j].classList.remove('drag-over');
+        }
+        if (dragState && dragState.ghostEl && dragState.ghostEl.parentNode) {
+            dragState.ghostEl.parentNode.removeChild(dragState.ghostEl);
+        }
+        dragState = null;
+    };
+
+    window.addEventListener('pointermove', (e) => {
+        if (!dragState || e.pointerId !== dragState.pointerId) return;
+        const dist = Math.hypot(e.clientX - dragState.startX, e.clientY - dragState.startY);
+        if (!dragState.active && dist > 5) {
+            dragState.active = true;
+            const srcSlot = inventorySlots[dragState.fromSlot];
+            if (srcSlot) srcSlot.classList.add('dragging-source');
+            const imgSrc = ITEM_SLOT_IMAGES[dragState.itemId];
+            if (imgSrc) {
+                const ghost = document.createElement('img');
+                ghost.className = 'inventory-drag-ghost';
+                ghost.src = imgSrc;
+                ghost.alt = dragState.itemId;
+                const rect = srcSlot ? srcSlot.getBoundingClientRect() : null;
+                const w = rect ? Math.max(24, rect.width - 10) : 48;
+                const h = rect ? Math.max(24, rect.height - 10) : 48;
+                ghost.style.width = `${Math.round(w)}px`;
+                ghost.style.height = `${Math.round(h)}px`;
+                document.body.appendChild(ghost);
+                dragState.ghostEl = ghost;
+            }
+        }
+        if (!dragState.active) return;
+        if (dragState.ghostEl) {
+            dragState.ghostEl.style.left = `${e.clientX}px`;
+            dragState.ghostEl.style.top = `${e.clientY}px`;
+        }
+        let hitSlot = -1;
+        for (let j = 0; j < inventorySlots.length; j++) {
+            const rect = inventorySlots[j].getBoundingClientRect();
+            const isInside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+            inventorySlots[j].classList.toggle('drag-over', isInside && j !== dragState.fromSlot);
+            if (isInside) hitSlot = j;
+        }
+        dragState.overSlot = hitSlot;
+    });
+
+    const finishInventoryDrag = (e) => {
+        if (!dragState || e.pointerId !== dragState.pointerId) return;
+        const fromSlot = dragState.fromSlot;
+        const toSlot = dragState.overSlot;
+        const wasActive = dragState.active;
+        cleanupInventoryDrag();
+        if (!wasActive) {
+            selectSlot(fromSlot);
+            return;
+        }
+        if (toSlot !== -1 && toSlot !== fromSlot) {
+            const tmp = myInventory[toSlot];
+            myInventory[toSlot] = myInventory[fromSlot];
+            myInventory[fromSlot] = tmp;
+            if (activeSlot === fromSlot) {
+                activeSlot = toSlot;
+            } else if (activeSlot === toSlot) {
+                activeSlot = fromSlot;
+            }
+            renderInventorySlots();
+            selectSlot(activeSlot, false);
+            if (ws && ws.readyState === WebSocket.OPEN && myId !== null) {
+                ws.send(JSON.stringify({ type: 'move_slot', fromSlot, toSlot }));
+            }
+        }
+    };
+
+    window.addEventListener('pointerup', finishInventoryDrag);
+    window.addEventListener('pointercancel', (e) => {
+        if (!dragState || e.pointerId !== dragState.pointerId) return;
+        cleanupInventoryDrag();
+    });
 
     if (gameStartBtn) {
         gameStartBtn.addEventListener('click', () => {
