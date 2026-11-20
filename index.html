@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Viga&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=4">
+    <link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
     <canvas id="gameCanvas"></canvas>
@@ -83,11 +83,15 @@
                 </div>
             </div>
             <div id="inventory-layer">
-                <div class="slot active" data-slot="0"></div>
-                <div class="slot" data-slot="1"></div>
-                <div class="slot" data-slot="2"></div>
-                <div class="slot" data-slot="3"></div>
-                <div class="slot" data-slot="4"></div>
+                <div class="slot active" data-slot="0"><span class="slot-number">1</span></div>
+                <div class="slot" data-slot="1"><span class="slot-number">2</span></div>
+                <div class="slot" data-slot="2"><span class="slot-number">3</span></div>
+                <div class="slot" data-slot="3"><span class="slot-number">4</span></div>
+                <div class="slot" data-slot="4"><span class="slot-number">5</span></div>
+                <div id="ability-slot-wrapper">
+                    <div id="ability-slot-label">ABILITY</div>
+                    <div id="ability-slot" aria-label="Ability"></div>
+                </div>
             </div>
             <div id="stats-layer">
                 <div id="scraps-counter">Scraps: <span id="scraps-value">0</span></div>
@@ -196,6 +200,7 @@
         </div>
         <div id="shop-tooltip" aria-hidden="true">
             <div id="shop-tooltip-title"></div>
+            <div id="shop-tooltip-type"></div>
             <div id="shop-tooltip-cost"></div>
             <div id="shop-tooltip-desc"></div>
             <div id="shop-tooltip-stats"></div>
@@ -207,6 +212,6 @@
         </div>
     </div>
 
-    <script src="game.js?v=4"></script>
+    <script src="game.js?v=5"></script>
 </body>
 </html>
