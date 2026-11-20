@@ -159,12 +159,16 @@ const enemyAlertBadges = new Map();
 const alertCommWaves = [];
 const serverProjectiles = new Map();
 const explosions = [];
+const hitPointMarkers = [];
 const floatingTexts = [];
 const pendingFloatingTexts = [];
 const MAX_EXPLOSION_PARTICLES = 240;
 const EXPLOSION_COLORS = ['#ff2a00', '#ff7b00', '#ffd000', '#ff4d00'];
 const GOODBOT_BULLET_EXPLOSION_COLORS = ['#d84aff', '#a800ff', '#f0aaff', '#ffffff'];
 const RAREBOT_BULLET_EXPLOSION_COLORS = ['#ff2a00', '#ff5e3a', '#ff9900', '#ffffff'];
+
+let crosshairGap = 9;
+let hasMouseMoved = false;
 
 let menuCamX = null;
 let menuCamY = null;
@@ -319,8 +323,10 @@ function returnToMainMenu() {
     selectSlot(0, false);
     hideShopTooltip();
     explosions.length = 0;
+    hitPointMarkers.length = 0;
     floatingTexts.length = 0;
     pendingFloatingTexts.length = 0;
+    syncCanvasCrosshairCursor();
     ME.health = 1000;
     ME.maxHealth = 1000;
     ME.energy = 255;
@@ -534,6 +540,19 @@ function getMyEquippedWeapon() {
     const itemId = myInventory[activeSlot];
     if (itemId === 'goodbot-pistol') return 'goodbot-pistol';
     return 'hands';
+}
+
+function isRangedCrosshairActive() {
+    if (inMainMenu || myId === null) return false;
+    if (isSettingsOpen || isLeaveDialogOpen || isShopOpen) return false;
+    if (document.activeElement === chatInput) return false;
+    if (document.body.classList.contains('touch-mode')) return false;
+    return getMyEquippedWeapon() === 'goodbot-pistol';
+}
+
+function syncCanvasCrosshairCursor() {
+    if (!canvas) return;
+    canvas.classList.toggle('ranged-crosshair', isRangedCrosshairActive());
 }
 
 function syncEquipAnimation(forceSwitch = false) {
@@ -827,15 +846,28 @@ function wsUrlToHttpProbe(wsUrl) {
     return wsUrl;
 }
 
+let keepAliveTimerId = null;
+
 async function measurePingOnce() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: 'ping', t: performance.now() }));
 }
 
+function sendClientKeepAliveHttp() {
+    if (inMainMenu) return;
+    const targetUrl = isNodeHostedOrigin() ? '/health' : (pingProbeUrl ? `${pingProbeUrl.replace(/\/+$/, '')}/health` : null);
+    if (!targetUrl) return;
+    fetch(targetUrl, { cache: 'no-store' }).catch(() => {});
+}
+
 function startPingMonitor(wsUrl) {
     pingProbeUrl = wsUrlToHttpProbe(wsUrl);
-    if (pingTimerId !== null) return;
-    pingTimerId = setInterval(measurePingOnce, 2500);
+    if (pingTimerId === null) {
+        pingTimerId = setInterval(measurePingOnce, 2500);
+    }
+    if (keepAliveTimerId === null) {
+        keepAliveTimerId = setInterval(sendClientKeepAliveHttp, 180000);
+    }
 }
 
 let fpsFrames = 0;
@@ -1026,17 +1058,29 @@ function drawTileCell(targetCtx, cell, dx, dy, tileSize) {
     const sSize = tileSize - (sInset * 2);
     const sx = cell.tx * tileSize + sInset;
     const sy = cell.ty * tileSize + sInset;
-    const rot = (cell.r || 0) * Math.PI / 180;
+    const rotDeg = ((Math.round(cell.r || 0) % 360) + 360) % 360;
 
-    if (rot !== 0) {
-        targetCtx.save();
-        targetCtx.translate(dx + tileSize / 2, dy + tileSize / 2);
-        targetCtx.rotate(rot);
-        targetCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, -tileSize / 2, -tileSize / 2, tileSize, tileSize);
-        targetCtx.restore();
-    } else {
+    if (rotDeg === 0) {
         targetCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, dx, dy, tileSize, tileSize);
+        return;
     }
+
+    targetCtx.save();
+    if (rotDeg === 90) {
+        targetCtx.transform(0, 1, -1, 0, dx + tileSize, dy);
+        targetCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, 0, 0, tileSize, tileSize);
+    } else if (rotDeg === 180) {
+        targetCtx.transform(-1, 0, 0, -1, dx + tileSize, dy + tileSize);
+        targetCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, 0, 0, tileSize, tileSize);
+    } else if (rotDeg === 270) {
+        targetCtx.transform(0, -1, 1, 0, dx, dy + tileSize);
+        targetCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, 0, 0, tileSize, tileSize);
+    } else {
+        targetCtx.translate(dx + tileSize / 2, dy + tileSize / 2);
+        targetCtx.rotate((rotDeg * Math.PI) / 180);
+        targetCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, -tileSize / 2, -tileSize / 2, tileSize, tileSize);
+    }
+    targetCtx.restore();
 }
 
 function preRenderMap() {
@@ -1519,6 +1563,20 @@ function update(dt) {
         }
     }
 
+    for (let i = hitPointMarkers.length - 1; i >= 0; i--) {
+        const m = hitPointMarkers[i];
+        m.age += dt;
+        if (m.age >= m.life) {
+            hitPointMarkers[i] = hitPointMarkers[hitPointMarkers.length - 1];
+            hitPointMarkers.pop();
+        }
+    }
+
+    const nowMs = performance.now();
+    const crosshairClosing = isRangedCrosshairActive() && (isAttackHeld || (nowMs - lastLocalShotAt < 260));
+    crosshairGap = crosshairClosing ? 1 : 9;
+    syncCanvasCrosshairCursor();
+
     if (pendingFloatingTexts.length > 0) {
         const waitingPlayers = new Set();
         for (let i = 0; i < pendingFloatingTexts.length; i++) {
@@ -1636,6 +1694,16 @@ function clientHasLOS(x1, y1, x2, y2) {
         if (grid[r] && grid[r][c]) return false;
     }
     return true;
+}
+
+function isWorldPointInTree(wx, wy) {
+    const grid = WORLD.MAP.mapData ? WORLD.MAP.mapData.tree : null;
+    if (!grid) return false;
+    const ts = WORLD.MAP.tileSize || 64;
+    const c = Math.floor(wx / ts);
+    const r = Math.floor(wy / ts);
+    if (r < 0 || r >= grid.length || c < 0 || !grid[r] || c >= grid[r].length) return false;
+    return Boolean(grid[r][c]);
 }
 
 const labelSpriteCache = new Map();
@@ -2050,7 +2118,7 @@ function drawChatBubbles(chats, x, bottomY) {
     }
 }
 
-function drawClippedChunk(chunkCanvas, worldX0, worldY0, bounds, camX, camY, visW, visH) {
+function drawClippedChunk(chunkCanvas, worldX0, worldY0, bounds, camX, camY, visW, visH, viewScale) {
     const rx0 = worldX0 + bounds.minX;
     const ry0 = worldY0 + bounds.minY;
     const rx1 = worldX0 + bounds.maxX;
@@ -2062,7 +2130,14 @@ function drawClippedChunk(chunkCanvas, worldX0, worldY0, bounds, camX, camY, vis
     const sw = ix1 - ix0;
     const sh = iy1 - iy0;
     if (sw <= 0 || sh <= 0) return;
-    ctx.drawImage(chunkCanvas, ix0 - worldX0, iy0 - worldY0, sw, sh, ix0 - camX, iy0 - camY, sw, sh);
+    const dx0 = Math.round((ix0 - camX) * viewScale);
+    const dy0 = Math.round((iy0 - camY) * viewScale);
+    const dx1 = Math.round((ix1 - camX) * viewScale);
+    const dy1 = Math.round((iy1 - camY) * viewScale);
+    const dw = dx1 - dx0;
+    const dh = dy1 - dy0;
+    if (dw <= 0 || dh <= 0) return;
+    ctx.drawImage(chunkCanvas, ix0 - worldX0, iy0 - worldY0, sw, sh, dx0, dy0, dw, dh);
 }
 
 function render() {
@@ -2073,8 +2148,9 @@ function render() {
     const camY = Math.floor(WORLD.CAMERA.y || 0);
     const camW = WORLD.CAMERA.width;
     const camH = WORLD.CAMERA.height;
-    const visW = Math.ceil(camW);
-    const visH = Math.ceil(camH);
+    const visW = Math.ceil(camW) + 1;
+    const visH = Math.ceil(camH) + 1;
+    const vs = WORLD.SYSTEM.viewScale;
     const cs = WORLD.MAP.chunkSize;
     const mapW = WORLD.MAP.columns * WORLD.MAP.tileSize;
     const mapH = WORLD.MAP.rows * WORLD.MAP.tileSize;
@@ -2085,7 +2161,7 @@ function render() {
     }
 
     ctx.save();
-    ctx.scale(WORLD.SYSTEM.viewScale, WORLD.SYSTEM.viewScale);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.imageSmoothingEnabled = false;
 
     const startCX = Math.max(0, Math.floor(camX / cs));
@@ -2109,10 +2185,14 @@ function render() {
                 camX,
                 camY,
                 visW,
-                visH
+                visH,
+                vs
             );
         }
     }
+
+    ctx.scale(vs, vs);
+    ctx.imageSmoothingEnabled = false;
 
     const cullPad = 96;
     const nowMs = performance.now();
@@ -2177,23 +2257,29 @@ function render() {
 
         for (const id in serverPlayers) {
             const p = serverPlayers[id];
+            const pFaction = p.faction || 'goodbot';
+            if (pFaction === 'spectator') continue;
             const pw = p.width || 48;
             const ph = p.height || 48;
-            const pFaction = p.faction || 'goodbot';
-            const pRX = (p.renderX ?? p.x) - camX + pw / 2;
-            const pRY = (p.renderY ?? p.y) - camY + ph / 2;
+            const pWorldCX = (p.renderX ?? p.x) + pw / 2;
+            const pWorldCY = (p.renderY ?? p.y) + ph / 2;
+            const pRX = pWorldCX - camX;
+            const pRY = pWorldCY - camY;
             if (pRX < -cullPad || pRX > camW + cullPad || pRY < -cullPad || pRY > camH + cullPad) continue;
             const ps = Math.min(2, Math.max(0.3, p.scale || 1));
             const key = `player:${id}`;
+            const pInTree = isWorldPointInTree(pWorldCX, pWorldCY);
             let showBars = false;
-            if (ME.faction === 'goodbot' && pFaction === 'rarebot') {
-                showBars = (enemyAggroUntil.get(key) || 0) > nowMs;
-            } else if (ME.faction === 'goodbot' && pFaction === 'goodbot') {
-                const adx = ((p.renderX ?? p.x) + pw / 2) - meCX;
-                const ady = ((p.renderY ?? p.y) + ph / 2) - meCY;
-                showBars = (adx * adx + ady * ady) <= 260 * 260;
-            } else if (ME.faction === 'rarebot' && pFaction === 'goodbot') {
-                showBars = clientHasLOS(meCX, meCY, (p.renderX ?? p.x) + pw / 2, (p.renderY ?? p.y) + ph / 2);
+            if (!pInTree) {
+                if (ME.faction === 'goodbot' && pFaction === 'rarebot') {
+                    showBars = (enemyAggroUntil.get(key) || 0) > nowMs;
+                } else if (ME.faction === 'goodbot' && pFaction === 'goodbot') {
+                    const adx = pWorldCX - meCX;
+                    const ady = pWorldCY - meCY;
+                    showBars = (adx * adx + ady * ady) <= 260 * 260;
+                } else if (ME.faction === 'rarebot' && pFaction === 'goodbot') {
+                    showBars = clientHasLOS(meCX, meCY, pWorldCX, pWorldCY);
+                }
             }
             const bars = showBars ? {
                 health: p.health ?? (pFaction === 'rarebot' ? 255 : 1000),
@@ -2201,21 +2287,27 @@ function render() {
                 energy: p.energy ?? (pFaction === 'rarebot' ? 50 : 255),
                 maxEnergy: p.maxEnergy ?? (pFaction === 'rarebot' ? 50 : 255)
             } : null;
-            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, p.name, pFaction, pFaction !== 'spectator', getSwingOffset(key, nowMs), bars, null, p.weapon || 'hands', key, nowMs);
+            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, pInTree ? null : p.name, pFaction, true, getSwingOffset(key, nowMs), bars, null, p.weapon || 'hands', key, nowMs);
         }
 
-        const pRenderX = ME.x - camX + ME.width / 2;
-        const pRenderY = ME.y - camY + ME.height / 2;
-        const myKey = `player:${myId}`;
-        drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, myName, ME.faction, ME.faction !== 'spectator', getSwingOffset(myKey, nowMs), null, null, getMyEquippedWeapon(), myKey, nowMs);
+        if (ME.faction !== 'spectator') {
+            const pRenderX = ME.x - camX + ME.width / 2;
+            const pRenderY = ME.y - camY + ME.height / 2;
+            const myKey = `player:${myId}`;
+            const meInTree = isWorldPointInTree(meCX, meCY);
+            drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, meInTree ? null : myName, ME.faction, true, getSwingOffset(myKey, nowMs), null, null, getMyEquippedWeapon(), myKey, nowMs);
+        }
     }
 
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.imageSmoothingEnabled = false;
     for (let cy = startCY; cy <= endCY; cy++) {
         const wy0 = cy * cs;
         for (let cx = startCX; cx <= endCX; cx++) {
             const bounds = WORLD.MAP.wallChunkBounds[cy] ? WORLD.MAP.wallChunkBounds[cy][cx] : null;
             if (!bounds) continue;
-            drawClippedChunk(WORLD.MAP.wallChunks[cy][cx], cx * cs, wy0, bounds, camX, camY, visW, visH);
+            drawClippedChunk(WORLD.MAP.wallChunks[cy][cx], cx * cs, wy0, bounds, camX, camY, visW, visH, vs);
         }
     }
 
@@ -2224,7 +2316,30 @@ function render() {
         for (let cx = startCX; cx <= endCX; cx++) {
             const bounds = WORLD.MAP.fgChunkBounds[cy] ? WORLD.MAP.fgChunkBounds[cy][cx] : null;
             if (!bounds) continue;
-            drawClippedChunk(WORLD.MAP.fgChunks[cy][cx], cx * cs, wy0, bounds, camX, camY, visW, visH);
+            drawClippedChunk(WORLD.MAP.fgChunks[cy][cx], cx * cs, wy0, bounds, camX, camY, visW, visH, vs);
+        }
+    }
+    ctx.restore();
+
+    if (!inMainMenu && myId !== null) {
+        for (const id in serverPlayers) {
+            const p = serverPlayers[id];
+            if ((p.faction || 'goodbot') !== 'spectator') continue;
+            const pw = p.width || 48;
+            const ph = p.height || 48;
+            const pRX = (p.renderX ?? p.x) - camX + pw / 2;
+            const pRY = (p.renderY ?? p.y) - camY + ph / 2;
+            if (pRX < -cullPad || pRX > camW + cullPad || pRY < -cullPad || pRY > camH + cullPad) continue;
+            const ps = Math.min(2, Math.max(0.3, p.scale || 1));
+            const key = `player:${id}`;
+            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, p.name, 'spectator', false, 0, null, null, 'hands', key, nowMs);
+        }
+
+        if (ME.faction === 'spectator') {
+            const pRenderX = ME.x - camX + ME.width / 2;
+            const pRenderY = ME.y - camY + ME.height / 2;
+            const myKey = `player:${myId}`;
+            drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, myName, 'spectator', false, 0, null, null, 'hands', myKey, nowMs);
         }
     }
 
@@ -2333,6 +2448,33 @@ function render() {
             ctx.restore();
         }
 
+        if (hitPointMarkers.length > 0) {
+            ctx.save();
+            ctx.imageSmoothingEnabled = false;
+            for (let i = 0; i < hitPointMarkers.length; i++) {
+                const m = hitPointMarkers[i];
+                const mx = Math.round(m.x - camX);
+                const my = Math.round(m.y - camY);
+                if (mx < -20 || mx > camW + 20 || my < -20 || my > camH + 20) continue;
+                const progress = m.age / m.life;
+                const alpha = progress < 0.45 ? 1 : Math.max(0, 1 - (progress - 0.45) / 0.55);
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+                ctx.fillRect(mx - 2, my - 2, 4, 4);
+                ctx.fillRect(mx - 2, my - 8, 4, 5);
+                ctx.fillRect(mx - 2, my + 3, 4, 5);
+                ctx.fillRect(mx - 8, my - 2, 5, 4);
+                ctx.fillRect(mx + 3, my - 2, 5, 4);
+                ctx.fillStyle = m.color;
+                ctx.fillRect(mx - 1, my - 1, 2, 2);
+                ctx.fillRect(mx - 1, my - 7, 2, 4);
+                ctx.fillRect(mx - 1, my + 3, 2, 4);
+                ctx.fillRect(mx - 7, my - 1, 4, 2);
+                ctx.fillRect(mx + 3, my - 1, 4, 2);
+            }
+            ctx.restore();
+        }
+
         for (const id in serverPlayers) {
             const p = serverPlayers[id];
             if (!p.chats || p.chats.length === 0) continue;
@@ -2350,6 +2492,23 @@ function render() {
     }
 
     ctx.restore();
+
+    if (hasMouseMoved && isRangedCrosshairActive()) {
+        const cx = Math.round(WORLD.INPUTS.mouseX);
+        const cy = Math.round(WORLD.INPUTS.mouseY);
+        const gap = crosshairGap;
+        const len = 8;
+        const thick = 2;
+        const halfT = 1;
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(cx - halfT, cy - gap - len, thick, len);
+        ctx.fillRect(cx - gap - len, cy - halfT, len, thick);
+        ctx.fillRect(cx + gap, cy - halfT, len, thick);
+        ctx.fillRect(cx - halfT, cy + gap, thick, len);
+        ctx.restore();
+    }
 }
 
 function gameLoop(now) {
@@ -2675,6 +2834,18 @@ async function connectToServer() {
         if (data.type === 'entity_hit') {
             if (data.projectileId) {
                 serverProjectiles.delete(data.projectileId);
+            }
+            const hx = typeof data.hitX === 'number' ? data.hitX : Number(data.x) || 0;
+            const hy = typeof data.hitY === 'number' ? data.hitY : Number(data.y) || 0;
+            const victimFaction = data.targetFaction || (data.kind === 'enemy' ? 'rarebot' : 'goodbot');
+            if (victimFaction === 'goodbot' || victimFaction === 'rarebot') {
+                hitPointMarkers.push({
+                    x: hx,
+                    y: hy,
+                    color: victimFaction === 'goodbot' ? '#ff2a2a' : '#b833ff',
+                    age: 0,
+                    life: 0.6
+                });
             }
             playSpatialSound('hit', data.x, data.y);
             playSpatialSound('hitReceive', data.x, data.y);
@@ -3045,6 +3216,7 @@ window.addEventListener('keyup', e => {
 });
 
 window.addEventListener('mousemove', e => {
+    hasMouseMoved = true;
     WORLD.INPUTS.mouseX = e.clientX;
     WORLD.INPUTS.mouseY = e.clientY;
 });
