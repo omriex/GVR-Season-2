@@ -54,6 +54,16 @@
         </div>
 
         <div id="game-ui">
+            <div id="minimap-wrapper">
+                <button id="minimap-toggle-btn" type="button" aria-label="Minimize map" aria-expanded="true">
+                    <svg id="minimap-toggle-icon" viewBox="0 0 16 10" width="14" height="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+                        <polyline points="2 2 8 8 14 2"/>
+                    </svg>
+                </button>
+                <div id="minimap-box">
+                    <canvas id="minimap-canvas"></canvas>
+                </div>
+            </div>
             <div id="chat-wrapper">
                 <button id="shop-btn" type="button" aria-label="Shop">
                     <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
@@ -134,8 +144,8 @@
                     <div class="setting-row setting-size-row">
                         <span class="setting-label">UI Size</span>
                         <div class="ui-size-group" role="group" aria-label="UI Size">
-                            <button type="button" class="ui-size-btn" data-ui-size="low">Small</button>
-                            <button type="button" class="ui-size-btn active" data-ui-size="normal">Medium</button>
+                            <button type="button" class="ui-size-btn active" data-ui-size="low">Small</button>
+                            <button type="button" class="ui-size-btn" data-ui-size="normal">Medium</button>
                             <button type="button" class="ui-size-btn" data-ui-size="big">Big</button>
                         </div>
                     </div>
@@ -185,6 +195,11 @@
             <div id="shop-tooltip-cost"></div>
             <div id="shop-tooltip-desc"></div>
             <div id="shop-tooltip-stats"></div>
+        </div>
+        <div id="map-overlay" aria-hidden="true">
+            <div id="map-expanded-box" role="dialog" aria-modal="true" aria-label="Map">
+                <canvas id="expanded-map-canvas"></canvas>
+            </div>
         </div>
     </div>
 
