@@ -1667,16 +1667,17 @@ function sendInput(force = false) {
     const keySig = `${input.up ? 1 : 0}${input.down ? 1 : 0}${input.left ? 1 : 0}${input.right ? 1 : 0}${input.sprint ? 1 : 0}`;
     const keysChanged = keySig !== lastInputKeySig;
 
-    let angleDiff = Math.abs(ME.angle - lastSentAngle);
+    const roundedAngle = Math.round(ME.angle * 1000) / 1000;
+    let angleDiff = Math.abs(roundedAngle - lastSentAngle);
     if (angleDiff > Math.PI) angleDiff = Math.abs(angleDiff - Math.PI * 2);
 
     const now = performance.now();
     if (!force && !keysChanged) {
-        if (angleDiff <= 0.02 || now - lastInputSendTime < 33) return;
+        if (angleDiff <= 0.035 || now - lastInputSendTime < 50) return;
     }
 
     lastInputKeySig = keySig;
-    lastSentAngle = ME.angle;
+    lastSentAngle = roundedAngle;
     lastInputSendTime = now;
 
     ws.send(JSON.stringify({
@@ -1686,7 +1687,7 @@ function sendInput(force = false) {
         left: input.left,
         right: input.right,
         sprint: input.sprint,
-        angle: ME.angle
+        angle: roundedAngle
     }));
 }
 
@@ -3917,15 +3918,19 @@ function triggerAttack() {
     if (nowMs - lastAttackSentAt < cooldown) return;
     lastAttackSentAt = nowMs;
 
+    const roundedAttackAngle = Math.round(ME.angle * 1000) / 1000;
+    lastSentAngle = roundedAttackAngle;
+    lastInputSendTime = nowMs;
+
     if (isPistol) {
         lastLocalShotAt = nowMs;
         recoilAnims.set(`player:${myId}`, nowMs);
         playSpatialSound('laserShot', ME.x + ME.width / 2, ME.y + ME.height / 2);
-        ws.send(JSON.stringify({ type: 'attack', angle: ME.angle }));
+        ws.send(JSON.stringify({ type: 'attack', angle: roundedAttackAngle }));
     } else {
         swingAnims.set(`player:${myId}`, nowMs);
         playSpatialSound('swing', ME.x + ME.width / 2, ME.y + ME.height / 2);
-        ws.send(JSON.stringify({ type: 'attack', angle: ME.angle }));
+        ws.send(JSON.stringify({ type: 'attack', angle: roundedAttackAngle }));
     }
 }
 
@@ -3956,11 +3961,14 @@ function triggerAbility(useAimAngleOnly = false) {
     leftPunchAnims.set(`player:${myId}`, nowMs);
     playSpatialSound('swing', ME.x + ME.width / 2, ME.y + ME.height / 2);
     updateAbilitySlotCooldown(nowMs);
+    const roundedAbilityAngle = Math.round(ME.angle * 1000) / 1000;
+    lastSentAngle = roundedAbilityAngle;
+    lastInputSendTime = nowMs;
     ws.send(JSON.stringify({
         type: 'use_ability',
         targetX,
         targetY,
-        angle: ME.angle
+        angle: roundedAbilityAngle
     }));
 }
 
