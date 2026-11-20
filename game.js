@@ -47,6 +47,7 @@ const settingsOverlay = document.getElementById('settings-overlay');
 const settingsCloseBtn = document.getElementById('settings-close-btn');
 const settingShowPing = document.getElementById('setting-show-ping');
 const settingShowFps = document.getElementById('setting-show-fps');
+const settingShowHitboxes = document.getElementById('setting-show-hitboxes');
 const uiSizeButtons = document.querySelectorAll('.ui-size-btn');
 const settingMusicVolume = document.getElementById('setting-music-volume');
 const settingSoundVolume = document.getElementById('setting-sound-volume');
@@ -167,6 +168,7 @@ const serverProjectiles = new Map();
 const raycastBeams = [];
 const explosions = [];
 const hitPointMarkers = [];
+const activeDamageHitboxes = [];
 const floatingTexts = [];
 const pendingFloatingTexts = [];
 const MAX_EXPLOSION_PARTICLES = 240;
@@ -334,6 +336,7 @@ function returnToMainMenu() {
     hideShopTooltip();
     explosions.length = 0;
     hitPointMarkers.length = 0;
+    activeDamageHitboxes.length = 0;
     floatingTexts.length = 0;
     pendingFloatingTexts.length = 0;
     syncCanvasCrosshairCursor();
@@ -397,6 +400,7 @@ async function fetchInitialServerStatus() {
 const SETTINGS = {
     showPing: true,
     showFps: true,
+    showDamageHitboxes: false,
     uiSize: 'low',
     musicVolume: 100,
     soundVolume: 100
@@ -440,6 +444,7 @@ function loadSettings() {
             const parsed = JSON.parse(raw);
             if (typeof parsed.showPing === 'boolean') SETTINGS.showPing = parsed.showPing;
             if (typeof parsed.showFps === 'boolean') SETTINGS.showFps = parsed.showFps;
+            if (typeof parsed.showDamageHitboxes === 'boolean') SETTINGS.showDamageHitboxes = parsed.showDamageHitboxes;
             if (parsed.uiSize === 'low' || parsed.uiSize === 'normal' || parsed.uiSize === 'big') {
                 SETTINGS.uiSize = parsed.uiSize;
             }
@@ -462,6 +467,10 @@ function saveSettings() {
 function applySettingsToUI() {
     if (settingShowPing) settingShowPing.checked = SETTINGS.showPing;
     if (settingShowFps) settingShowFps.checked = SETTINGS.showFps;
+    if (settingShowHitboxes) settingShowHitboxes.checked = SETTINGS.showDamageHitboxes;
+    if (!SETTINGS.showDamageHitboxes) {
+        activeDamageHitboxes.length = 0;
+    }
     for (let i = 0; i < uiSizeButtons.length; i++) {
         const btn = uiSizeButtons[i];
         btn.classList.toggle('active', btn.dataset.uiSize === SETTINGS.uiSize);
@@ -1679,6 +1688,15 @@ function update(dt) {
         }
     }
 
+    for (let i = activeDamageHitboxes.length - 1; i >= 0; i--) {
+        const hb = activeDamageHitboxes[i];
+        hb.age += dt;
+        if (hb.age >= hb.life) {
+            activeDamageHitboxes[i] = activeDamageHitboxes[activeDamageHitboxes.length - 1];
+            activeDamageHitboxes.pop();
+        }
+    }
+
     const nowMs = performance.now();
     const crosshairClosing = isRangedCrosshairActive() && (isAttackHeld || (nowMs - lastLocalShotAt < 260));
     crosshairGap = crosshairClosing ? 1 : 9;
@@ -2586,6 +2604,27 @@ function render() {
             ctx.restore();
         }
 
+        if (SETTINGS.showDamageHitboxes && activeDamageHitboxes.length > 0) {
+            ctx.save();
+            for (let i = 0; i < activeDamageHitboxes.length; i++) {
+                const hb = activeDamageHitboxes[i];
+                const hx = hb.x - camX;
+                const hy = hb.y - camY;
+                const half = hb.size * 0.5;
+                if (hx + half < -40 || hx - half > camW + 40 || hy + half < -40 || hy - half > camH + 40) continue;
+                ctx.save();
+                ctx.translate(hx, hy);
+                if (hb.angle) ctx.rotate(hb.angle);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+                ctx.fillRect(-half, -half, hb.size, hb.size);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(-half, -half, hb.size, hb.size);
+                ctx.restore();
+            }
+            ctx.restore();
+        }
+
         if (hitPointMarkers.length > 0) {
             ctx.save();
             ctx.imageSmoothingEnabled = false;
@@ -3120,6 +3159,22 @@ async function connectToServer() {
                     color: '#ff3030',
                     age: 0,
                     life: 1.3
+                });
+            }
+            return;
+        }
+
+        if (data.type === 'damage_hitbox') {
+            if (SETTINGS.showDamageHitboxes) {
+                const size = Number(data.size) || 48;
+                const durationMs = Math.max(40, Number(data.durationMs) || 150);
+                activeDamageHitboxes.push({
+                    x: Number(data.x) || 0,
+                    y: Number(data.y) || 0,
+                    size,
+                    angle: Number(data.angle) || 0,
+                    age: 0,
+                    life: durationMs / 1000
                 });
             }
             return;
@@ -3705,6 +3760,14 @@ window.addEventListener('DOMContentLoaded', () => {
     if (settingShowFps) {
         settingShowFps.addEventListener('change', () => {
             SETTINGS.showFps = settingShowFps.checked;
+            saveSettings();
+            applySettingsToUI();
+        });
+    }
+
+    if (settingShowHitboxes) {
+        settingShowHitboxes.addEventListener('change', () => {
+            SETTINGS.showDamageHitboxes = settingShowHitboxes.checked;
             saveSettings();
             applySettingsToUI();
         });
