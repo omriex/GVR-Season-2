@@ -61,6 +61,7 @@ const shopCloseBtn = document.getElementById('shop-close-btn');
 const shopGrid = document.getElementById('shop-grid');
 const shopTooltip = document.getElementById('shop-tooltip');
 const shopTooltipTitle = document.getElementById('shop-tooltip-title');
+const shopTooltipType = document.getElementById('shop-tooltip-type');
 const shopTooltipCost = document.getElementById('shop-tooltip-cost');
 const shopTooltipDesc = document.getElementById('shop-tooltip-desc');
 const shopTooltipStats = document.getElementById('shop-tooltip-stats');
@@ -70,6 +71,7 @@ const mobileAttackBtn = document.getElementById('mobile-attack-btn');
 const mobileSprintBtn = document.getElementById('mobile-sprint-btn');
 const inventoryLayer = document.getElementById('inventory-layer');
 const inventorySlots = document.querySelectorAll('#inventory-layer .slot');
+const abilitySlot = document.getElementById('ability-slot');
 
 const LOGICAL_WIDTH = 1280;
 const LOGICAL_HEIGHT = 720;
@@ -151,6 +153,10 @@ const sessionToken = (() => {
 })();
 let activeSlot = 0;
 let myInventory = [null, null, null, null, null];
+let myAbility = null;
+let abilityReadyAt = 0;
+let lastLocalAbilityAt = 0;
+let lastRenderedAbilityCooldownSec = -1;
 let lastAttackSentAt = 0;
 let lastLocalShotAt = 0;
 let isAttackHeld = false;
@@ -165,6 +171,8 @@ const enemyAggroUntil = new Map();
 const enemyAlertBadges = new Map();
 const alertCommWaves = [];
 const serverProjectiles = new Map();
+let serverGrenades = [];
+const grenadeShockwaves = [];
 const raycastBeams = [];
 const explosions = [];
 const hitPointMarkers = [];
@@ -172,7 +180,9 @@ const activeDamageHitboxes = [];
 const floatingTexts = [];
 const pendingFloatingTexts = [];
 const MAX_EXPLOSION_PARTICLES = 240;
+const GRENADE_DRAW_SIZE = 17.68;
 const EXPLOSION_COLORS = ['#ff2a00', '#ff7b00', '#ffd000', '#ff4d00'];
+const GRENADE_EXPLOSION_COLORS = ['#d84aff', '#b833ff', '#9400e6', '#f0aaff'];
 const GOODBOT_BULLET_EXPLOSION_COLORS = ['#d84aff', '#a800ff', '#f0aaff', '#ffffff'];
 const RAREBOT_BULLET_EXPLOSION_COLORS = ['#ff2a00', '#ff5e3a', '#ff9900', '#ffffff'];
 
@@ -327,8 +337,14 @@ function returnToMainMenu() {
     enemyAlertBadges.clear();
     alertCommWaves.length = 0;
     serverProjectiles.clear();
+    serverGrenades = [];
+    grenadeShockwaves.length = 0;
     raycastBeams.length = 0;
     myInventory = [null, null, null, null, null];
+    myAbility = null;
+    abilityReadyAt = 0;
+    lastLocalAbilityAt = 0;
+    lastRenderedAbilityCooldownSec = -1;
     activeSlot = 0;
     lastEquippedItemKey = null;
     renderInventorySlots();
@@ -538,19 +554,65 @@ function closeLeaveDialog() {
 }
 
 const ITEM_SLOT_IMAGES = {
-    'goodbot-pistol': 'assets/Goodbot Pistol Slot.png'
+    'goodbot-pistol': 'assets/Goodbot Pistol Slot.png',
+    'goodbot-grenade': 'assets/Goodbot Grenade Slot.png'
 };
+
+let grenadeFallbackSlotUrl = null;
+function getGrenadeFallbackSlotUrl() {
+    if (grenadeFallbackSlotUrl) return grenadeFallbackSlotUrl;
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 64;
+    const g = c.getContext('2d');
+    g.fillStyle = '#18181d';
+    g.strokeStyle = '#000000';
+    g.lineWidth = 4;
+    g.beginPath();
+    g.arc(32, 34, 18, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#393944';
+    g.fillRect(25, 11, 14, 9);
+    g.strokeRect(25, 11, 14, 9);
+    g.fillStyle = '#b833ff';
+    g.beginPath();
+    g.arc(32, 34, 8, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = '#f0aaff';
+    g.beginPath();
+    g.arc(30, 32, 3, 0, Math.PI * 2);
+    g.fill();
+    grenadeFallbackSlotUrl = c.toDataURL();
+    return grenadeFallbackSlotUrl;
+}
 
 const SHOP_ITEMS = [
     {
         id: 'goodbot-pistol',
         title: 'Goodbot Pistol',
+        kind: 'weapon',
         description: 'Lightweight plasma firearm dealing 45-58 damage per shot',
         cost: 15,
         slotImage: 'assets/Goodbot Pistol Slot.png',
         stats: [
             { label: 'Damage', value: '45-58' },
             { label: 'Firerate', value: '400ms' }
+        ]
+    },
+    {
+        id: 'goodbot-grenade',
+        title: 'Goodbot Grenade',
+        kind: 'ability',
+        description: 'Ability (Press F or Right Click). Throws a grenade that triggers a 3-tile purple shockwave stunning rarebots for 1s, then explodes for 150-200 damage.',
+        cost: 250,
+        slotImage: 'assets/Goodbot Grenade Slot.png',
+        stats: [
+            { label: 'Type', value: 'Ability' },
+            { label: 'Damage', value: '150-200' },
+            { label: 'Cooldown', value: '10s' },
+            { label: 'Shockwave', value: '1s Stun (3 Tiles)' },
+            { label: 'Explosion', value: '3 Tiles' }
         ]
     }
 ];
@@ -589,21 +651,77 @@ function syncEquipAnimation(forceSwitch = false) {
     lastEquippedItemKey = curItem;
 }
 
+function updateAbilitySlotCooldown(nowMs) {
+    if (!abilitySlot) return;
+    const remMs = (myAbility && abilityReadyAt > nowMs) ? (abilityReadyAt - nowMs) : 0;
+    const remSec = remMs > 0 ? Math.ceil(remMs / 1000) : 0;
+    if (remSec === lastRenderedAbilityCooldownSec) return;
+    lastRenderedAbilityCooldownSec = remSec;
+    const cdOverlay = abilitySlot.querySelector('.ability-cooldown-overlay');
+    if (remSec > 0) {
+        abilitySlot.classList.add('on-cooldown');
+        if (cdOverlay) {
+            cdOverlay.style.display = 'flex';
+            cdOverlay.textContent = String(remSec);
+        }
+    } else {
+        abilitySlot.classList.remove('on-cooldown');
+        if (cdOverlay) {
+            cdOverlay.style.display = 'none';
+            cdOverlay.textContent = '';
+        }
+    }
+}
+
 function renderInventorySlots() {
-    if (!inventorySlots || inventorySlots.length === 0) return;
-    for (let i = 0; i < inventorySlots.length; i++) {
-        const slotEl = inventorySlots[i];
-        slotEl.textContent = '';
-        const itemId = myInventory[i];
-        const imgSrc = itemId ? ITEM_SLOT_IMAGES[itemId] : null;
+    if (inventorySlots && inventorySlots.length > 0) {
+        for (let i = 0; i < inventorySlots.length; i++) {
+            const slotEl = inventorySlots[i];
+            slotEl.textContent = '';
+            const numEl = document.createElement('span');
+            numEl.className = 'slot-number';
+            numEl.textContent = String(i + 1);
+            slotEl.appendChild(numEl);
+            const itemId = myInventory[i];
+            const imgSrc = itemId ? ITEM_SLOT_IMAGES[itemId] : null;
+            if (imgSrc) {
+                const img = document.createElement('img');
+                img.className = 'slot-item-img';
+                img.src = imgSrc;
+                img.alt = itemId;
+                img.draggable = false;
+                slotEl.appendChild(img);
+            }
+        }
+    }
+    if (abilitySlot) {
+        abilitySlot.textContent = '';
+        const keyEl = document.createElement('span');
+        keyEl.className = 'slot-number';
+        keyEl.textContent = 'F';
+        abilitySlot.appendChild(keyEl);
+        const abilityItem = myAbility ? ITEM_BY_ID[myAbility] : null;
+        const imgSrc = myAbility ? ITEM_SLOT_IMAGES[myAbility] : null;
         if (imgSrc) {
             const img = document.createElement('img');
             img.className = 'slot-item-img';
             img.src = imgSrc;
-            img.alt = itemId;
+            img.alt = abilityItem ? abilityItem.title : myAbility;
             img.draggable = false;
-            slotEl.appendChild(img);
+            if (myAbility === 'goodbot-grenade') {
+                img.onerror = () => {
+                    img.onerror = null;
+                    img.src = getGrenadeFallbackSlotUrl();
+                };
+            }
+            abilitySlot.appendChild(img);
         }
+        const cdOverlay = document.createElement('div');
+        cdOverlay.className = 'ability-cooldown-overlay';
+        cdOverlay.style.display = 'none';
+        abilitySlot.appendChild(cdOverlay);
+        lastRenderedAbilityCooldownSec = -1;
+        updateAbilitySlotCooldown(performance.now());
     }
 }
 
@@ -648,6 +766,15 @@ function positionShopTooltipForSlot(slot, preferAbove = false) {
 function showShopTooltip(item, slot, showCost = true, preferAbove = false) {
     if (!shopTooltip) return;
     if (shopTooltipTitle) shopTooltipTitle.textContent = item.title;
+    if (shopTooltipType) {
+        if (item.kind === 'ability') {
+            shopTooltipType.style.display = 'block';
+            shopTooltipType.textContent = 'ABILITY';
+        } else {
+            shopTooltipType.style.display = 'none';
+            shopTooltipType.textContent = '';
+        }
+    }
     if (shopTooltipCost) {
         shopTooltipCost.style.display = showCost ? '' : 'none';
         if (showCost) {
@@ -685,12 +812,25 @@ function renderShopItems() {
         slot.type = 'button';
         slot.className = 'shop-item-slot';
 
+        if (item.kind === 'ability') {
+            const tagEl = document.createElement('span');
+            tagEl.className = 'shop-item-tag';
+            tagEl.textContent = 'ABILITY';
+            slot.appendChild(tagEl);
+        }
+
         if (item.slotImage) {
             const iconEl = document.createElement('img');
             iconEl.className = 'shop-item-icon';
             iconEl.src = item.slotImage;
             iconEl.alt = item.title;
             iconEl.draggable = false;
+            if (item.id === 'goodbot-grenade') {
+                iconEl.onerror = () => {
+                    iconEl.onerror = null;
+                    iconEl.src = getGrenadeFallbackSlotUrl();
+                };
+            }
             slot.appendChild(iconEl);
         } else {
             const nameEl = document.createElement('span');
@@ -953,6 +1093,7 @@ const goodbotPistolImg = new Image();
 const rarebotPistolImg = new Image();
 const goodbotBulletImg = new Image();
 const rarebotBulletImg = new Image();
+const goodbotGrenadeImg = new Image();
 
 let audioCtx = null;
 let soundBuffersLoaded = false;
@@ -1326,6 +1467,7 @@ function loadAssets() {
     rarebotPistolImg.src = 'assets/Rarebot Pistol.png';
     goodbotBulletImg.src = 'assets/Goodbot Bullet.png';
     rarebotBulletImg.src = 'assets/Rarebot Bullet.png';
+    goodbotGrenadeImg.src = 'assets/Goodbot Grenade.png';
 }
 
 function updateStatsUI() {
@@ -1697,7 +1839,17 @@ function update(dt) {
         }
     }
 
+    for (let i = grenadeShockwaves.length - 1; i >= 0; i--) {
+        const w = grenadeShockwaves[i];
+        w.age += dt;
+        if (w.age >= w.life) {
+            grenadeShockwaves[i] = grenadeShockwaves[grenadeShockwaves.length - 1];
+            grenadeShockwaves.pop();
+        }
+    }
+
     const nowMs = performance.now();
+    updateAbilitySlotCooldown(nowMs);
     const crosshairClosing = isRangedCrosshairActive() && (isAttackHeld || (nowMs - lastLocalShotAt < 260));
     crosshairGap = crosshairClosing ? 1 : 9;
     syncCanvasCrosshairCursor();
@@ -1748,6 +1900,35 @@ function spawnExplosionParticles(wx, wy) {
             life: 0.35 + Math.random() * 0.35,
             age: 0,
             color: EXPLOSION_COLORS[Math.floor(Math.random() * EXPLOSION_COLORS.length)]
+        });
+    }
+}
+
+function spawnGrenadeExplosionParticles(wx, wy, radius = 192) {
+    grenadeShockwaves.push({
+        x: wx,
+        y: wy,
+        radius,
+        age: 0,
+        life: 0.44,
+        isExplosionFlash: true
+    });
+    const count = 44;
+    for (let i = 0; i < count; i++) {
+        if (explosions.length >= MAX_EXPLOSION_PARTICLES) {
+            explosions.shift();
+        }
+        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.45;
+        const speed = 150 + Math.random() * 340;
+        explosions.push({
+            x: wx + (Math.random() - 0.5) * 18,
+            y: wy + (Math.random() - 0.5) * 18,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            radius: 9 + Math.random() * 14,
+            life: 0.45 + Math.random() * 0.4,
+            age: 0,
+            color: GRENADE_EXPLOSION_COLORS[Math.floor(Math.random() * GRENADE_EXPLOSION_COLORS.length)]
         });
     }
 }
@@ -2082,21 +2263,60 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
     }
 
     const handsImg = spriteKind === 'prototype' ? prototypeRarebotHandsImg : botHandsImg;
+    const bodyScale = sW / 48;
+    const leftPunch = getLeftPunchOffset(entityKey, nowMs);
     if (handsImg.complete && handsImg.naturalWidth > 0) {
         const hW = sW * (handsImg.naturalWidth / refW) * HANDS_SCALE;
         const hH = sH * (handsImg.naturalHeight / refH) * HANDS_SCALE;
+        const splitX = Math.floor(handsImg.naturalWidth / 2);
+        const rightW = handsImg.naturalWidth - splitX;
+        const leftDrawW = (splitX / handsImg.naturalWidth) * hW;
+        const rightDrawW = (rightW / handsImg.naturalWidth) * hW;
         const handsKey = spriteKind === 'prototype' ? 'proto_hands' : 'bot_hands';
-        const handsMip = getScaledSpriteCanvas(
-            handsKey,
+        const leftMip = getScaledSpriteCanvas(
+            `${handsKey}_L`,
             handsImg,
             0,
             0,
-            handsImg.naturalWidth,
+            splitX,
             handsImg.naturalHeight,
-            48 * (handsImg.naturalWidth / refW) * HANDS_SCALE,
-            48 * (handsImg.naturalHeight / refH) * HANDS_SCALE
+            (splitX / refW) * 48 * HANDS_SCALE,
+            (handsImg.naturalHeight / refH) * 48 * HANDS_SCALE
         ) || handsImg;
-        ctx.drawImage(handsMip, -hW / 2, -hH / 2, hW, hH);
+        if (leftPunch) {
+            ctx.save();
+            ctx.translate(0, leftPunch.dy * bodyScale);
+            ctx.rotate(leftPunch.rot);
+            if (leftMip !== handsImg) {
+                ctx.drawImage(leftMip, -hW / 2, -hH / 2, leftDrawW, hH);
+            } else {
+                ctx.drawImage(handsImg, 0, 0, splitX, handsImg.naturalHeight, -hW / 2, -hH / 2, leftDrawW, hH);
+            }
+            ctx.restore();
+        } else {
+            if (leftMip !== handsImg) {
+                ctx.drawImage(leftMip, -hW / 2, -hH / 2, leftDrawW, hH);
+            } else {
+                ctx.drawImage(handsImg, 0, 0, splitX, handsImg.naturalHeight, -hW / 2, -hH / 2, leftDrawW, hH);
+            }
+        }
+        if (rightW > 0) {
+            const rightMip = getScaledSpriteCanvas(
+                `${handsKey}_R`,
+                handsImg,
+                splitX,
+                0,
+                rightW,
+                handsImg.naturalHeight,
+                (rightW / refW) * 48 * HANDS_SCALE,
+                (handsImg.naturalHeight / refH) * 48 * HANDS_SCALE
+            ) || handsImg;
+            if (rightMip !== handsImg) {
+                ctx.drawImage(rightMip, -hW / 2 + leftDrawW, -hH / 2, rightDrawW, hH);
+            } else {
+                ctx.drawImage(handsImg, splitX, 0, rightW, handsImg.naturalHeight, -hW / 2 + leftDrawW, -hH / 2, rightDrawW, hH);
+            }
+        }
     } else {
         const r = sW * 0.14 * HANDS_SCALE;
         const hx = sW * 0.46 * HANDS_SCALE;
@@ -2104,10 +2324,18 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
         ctx.fillStyle = '#2d2d30';
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = Math.max(1.5, sW * 0.045);
+        if (leftPunch) {
+            ctx.save();
+            ctx.translate(0, leftPunch.dy * bodyScale);
+            ctx.rotate(leftPunch.rot);
+        }
         ctx.beginPath();
         ctx.arc(-hx, hy, r, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
+        if (leftPunch) {
+            ctx.restore();
+        }
         ctx.beginPath();
         ctx.arc(hx, hy, r, 0, Math.PI * 2);
         ctx.fill();
@@ -2380,6 +2608,82 @@ function render() {
                 } else {
                     ctx.fillStyle = proj.variant === 'rarebot' ? '#ff2a2a' : '#b833ff';
                     ctx.fillRect(-2, -12, 4, 24);
+                }
+                ctx.restore();
+            }
+        }
+
+        if (grenadeShockwaves.length > 0) {
+            ctx.save();
+            for (let i = 0; i < grenadeShockwaves.length; i++) {
+                const w = grenadeShockwaves[i];
+                const sx = w.x - camX;
+                const sy = w.y - camY;
+                if (sx + w.radius < -40 || sx - w.radius > camW + 40 || sy + w.radius < -40 || sy - w.radius > camH + 40) continue;
+                const p = Math.max(0, Math.min(1, w.age / w.life));
+                if (w.isExplosionFlash) {
+                    const r = w.radius * (0.25 + 0.75 * Math.min(1, p * 2.2));
+                    const alpha = Math.max(0, 1 - p);
+                    ctx.fillStyle = `rgba(184, 51, 255, ${(0.42 * alpha).toFixed(3)})`;
+                    ctx.beginPath();
+                    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = `rgba(216, 74, 255, ${(0.85 * alpha).toFixed(3)})`;
+                    ctx.lineWidth = 4;
+                    ctx.stroke();
+                } else {
+                    const grow = Math.min(1, p / 0.22);
+                    const r = w.radius * (0.2 + 0.8 * grow);
+                    const fade = p < 0.7 ? 1 : Math.max(0, (1 - p) / 0.3);
+                    ctx.fillStyle = `rgba(184, 51, 255, ${(0.5 * fade).toFixed(3)})`;
+                    ctx.beginPath();
+                    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = `rgba(240, 170, 255, ${(0.75 * fade).toFixed(3)})`;
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                }
+            }
+            ctx.restore();
+        }
+
+        if (serverGrenades.length > 0) {
+            const gSize = GRENADE_DRAW_SIZE;
+            const gReady = goodbotGrenadeImg.complete && goodbotGrenadeImg.naturalWidth > 0;
+            for (let i = 0; i < serverGrenades.length; i++) {
+                const g = serverGrenades[i];
+                const gx = g.x - camX;
+                const gy = g.y - camY;
+                if (gx < -48 || gx > camW + 48 || gy < -48 || gy > camH + 48) continue;
+                if (g.phase === 'armed' || g.phase === 'shockwaved') {
+                    const pulse = 0.5 + 0.5 * Math.sin(nowMs * 0.018);
+                    ctx.save();
+                    ctx.strokeStyle = `rgba(216, 74, 255, ${(0.35 + 0.45 * pulse).toFixed(3)})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(gx, gy, gSize * (0.68 + 0.14 * pulse), 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+                ctx.save();
+                ctx.translate(gx, gy);
+                ctx.rotate(g.angle || 0);
+                if (gReady) {
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.drawImage(goodbotGrenadeImg, -gSize / 2, -gSize / 2, gSize, gSize);
+                } else {
+                    const gr = gSize * 0.48;
+                    ctx.fillStyle = '#1b1b22';
+                    ctx.strokeStyle = '#000000';
+                    ctx.lineWidth = 1.8;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, gr, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#b833ff';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, gr * 0.5, 0, Math.PI * 2);
+                    ctx.fill();
                 }
                 ctx.restore();
             }
@@ -2921,6 +3225,8 @@ async function connectToServer() {
             ME.chats = [];
             myInventory = Array.isArray(data.inventory) ? data.inventory.slice(0, 5) : [null, null, null, null, null];
             while (myInventory.length < 5) myInventory.push(null);
+            myAbility = data.ability || null;
+            abilityReadyAt = typeof data.abilityCooldownMs === 'number' && data.abilityCooldownMs > 0 ? (performance.now() + data.abilityCooldownMs) : 0;
             activeSlot = Number.isInteger(data.activeSlot) ? Math.max(0, Math.min(4, data.activeSlot)) : 0;
             lastEquippedItemKey = myInventory[activeSlot] || null;
             renderInventorySlots();
@@ -3030,10 +3336,47 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'ability_left_swing') {
+            const key = `player:${data.id}`;
+            const nowMs = performance.now();
+            if (!(data.id === myId && nowMs - lastLocalAbilityAt < 250)) {
+                leftPunchAnims.set(key, nowMs);
+                playSpatialSound('swing', data.x, data.y);
+            }
+            return;
+        }
+
+        if (data.type === 'grenade_shockwave') {
+            grenadeShockwaves.push({
+                x: Number(data.x) || 0,
+                y: Number(data.y) || 0,
+                radius: Number(data.radius) || 192,
+                age: 0,
+                life: 0.72,
+                isExplosionFlash: false
+            });
+            return;
+        }
+
+        if (data.type === 'grenade_explosion') {
+            const gx = Number(data.x) || 0;
+            const gy = Number(data.y) || 0;
+            const grad = Number(data.radius) || 192;
+            playSpatialSound('explosion', gx, gy);
+            spawnGrenadeExplosionParticles(gx, gy, grad);
+            return;
+        }
+
         if (data.type === 'inventory_update') {
             if (Array.isArray(data.inventory)) {
                 myInventory = data.inventory.slice(0, 5);
                 while (myInventory.length < 5) myInventory.push(null);
+            }
+            if (data.ability !== undefined) {
+                myAbility = data.ability || null;
+            }
+            if (typeof data.abilityCooldownMs === 'number') {
+                abilityReadyAt = data.abilityCooldownMs > 0 ? (performance.now() + data.abilityCooldownMs) : 0;
             }
             if (Number.isInteger(data.activeSlot)) {
                 activeSlot = Math.max(0, Math.min(4, data.activeSlot));
@@ -3361,6 +3704,7 @@ async function connectToServer() {
                     delete serverEnemies[id];
                 }
             }
+            serverGrenades = Array.isArray(data.grenades) ? data.grenades : [];
             return;
         }
 
@@ -3494,6 +3838,11 @@ window.addEventListener('keydown', e => {
         openShop();
         return;
     }
+    if (e.key.toLowerCase() === 'f' && !inMainMenu && myId !== null) {
+        e.preventDefault();
+        triggerAbility(false);
+        return;
+    }
     if (e.key >= '1' && e.key <= '5' && !inMainMenu) {
         selectSlot(Number(e.key) - 1);
         return;
@@ -3555,12 +3904,51 @@ function triggerAttack() {
     }
 }
 
+function triggerAbility(useAimAngleOnly = false) {
+    ensureAudioContext();
+    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isMapExpanded) return;
+    if (ME.faction !== 'goodbot') return;
+    if (myAbility !== 'goodbot-grenade') return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const nowMs = performance.now();
+    if (nowMs < abilityReadyAt) return;
+
+    let targetX;
+    let targetY;
+    if (useAimAngleOnly) {
+        const cx = ME.x + ME.width * 0.5;
+        const cy = ME.y + ME.height * 0.5;
+        targetX = cx + Math.sin(ME.angle) * 260;
+        targetY = cy - Math.cos(ME.angle) * 260;
+    } else {
+        targetX = (WORLD.CAMERA.x || 0) + (WORLD.INPUTS.mouseX / WORLD.SYSTEM.viewScale);
+        targetY = (WORLD.CAMERA.y || 0) + (WORLD.INPUTS.mouseY / WORLD.SYSTEM.viewScale);
+    }
+
+    lastLocalAbilityAt = nowMs;
+    abilityReadyAt = nowMs + 10000;
+    leftPunchAnims.set(`player:${myId}`, nowMs);
+    playSpatialSound('swing', ME.x + ME.width / 2, ME.y + ME.height / 2);
+    updateAbilitySlotCooldown(nowMs);
+    ws.send(JSON.stringify({
+        type: 'use_ability',
+        targetX,
+        targetY,
+        angle: ME.angle
+    }));
+}
+
 window.addEventListener('mousedown', (e) => {
     ensureAudioContext();
-    if (e.button !== 0) return;
     if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isMapExpanded) return;
     if (document.activeElement === chatInput) return;
     if (e.target !== canvas) return;
+    if (e.button === 2) {
+        triggerAbility(false);
+        return;
+    }
+    if (e.button !== 0) return;
     isAttackHeld = true;
     triggerAttack();
 });
@@ -3890,6 +4278,27 @@ window.addEventListener('DOMContentLoaded', () => {
                 ghostEl: null,
                 overSlot: -1
             };
+        });
+    }
+
+    if (abilitySlot) {
+        abilitySlot.addEventListener('pointerenter', () => {
+            if (dragState || isShopOpen) return;
+            const itemDef = myAbility ? ITEM_BY_ID[myAbility] : null;
+            if (itemDef) {
+                showShopTooltip(itemDef, abilitySlot, false, true);
+            }
+        });
+        abilitySlot.addEventListener('pointerleave', () => {
+            if (!isShopOpen) {
+                hideShopTooltip();
+            }
+        });
+        abilitySlot.addEventListener('click', () => {
+            if (!isShopOpen) {
+                hideShopTooltip();
+            }
+            triggerAbility(true);
         });
     }
 
