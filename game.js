@@ -410,6 +410,9 @@ async function fetchInitialServerStatus() {
         if (s1) {
             updateServerDropdown(s1.playerCount, s1.maxPlayers);
         }
+        if (inMainMenu && typeof data.regionError === 'string' && data.regionError) {
+            setMenuError(data.regionError);
+        }
     } catch (_) {}
 }
 
@@ -1507,6 +1510,17 @@ function applyGameStateUI(state) {
     }
     if (waveCount && typeof state.wave === 'number') {
         waveCount.textContent = String(Math.max(0, Math.floor(state.wave)));
+    }
+
+    if (typeof state.regionError === 'string' && state.regionError) {
+        if (gameStateTitle) gameStateTitle.textContent = 'Map Region Error';
+        if (gameStateDivider) gameStateDivider.classList.remove('hidden');
+        if (gameStateDesc) {
+            gameStateDesc.textContent = state.regionError;
+            gameStateDesc.classList.remove('hidden');
+        }
+        if (gameStartBtn) gameStartBtn.classList.add('hidden');
+        return;
     }
 
     const phase = state.phase || 'waiting';
@@ -3175,11 +3189,22 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'region_error') {
+            isJoining = false;
+            pendingJoinName = null;
+            inMainMenu = true;
+            setMenuError(data.message || 'Missing required map regions');
+            return;
+        }
+
         if (data.type === 'map_data') {
             if (typeof data.isMobile === 'boolean') {
                 applyServerDeviceMode(data.isMobile);
             }
             updateServerDropdown(data.playerCount, data.maxPlayers);
+            if (inMainMenu) {
+                setMenuError(typeof data.regionError === 'string' ? data.regionError : '');
+            }
             applyMapPayload(data.map);
             preRenderMap();
             WORLD.SYSTEM.isReady = true;
