@@ -21,12 +21,15 @@ body, html {
 
 canvas {
     display: block;
+    touch-action: none;
+}
+
+#gameCanvas {
     position: absolute;
     top: 0;
     left: 0;
     z-index: 1;
     transform: translateZ(0);
-    touch-action: none;
 }
 
 #gameCanvas.ranged-crosshair {
@@ -85,6 +88,81 @@ canvas {
 #settings-btn:active,
 #leave-btn:active {
     transform: scale(0.92);
+}
+
+#minimap-wrapper {
+    position: absolute;
+    top: 66px;
+    left: 25px;
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    pointer-events: none;
+    z-index: 25;
+}
+
+#minimap-toggle-btn {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    height: 20px;
+    background-color: rgba(0, 0, 0, 0.55);
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 1% 1% 0 0;
+    padding: 0;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+#minimap-toggle-btn:hover {
+    filter: brightness(0.5);
+}
+
+#minimap-toggle-btn:active {
+    transform: scale(0.92);
+}
+
+#minimap-wrapper.minimized #minimap-box {
+    display: none;
+}
+
+#minimap-wrapper.minimized #minimap-toggle-btn {
+    border-bottom: none;
+    border-radius: 1%;
+}
+
+#minimap-wrapper.minimized #minimap-toggle-icon {
+    transform: rotate(180deg);
+}
+
+#minimap-box {
+    position: relative;
+    width: 200px;
+    height: 200px;
+    background-color: rgba(0, 0, 0, 0.5);
+    border: none;
+    outline: none;
+    border-radius: 0 0 1% 1%;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+#minimap-canvas,
+#expanded-map-canvas {
+    position: static;
+    transform: none;
+    z-index: auto;
+    width: 100%;
+    height: 100%;
+    display: block;
+    border: none;
+    outline: none;
+    image-rendering: pixelated;
 }
 
 #main-menu {
@@ -794,7 +872,8 @@ body.touch-mode #mobile-controls {
 
 #settings-overlay,
 #leave-overlay,
-#shop-overlay {
+#shop-overlay,
+#map-overlay {
     position: fixed;
     inset: 0;
     background-color: rgba(0, 0, 0, 0.5);
@@ -808,8 +887,23 @@ body.touch-mode #mobile-controls {
 
 #settings-overlay.open,
 #leave-overlay.open,
-#shop-overlay.open {
+#shop-overlay.open,
+#map-overlay.open {
     display: flex;
+}
+
+#map-expanded-box {
+    position: relative;
+    width: calc(min(62vw, 62vh) / var(--ui-scale));
+    height: calc(min(62vw, 62vh) / var(--ui-scale));
+    max-width: 90%;
+    max-height: 90%;
+    aspect-ratio: 1 / 1;
+    background-color: rgba(0, 0, 0, 0.5);
+    border: none;
+    outline: none;
+    border-radius: 1%;
+    overflow: hidden;
 }
 
 #settings-dialog,
@@ -1180,6 +1274,17 @@ body.touch-mode #mobile-controls {
     gap: 12px;
 }
 
+#ui-scale-layer.layout-tablet #minimap-wrapper {
+    top: 56px;
+    left: 16px;
+    width: 156px;
+}
+
+#ui-scale-layer.layout-tablet #minimap-box {
+    width: 156px;
+    height: 156px;
+}
+
 #ui-scale-layer.layout-tablet #game-state-banner {
     top: 14px;
     min-width: 240px;
@@ -1294,6 +1399,17 @@ body.touch-mode #mobile-controls {
     top: 12px;
     left: 12px;
     gap: 10px;
+}
+
+#ui-scale-layer.layout-mobile #minimap-wrapper {
+    top: 50px;
+    left: 164px;
+    width: 96px;
+}
+
+#ui-scale-layer.layout-mobile #minimap-box {
+    width: 96px;
+    height: 96px;
 }
 
 #ui-scale-layer.layout-mobile #settings-btn svg,
@@ -1481,6 +1597,17 @@ body.touch-mode #mobile-controls {
     left: 8px;
 }
 
+#ui-scale-layer.layout-tiny #minimap-wrapper {
+    top: 46px;
+    left: 136px;
+    width: 80px;
+}
+
+#ui-scale-layer.layout-tiny #minimap-box {
+    width: 80px;
+    height: 80px;
+}
+
 #ui-scale-layer.layout-tiny #scraps-counter {
     font-size: 13px;
 }
@@ -1574,6 +1701,17 @@ body.touch-mode #mobile-controls {
 #ui-scale-layer.layout-short #top-left-controls {
     top: 10px;
     left: 12px;
+}
+
+#ui-scale-layer.layout-short #minimap-wrapper {
+    top: 48px;
+    left: 154px;
+    width: 92px;
+}
+
+#ui-scale-layer.layout-short #minimap-box {
+    width: 92px;
+    height: 92px;
 }
 
 #ui-scale-layer.layout-short #game-state-banner {
