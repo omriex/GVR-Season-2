@@ -1667,13 +1667,13 @@ function sendInput(force = false) {
     const keySig = `${input.up ? 1 : 0}${input.down ? 1 : 0}${input.left ? 1 : 0}${input.right ? 1 : 0}${input.sprint ? 1 : 0}`;
     const keysChanged = keySig !== lastInputKeySig;
 
-    const roundedAngle = Math.round(ME.angle * 1000) / 1000;
+    const roundedAngle = Math.round(ME.angle * 100) / 100;
     let angleDiff = Math.abs(roundedAngle - lastSentAngle);
     if (angleDiff > Math.PI) angleDiff = Math.abs(angleDiff - Math.PI * 2);
 
     const now = performance.now();
     if (!force && !keysChanged) {
-        if (angleDiff <= 0.035 || now - lastInputSendTime < 50) return;
+        if (angleDiff <= 0.06 || now - lastInputSendTime < 90) return;
     }
 
     lastInputKeySig = keySig;
@@ -3614,18 +3614,21 @@ async function connectToServer() {
                 if (numId === myId) {
                     ME.serverX = incoming.x;
                     ME.serverY = incoming.y;
-                    ME.vx = incoming.vx;
-                    ME.vy = incoming.vy;
+                    ME.vx = incoming.vx || 0;
+                    ME.vy = incoming.vy || 0;
                     ME.scale = incoming.scale ?? 1;
-                    if (incoming.faction !== undefined && incoming.faction !== ME.faction) {
-                        ME.faction = incoming.faction;
+                    if (pFaction !== ME.faction) {
+                        ME.faction = pFaction;
+                        ME.maxHealth = incoming.maxHealth !== undefined ? Math.max(1, incoming.maxHealth) : (pFaction === 'rarebot' ? 255 : 1000);
+                        ME.maxEnergy = incoming.maxEnergy !== undefined ? Math.max(1, incoming.maxEnergy) : (pFaction === 'rarebot' ? 50 : 255);
                         enemyAggroUntil.clear();
+                    } else {
+                        if (incoming.maxHealth !== undefined) ME.maxHealth = Math.max(1, incoming.maxHealth);
+                        if (incoming.maxEnergy !== undefined) ME.maxEnergy = Math.max(1, incoming.maxEnergy);
                     }
-                    if (incoming.maxHealth !== undefined) ME.maxHealth = Math.max(1, incoming.maxHealth);
-                    if (incoming.maxEnergy !== undefined) ME.maxEnergy = Math.max(1, incoming.maxEnergy);
                     if (incoming.health !== undefined) ME.health = Math.max(0, Math.min(ME.maxHealth, incoming.health));
                     if (incoming.energy !== undefined) ME.energy = Math.max(0, Math.min(ME.maxEnergy, incoming.energy));
-                    if (incoming.scraps !== undefined) ME.scraps = pScraps;
+                    ME.scraps = pScraps;
                     ME.chats = Array.isArray(incoming.chats) ? incoming.chats : [];
                     updateStatsUI();
                     continue;
@@ -3637,18 +3640,18 @@ async function connectToServer() {
                     const jumped = (dx * dx + dy * dy) > 14400;
                     existing.x = incoming.x;
                     existing.y = incoming.y;
-                    existing.vx = incoming.vx;
-                    existing.vy = incoming.vy;
-                    existing.angle = incoming.angle;
+                    existing.vx = incoming.vx || 0;
+                    existing.vy = incoming.vy || 0;
+                    existing.angle = incoming.angle || 0;
                     existing.scale = incoming.scale ?? 1;
-                    existing.width = incoming.width || 48;
-                    existing.height = incoming.height || 48;
-                    existing.name = incoming.name;
+                    existing.width = incoming.width || existing.width || 48;
+                    existing.height = incoming.height || existing.height || 48;
+                    if (incoming.name !== undefined) existing.name = incoming.name;
                     existing.faction = pFaction;
-                    existing.health = incoming.health;
-                    existing.maxHealth = incoming.maxHealth;
-                    existing.energy = incoming.energy;
-                    existing.maxEnergy = incoming.maxEnergy;
+                    existing.health = incoming.health ?? existing.health;
+                    existing.maxHealth = incoming.maxHealth ?? (pFaction === 'rarebot' ? 255 : 1000);
+                    existing.energy = incoming.energy ?? existing.energy;
+                    existing.maxEnergy = incoming.maxEnergy ?? (pFaction === 'rarebot' ? 50 : 255);
                     existing.scraps = pScraps;
                     const nextWeapon = incoming.weapon || 'hands';
                     if (existing.weapon !== nextWeapon && nextWeapon !== 'hands') {
@@ -3664,6 +3667,14 @@ async function connectToServer() {
                 } else {
                     serverPlayers[id] = {
                         ...incoming,
+                        faction: pFaction,
+                        vx: incoming.vx || 0,
+                        vy: incoming.vy || 0,
+                        angle: incoming.angle || 0,
+                        scale: incoming.scale ?? 1,
+                        maxHealth: incoming.maxHealth ?? (pFaction === 'rarebot' ? 255 : 1000),
+                        maxEnergy: incoming.maxEnergy ?? (pFaction === 'rarebot' ? 50 : 255),
+                        scraps: pScraps,
                         weapon: incoming.weapon || 'hands',
                         width: incoming.width || 48,
                         height: incoming.height || 48,
@@ -3686,6 +3697,9 @@ async function connectToServer() {
             if (data.enemies && typeof data.enemies === 'object') {
                 for (const id in data.enemies) {
                     const incoming = data.enemies[id];
+                    const eKind = incoming.kind || 'rarebot';
+                    const defMaxH = eKind === 'prototype-rarebot' ? 120 : 255;
+                    const defMaxE = eKind === 'prototype-rarebot' ? 100 : 50;
                     const existing = serverEnemies[id];
                     if (existing) {
                         const dx = incoming.x - existing.renderX;
@@ -3693,18 +3707,18 @@ async function connectToServer() {
                         const jumped = (dx * dx + dy * dy) > 14400;
                         existing.x = incoming.x;
                         existing.y = incoming.y;
-                        existing.vx = incoming.vx;
-                        existing.vy = incoming.vy;
-                        existing.angle = incoming.angle;
+                        existing.vx = incoming.vx || 0;
+                        existing.vy = incoming.vy || 0;
+                        existing.angle = incoming.angle || 0;
                         existing.scale = incoming.scale ?? 1;
-                        existing.width = incoming.width || 48;
-                        existing.height = incoming.height || 48;
-                        existing.kind = incoming.kind || 'rarebot';
+                        existing.width = incoming.width || existing.width || 48;
+                        existing.height = incoming.height || existing.height || 48;
+                        existing.kind = eKind;
                         existing.weapon = incoming.weapon || 'hands';
-                        existing.health = incoming.health;
-                        existing.maxHealth = incoming.maxHealth;
-                        existing.energy = incoming.energy;
-                        existing.maxEnergy = incoming.maxEnergy;
+                        existing.health = incoming.health ?? existing.health;
+                        existing.maxHealth = incoming.maxHealth ?? defMaxH;
+                        existing.energy = incoming.energy ?? existing.energy;
+                        existing.maxEnergy = incoming.maxEnergy ?? defMaxE;
                         existing._seq = stateSeq;
                         if (jumped) {
                             existing.renderX = incoming.x;
@@ -3713,7 +3727,13 @@ async function connectToServer() {
                     } else {
                         serverEnemies[id] = {
                             ...incoming,
-                            kind: incoming.kind || 'rarebot',
+                            kind: eKind,
+                            vx: incoming.vx || 0,
+                            vy: incoming.vy || 0,
+                            angle: incoming.angle || 0,
+                            scale: incoming.scale ?? 1,
+                            maxHealth: incoming.maxHealth ?? defMaxH,
+                            maxEnergy: incoming.maxEnergy ?? defMaxE,
                             weapon: incoming.weapon || 'hands',
                             width: incoming.width || 48,
                             height: incoming.height || 48,
