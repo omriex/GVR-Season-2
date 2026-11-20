@@ -29,6 +29,10 @@ canvas {
     touch-action: none;
 }
 
+#gameCanvas.ranged-crosshair {
+    cursor: none;
+}
+
 #ui-scale-layer {
     position: fixed;
     top: 0;
