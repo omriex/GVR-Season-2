@@ -33,6 +33,11 @@ const chatInput = document.getElementById('chat-input');
 const chatWrapper = document.getElementById('chat-wrapper');
 const chatToggleBtn = document.getElementById('chat-toggle-btn');
 const shopBtn = document.getElementById('shop-btn');
+const minimapWrapper = document.getElementById('minimap-wrapper');
+const minimapToggleBtn = document.getElementById('minimap-toggle-btn');
+const minimapCanvas = document.getElementById('minimap-canvas');
+const mapOverlay = document.getElementById('map-overlay');
+const expandedMapCanvas = document.getElementById('expanded-map-canvas');
 const perfStats = document.getElementById('perf-stats');
 const fpsCounter = document.getElementById('fps-counter');
 const pingCounter = document.getElementById('ping-counter');
@@ -79,7 +84,8 @@ const WORLD = {
         wallChunks: [],
         fgChunks: [],
         wallChunkBounds: [],
-        fgChunkBounds: []
+        fgChunkBounds: [],
+        fullMapCanvas: null
     },
     CAMERA: { x: null, y: null, width: LOGICAL_WIDTH, height: LOGICAL_HEIGHT },
     INPUTS: {
@@ -158,6 +164,7 @@ const enemyAggroUntil = new Map();
 const enemyAlertBadges = new Map();
 const alertCommWaves = [];
 const serverProjectiles = new Map();
+const raycastBeams = [];
 const explosions = [];
 const hitPointMarkers = [];
 const floatingTexts = [];
@@ -183,6 +190,8 @@ let isSettingsOpen = false;
 let isLeaveDialogOpen = false;
 let isShopOpen = false;
 let isChatMinimized = false;
+let isMinimapMinimized = false;
+let isMapExpanded = false;
 let isJoining = false;
 let serverPlayerCount = 0;
 let serverMaxPlayers = 5;
@@ -316,6 +325,7 @@ function returnToMainMenu() {
     enemyAlertBadges.clear();
     alertCommWaves.length = 0;
     serverProjectiles.clear();
+    raycastBeams.length = 0;
     myInventory = [null, null, null, null, null];
     activeSlot = 0;
     lastEquippedItemKey = null;
@@ -346,6 +356,7 @@ function returnToMainMenu() {
     closeChat();
     closeLeaveDialog();
     closeShop();
+    setMapExpanded(false);
     applyGameStateUI({
         phase: 'waiting',
         goodbots: 0,
@@ -386,7 +397,7 @@ async function fetchInitialServerStatus() {
 const SETTINGS = {
     showPing: true,
     showFps: true,
-    uiSize: 'normal',
+    uiSize: 'low',
     musicVolume: 100,
     soundVolume: 100
 };
@@ -479,6 +490,7 @@ function openSettings() {
     if (!settingsOverlay) return;
     if (isLeaveDialogOpen) closeLeaveDialog();
     if (isShopOpen) closeShop();
+    if (isMapExpanded) setMapExpanded(false);
     isSettingsOpen = true;
     clearHeldInputs();
     if (document.activeElement === chatInput) {
@@ -499,6 +511,7 @@ function openLeaveDialog() {
     if (!leaveOverlay || inMainMenu) return;
     if (isSettingsOpen) closeSettings();
     if (isShopOpen) closeShop();
+    if (isMapExpanded) setMapExpanded(false);
     isLeaveDialogOpen = true;
     clearHeldInputs();
     if (document.activeElement === chatInput) {
@@ -523,11 +536,11 @@ const SHOP_ITEMS = [
     {
         id: 'goodbot-pistol',
         title: 'Goodbot Pistol',
-        description: 'Lightweight plasma firearm',
+        description: 'Lightweight plasma firearm dealing 45-58 damage per shot',
         cost: 15,
         slotImage: 'assets/Goodbot Pistol Slot.png',
         stats: [
-            { label: 'Damage', value: 50 },
+            { label: 'Damage', value: '45-58' },
             { label: 'Firerate', value: '400ms' }
         ]
     }
@@ -544,7 +557,7 @@ function getMyEquippedWeapon() {
 
 function isRangedCrosshairActive() {
     if (inMainMenu || myId === null) return false;
-    if (isSettingsOpen || isLeaveDialogOpen || isShopOpen) return false;
+    if (isSettingsOpen || isLeaveDialogOpen || isShopOpen || isMapExpanded) return false;
     if (document.activeElement === chatInput) return false;
     if (document.body.classList.contains('touch-mode')) return false;
     return getMyEquippedWeapon() === 'goodbot-pistol';
@@ -709,6 +722,7 @@ function openShop() {
     if (!shopOverlay || inMainMenu) return;
     if (isSettingsOpen) closeSettings();
     if (isLeaveDialogOpen) closeLeaveDialog();
+    if (isMapExpanded) setMapExpanded(false);
     isShopOpen = true;
     clearHeldInputs();
     if (document.activeElement === chatInput) {
@@ -829,6 +843,34 @@ function setChatMinimized(minimized) {
     if (isChatMinimized && document.activeElement === chatInput) {
         chatInput.blur();
     }
+}
+
+function setMinimapMinimized(minimized) {
+    isMinimapMinimized = Boolean(minimized);
+    if (minimapWrapper) {
+        minimapWrapper.classList.toggle('minimized', isMinimapMinimized);
+    }
+    if (minimapToggleBtn) {
+        minimapToggleBtn.setAttribute('aria-expanded', isMinimapMinimized ? 'false' : 'true');
+        minimapToggleBtn.setAttribute('aria-label', isMinimapMinimized ? 'Maximize map' : 'Minimize map');
+    }
+}
+
+function setMapExpanded(expanded) {
+    if (!mapOverlay) return;
+    if (expanded && (inMainMenu || myId === null)) return;
+    isMapExpanded = Boolean(expanded);
+    if (isMapExpanded) {
+        if (isSettingsOpen) closeSettings();
+        if (isLeaveDialogOpen) closeLeaveDialog();
+        if (isShopOpen) closeShop();
+        if (document.activeElement === chatInput) {
+            closeChat();
+        }
+    }
+    mapOverlay.classList.toggle('open', isMapExpanded);
+    mapOverlay.setAttribute('aria-hidden', isMapExpanded ? 'false' : 'true');
+    syncCanvasCrosshairCursor();
 }
 
 function updatePingDisplay(ms) {
@@ -1011,7 +1053,7 @@ function playSpatialSound(key, wx, wy) {
         dist = Math.sqrt(dSq);
     }
     const falloff = Math.max(0, Math.min(1, 1 - Math.max(0, dist - 80) / 1000));
-    const volumeMult = (key === 'hitReceive' || key === 'hitDeal') ? 0.1 : (key === 'grapple1' ? 1.35 : 1);
+    const volumeMult = (key === 'hitReceive' || key === 'hitDeal') ? 0.1 : (key === 'grapple1' ? 2.7 : 1);
     const gainValue = falloff * falloff * masterVol * volumeMult;
     if (gainValue <= 0.005) return;
 
@@ -1118,6 +1160,62 @@ function preRenderMap() {
             renderChunk(cx, cy);
         }
     }
+
+    if (!tilesheetImg.complete || tilesheetImg.naturalWidth === 0) {
+        WORLD.MAP.fullMapCanvas = null;
+        return;
+    }
+    const mapTilePx = 32;
+    const fullW = WORLD.MAP.columns * mapTilePx;
+    const fullH = WORLD.MAP.rows * mapTilePx;
+    const fullCanvas = document.createElement('canvas');
+    fullCanvas.width = fullW;
+    fullCanvas.height = fullH;
+    const fullCtx = fullCanvas.getContext('2d');
+    fullCtx.imageSmoothingEnabled = false;
+    fullCtx.clearRect(0, 0, fullW, fullH);
+    const fullLayers = ['floor1', 'floor2', 'wall', 'tree'];
+    for (let li = 0; li < fullLayers.length; li++) {
+        const grid = WORLD.MAP.mapData[fullLayers[li]];
+        if (!grid) continue;
+        for (let r = 0; r < WORLD.MAP.rows; r++) {
+            const rowArr = grid[r];
+            if (!rowArr) continue;
+            for (let c = 0; c < WORLD.MAP.columns; c++) {
+                const cell = rowArr[c];
+                if (!cell) continue;
+                const sInset = 0.5;
+                const ts = WORLD.MAP.tileSize;
+                const sSize = ts - sInset * 2;
+                const sx = cell.tx * ts + sInset;
+                const sy = cell.ty * ts + sInset;
+                const rotDeg = ((Math.round(cell.r || 0) % 360) + 360) % 360;
+                const dx = c * mapTilePx;
+                const dy = r * mapTilePx;
+                if (rotDeg === 0) {
+                    fullCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, dx, dy, mapTilePx, mapTilePx);
+                } else {
+                    fullCtx.save();
+                    if (rotDeg === 90) {
+                        fullCtx.transform(0, 1, -1, 0, dx + mapTilePx, dy);
+                        fullCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, 0, 0, mapTilePx, mapTilePx);
+                    } else if (rotDeg === 180) {
+                        fullCtx.transform(-1, 0, 0, -1, dx + mapTilePx, dy + mapTilePx);
+                        fullCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, 0, 0, mapTilePx, mapTilePx);
+                    } else if (rotDeg === 270) {
+                        fullCtx.transform(0, -1, 1, 0, dx, dy + mapTilePx);
+                        fullCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, 0, 0, mapTilePx, mapTilePx);
+                    } else {
+                        fullCtx.translate(dx + mapTilePx / 2, dy + mapTilePx / 2);
+                        fullCtx.rotate((rotDeg * Math.PI) / 180);
+                        fullCtx.drawImage(tilesheetImg, sx, sy, sSize, sSize, -mapTilePx / 2, -mapTilePx / 2, mapTilePx, mapTilePx);
+                    }
+                    fullCtx.restore();
+                }
+            }
+        }
+    }
+    WORLD.MAP.fullMapCanvas = fullCanvas;
 }
 
 function renderChunk(cx, cy) {
@@ -1530,6 +1628,15 @@ function update(dt) {
         }
     }
 
+    for (let i = raycastBeams.length - 1; i >= 0; i--) {
+        const b = raycastBeams[i];
+        b.age += dt;
+        if (b.age >= b.life) {
+            raycastBeams[i] = raycastBeams[raycastBeams.length - 1];
+            raycastBeams.pop();
+        }
+    }
+
     for (let i = explosions.length - 1; i >= 0; i--) {
         const pt = explosions[i];
         pt.age += dt;
@@ -1599,7 +1706,7 @@ function update(dt) {
         }
     }
 
-    if (isAttackHeld && !inMainMenu && myId !== null && !isSettingsOpen && !isLeaveDialogOpen && !isShopOpen && document.activeElement !== chatInput) {
+    if (isAttackHeld && !inMainMenu && myId !== null && !isSettingsOpen && !isLeaveDialogOpen && !isShopOpen && !isMapExpanded && document.activeElement !== chatInput) {
         triggerAttack();
     }
 
@@ -2201,6 +2308,33 @@ function render() {
         const meCX = ME.x + ME.width / 2;
         const meCY = ME.y + ME.height / 2;
 
+        if (raycastBeams.length > 0) {
+            const bulletScale = (48 / 512) * HANDS_SCALE * 1.35;
+            const beamWidth = Math.max(4, 24 * bulletScale * 1.5);
+            for (let i = 0; i < raycastBeams.length; i++) {
+                const b = raycastBeams[i];
+                const dx = b.x2 - b.x1;
+                const dy = b.y2 - b.y1;
+                const beamLen = Math.hypot(dx, dy);
+                if (beamLen < 2) continue;
+                const alpha = Math.max(0, 1 - b.age / b.life);
+                const beamAngle = Math.atan2(dy, dx) + Math.PI / 2;
+                const bulletImg = b.variant === 'rarebot' ? rarebotBulletImg : goodbotBulletImg;
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.translate(b.x1 - camX, b.y1 - camY);
+                ctx.rotate(beamAngle);
+                if (bulletImg.complete && bulletImg.naturalWidth > 0) {
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.drawImage(bulletImg, -beamWidth / 2, -beamLen, beamWidth, beamLen);
+                } else {
+                    ctx.fillStyle = b.variant === 'rarebot' ? '#ff2a2a' : '#b833ff';
+                    ctx.fillRect(-2, -beamLen, 4, beamLen);
+                }
+                ctx.restore();
+            }
+        }
+
         if (serverProjectiles.size > 0) {
             const bulletScale = (48 / 512) * HANDS_SCALE * 1.35;
             for (const [, proj] of serverProjectiles) {
@@ -2433,10 +2567,14 @@ function render() {
                 if (ft.playerId === myId) {
                     tx = ME.x + ME.width / 2;
                     ty = ME.y - 26;
-                } else if (serverPlayers[ft.playerId]) {
+                } else if (ft.playerId !== undefined && serverPlayers[ft.playerId]) {
                     const fp = serverPlayers[ft.playerId];
                     tx = (fp.renderX ?? fp.x) + fp.width / 2;
                     ty = (fp.renderY ?? fp.y) - 26;
+                } else if (ft.enemyId !== undefined && serverEnemies[ft.enemyId]) {
+                    const fe = serverEnemies[ft.enemyId];
+                    tx = (fe.renderX ?? fe.x) + (fe.width || 48) / 2;
+                    ty = (fe.renderY ?? fe.y) - 26;
                 }
                 const sx = tx + (ft.xOff || 0) - camX;
                 const sy = ty - camY - ft.age * 24;
@@ -2508,6 +2646,82 @@ function render() {
         ctx.fillRect(cx + gap, cy - halfT, len, thick);
         ctx.fillRect(cx - halfT, cy + gap, thick, len);
         ctx.restore();
+    }
+
+    if (!inMainMenu && myId !== null) {
+        if (minimapCanvas && !isMinimapMinimized) {
+            renderMapView(minimapCanvas, 4);
+        }
+        if (expandedMapCanvas && isMapExpanded) {
+            renderMapView(expandedMapCanvas, 7);
+        }
+    }
+}
+
+function renderMapView(targetCanvas, baseRadius) {
+    if (!targetCanvas || !WORLD.MAP.columns || !WORLD.MAP.rows) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const rect = targetCanvas.getBoundingClientRect();
+    const cssW = rect.width > 0 ? rect.width : (targetCanvas.clientWidth || 200);
+    const cssH = rect.height > 0 ? rect.height : (targetCanvas.clientHeight || 200);
+    const pw = Math.max(1, Math.round(cssW * dpr));
+    const ph = Math.max(1, Math.round(cssH * dpr));
+    if (targetCanvas.width !== pw || targetCanvas.height !== ph) {
+        targetCanvas.width = pw;
+        targetCanvas.height = ph;
+    }
+    const mctx = targetCanvas.getContext('2d');
+    mctx.clearRect(0, 0, pw, ph);
+    if (WORLD.MAP.fullMapCanvas) {
+        mctx.imageSmoothingEnabled = pw < 512;
+        if (mctx.imageSmoothingEnabled) {
+            mctx.imageSmoothingQuality = 'high';
+        }
+        mctx.drawImage(WORLD.MAP.fullMapCanvas, 0, 0, pw, ph);
+    }
+
+    const mapW = WORLD.MAP.columns * WORLD.MAP.tileSize;
+    const mapH = WORLD.MAP.rows * WORLD.MAP.tileSize;
+    if (mapW <= 0 || mapH <= 0) return;
+
+    const r = Math.max(3, baseRadius * (pw / Math.max(1, cssW)) * (cssW >= 320 ? 1 : Math.max(0.7, cssW / 200)));
+    mctx.lineWidth = Math.max(1.2, r * 0.35);
+
+    for (const id in serverEnemies) {
+        const e = serverEnemies[id];
+        const cx = (((e.renderX ?? e.x) + (e.width || 48) * 0.5) / mapW) * pw;
+        const cy = (((e.renderY ?? e.y) + (e.height || 48) * 0.5) / mapH) * ph;
+        mctx.beginPath();
+        mctx.arc(cx, cy, r, 0, Math.PI * 2);
+        mctx.fillStyle = '#ff2a2a';
+        mctx.fill();
+        mctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+        mctx.stroke();
+    }
+
+    for (const id in serverPlayers) {
+        const p = serverPlayers[id];
+        const pf = p.faction || 'goodbot';
+        if (pf === 'spectator') continue;
+        const cx = (((p.renderX ?? p.x) + (p.width || 48) * 0.5) / mapW) * pw;
+        const cy = (((p.renderY ?? p.y) + (p.height || 48) * 0.5) / mapH) * ph;
+        mctx.beginPath();
+        mctx.arc(cx, cy, r, 0, Math.PI * 2);
+        mctx.fillStyle = pf === 'rarebot' ? '#ff2a2a' : '#b833ff';
+        mctx.fill();
+        mctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+        mctx.stroke();
+    }
+
+    if (ME.faction !== 'spectator') {
+        const mx = ((ME.x + ME.width * 0.5) / mapW) * pw;
+        const my = ((ME.y + ME.height * 0.5) / mapH) * ph;
+        mctx.beginPath();
+        mctx.arc(mx, my, r * 1.15, 0, Math.PI * 2);
+        mctx.fillStyle = ME.faction === 'rarebot' ? '#ff2a2a' : '#b833ff';
+        mctx.fill();
+        mctx.strokeStyle = '#ffffff';
+        mctx.stroke();
     }
 }
 
@@ -2796,7 +3010,17 @@ async function connectToServer() {
         }
 
         if (data.type === 'ranged_shot') {
-            if (typeof data.projId === 'number') {
+            if (typeof data.endX === 'number' && typeof data.endY === 'number') {
+                raycastBeams.push({
+                    variant: data.variant || 'goodbot',
+                    x1: Number(data.projX) || 0,
+                    y1: Number(data.projY) || 0,
+                    x2: data.endX,
+                    y2: data.endY,
+                    age: 0,
+                    life: 0.14
+                });
+            } else if (typeof data.projId === 'number') {
                 serverProjectiles.set(data.projId, {
                     id: data.projId,
                     variant: data.variant || 'goodbot',
@@ -2871,12 +3095,12 @@ async function connectToServer() {
             } else if (data.weaponKind === 'grapple') {
                 playSpatialSound('grapple1', data.x, data.y);
             }
+            const dmgVal = Math.max(1, Math.round(Number(data.damage) || 0));
             if (data.kind === 'player' && data.id === myId) {
-                const dmgVal = Math.max(1, Math.round(Number(data.damage) || 0));
                 floatingTexts.push({
                     playerId: myId,
                     x: ME.x + ME.width / 2,
-                    y: ME.y,
+                    y: ME.y - 26,
                     xOff: (Math.random() - 0.5) * 18,
                     text: `-${dmgVal}`,
                     color: '#ff3030',
@@ -2886,6 +3110,17 @@ async function connectToServer() {
                 if (ME.faction === 'goodbot') {
                     enemyAggroUntil.set(`${data.attackerKind}:${data.attackerId}`, performance.now() + 8000);
                 }
+            } else if (data.kind === 'enemy') {
+                floatingTexts.push({
+                    enemyId: data.id,
+                    x: Number(data.x) || 0,
+                    y: (Number(data.y) || 0) - 50,
+                    xOff: (Math.random() - 0.5) * 18,
+                    text: `-${dmgVal}`,
+                    color: '#ff3030',
+                    age: 0,
+                    life: 1.3
+                });
             }
             return;
         }
@@ -3162,6 +3397,13 @@ window.addEventListener('keydown', e => {
         }
         return;
     }
+    if (isMapExpanded) {
+        if (e.key === 'Escape' || e.key.toLowerCase() === 'm') {
+            e.preventDefault();
+            setMapExpanded(false);
+            return;
+        }
+    }
     if (e.key === 'Enter') {
         if (inMainMenu) {
             if (playBtn) playBtn.click();
@@ -3187,6 +3429,11 @@ window.addEventListener('keydown', e => {
         return;
     }
     if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+    if (e.key.toLowerCase() === 'm' && !inMainMenu && myId !== null) {
+        e.preventDefault();
+        setMapExpanded(!isMapExpanded);
+        return;
+    }
     if (e.key.toLowerCase() === 'b' && !inMainMenu) {
         e.preventDefault();
         openShop();
@@ -3230,7 +3477,7 @@ window.addEventListener('blur', () => {
 
 function triggerAttack() {
     ensureAudioContext();
-    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen) return;
+    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isMapExpanded) return;
     if (ME.faction === 'spectator') return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
@@ -3256,7 +3503,7 @@ function triggerAttack() {
 window.addEventListener('mousedown', (e) => {
     ensureAudioContext();
     if (e.button !== 0) return;
-    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen) return;
+    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isMapExpanded) return;
     if (document.activeElement === chatInput) return;
     if (e.target !== canvas) return;
     isAttackHeld = true;
@@ -3516,6 +3763,20 @@ window.addEventListener('DOMContentLoaded', () => {
     if (chatToggleBtn) {
         chatToggleBtn.addEventListener('click', () => {
             setChatMinimized(!isChatMinimized);
+        });
+    }
+
+    if (minimapToggleBtn) {
+        minimapToggleBtn.addEventListener('click', () => {
+            setMinimapMinimized(!isMinimapMinimized);
+        });
+    }
+
+    if (mapOverlay) {
+        mapOverlay.addEventListener('click', (e) => {
+            if (e.target === mapOverlay) {
+                setMapExpanded(false);
+            }
         });
     }
 
