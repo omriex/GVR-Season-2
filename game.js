@@ -58,6 +58,9 @@ const leaveYesBtn = document.getElementById('leave-yes-btn');
 const leaveNoBtn = document.getElementById('leave-no-btn');
 const shopOverlay = document.getElementById('shop-overlay');
 const shopCloseBtn = document.getElementById('shop-close-btn');
+const shopTabItemsBtn = document.getElementById('shop-tab-items');
+const shopTabUnitsBtn = document.getElementById('shop-tab-units');
+const shopUnitsStatus = document.getElementById('shop-units-status');
 const shopGrid = document.getElementById('shop-grid');
 const shopTooltip = document.getElementById('shop-tooltip');
 const shopTooltipTitle = document.getElementById('shop-tooltip-title');
@@ -77,12 +80,14 @@ const adminPanelBtn = document.getElementById('admin-panel-btn');
 const tokenInput = document.getElementById('token-input');
 const adminModOverlay = document.getElementById('admin-mod-overlay');
 const adminModCloseBtn = document.getElementById('admin-mod-close-btn');
+const adminModReasonInput = document.getElementById('admin-mod-reason-input');
 const adminModPlayerList = document.getElementById('admin-mod-player-list');
 const adminModBanSection = document.getElementById('admin-mod-ban-section');
 const adminModBanList = document.getElementById('admin-mod-ban-list');
 const adminPanelOverlay = document.getElementById('admin-panel-overlay');
 const adminPanelCloseBtn = document.getElementById('admin-panel-close-btn');
 const adminSpawnGrid = document.getElementById('admin-spawn-grid');
+const adminReviveBtn = document.getElementById('admin-revive-btn');
 const adminSkipWaveBtn = document.getElementById('admin-skip-wave-btn');
 const adminRestartGameBtn = document.getElementById('admin-restart-game-btn');
 
@@ -232,6 +237,9 @@ let lastHoveredShopItem = null;
 let lastHoveredShopSlot = null;
 let lastHoveredShowCost = true;
 let lastHoveredPreferAbove = false;
+let activeShopTab = 'items';
+let currentAllyCount = 0;
+let maxAlliesCount = 8;
 let serverPlayerCount = 0;
 let serverMaxPlayers = 5;
 let currentPingMs = null;
@@ -388,6 +396,7 @@ function returnToMainMenu() {
     healParticles.length = 0;
     isChatMuted = false;
     setAdminStatus(false);
+    setShopTab('items');
     syncCanvasCrosshairCursor();
     ME.health = 1000;
     ME.maxHealth = 1000;
@@ -415,6 +424,8 @@ function returnToMainMenu() {
         phase: 'waiting',
         goodbots: 0,
         rarebots: 0,
+        allyCount: 0,
+        maxAllies: 8,
         wave: 0,
         intermissionSeconds: 15,
         startVotes: 0,
@@ -577,6 +588,7 @@ function setAdminStatus(nextAdmin) {
         closeModDialog();
         closeAdminPanel();
     }
+    refreshAdminReviveButton();
     lastLeaderboardSig = '';
 }
 
@@ -628,7 +640,9 @@ function renderAdminModDialog() {
                 kickBtn.textContent = 'Kick';
                 kickBtn.addEventListener('click', () => {
                     if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'admin_kick', targetId: p.id }));
+                        const reason = adminModReasonInput ? adminModReasonInput.value.trim().slice(0, 100) : '';
+                        ws.send(JSON.stringify({ type: 'admin_kick', targetId: p.id, reason }));
+                        if (adminModReasonInput) adminModReasonInput.value = '';
                     }
                 });
 
@@ -638,7 +652,9 @@ function renderAdminModDialog() {
                 banBtn.textContent = 'Ban';
                 banBtn.addEventListener('click', () => {
                     if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'admin_ban', targetId: p.id }));
+                        const reason = adminModReasonInput ? adminModReasonInput.value.trim().slice(0, 100) : '';
+                        ws.send(JSON.stringify({ type: 'admin_ban', targetId: p.id, reason }));
+                        if (adminModReasonInput) adminModReasonInput.value = '';
                     }
                 });
 
@@ -673,10 +689,22 @@ function renderAdminModDialog() {
         const rowEl = document.createElement('div');
         rowEl.className = 'admin-mod-row';
 
+        const infoEl = document.createElement('div');
+        infoEl.className = 'admin-mod-ban-info';
+
         const ipEl = document.createElement('span');
         ipEl.className = 'admin-mod-name ban-ip';
         ipEl.textContent = b.name ? `${b.ip} (${b.name})` : b.ip;
-        rowEl.appendChild(ipEl);
+        infoEl.appendChild(ipEl);
+
+        if (b.reason) {
+            const reasonEl = document.createElement('span');
+            reasonEl.className = 'admin-mod-ban-reason';
+            reasonEl.textContent = `Reason: ${b.reason}`;
+            infoEl.appendChild(reasonEl);
+        }
+
+        rowEl.appendChild(infoEl);
 
         const actionsEl = document.createElement('div');
         actionsEl.className = 'admin-mod-actions';
@@ -874,6 +902,11 @@ function refreshAdminSpawnIcons() {
     }
 }
 
+function refreshAdminReviveButton() {
+    if (!adminReviveBtn) return;
+    adminReviveBtn.disabled = !(isAdmin && ME.faction === 'spectator');
+}
+
 function openAdminPanel() {
     if (!adminPanelOverlay || inMainMenu || !isAdmin) return;
     if (isSettingsOpen) closeSettings();
@@ -888,6 +921,7 @@ function openAdminPanel() {
     }
     hideShopTooltip();
     refreshAdminSpawnIcons();
+    refreshAdminReviveButton();
     adminPanelOverlay.classList.add('open');
     adminPanelOverlay.setAttribute('aria-hidden', 'false');
     syncCanvasCrosshairCursor();
@@ -1012,7 +1046,39 @@ const SHOP_ITEMS = [
     }
 ];
 
-const ITEM_BY_ID = Object.fromEntries(SHOP_ITEMS.map(item => [item.id, item]));
+const SHOP_UNITS = [
+    {
+        id: 'unit-goodbot',
+        title: 'Goodbot',
+        kind: 'unit',
+        customTypeLabel: 'UNIT',
+        bodyType: 'goodbot',
+        weapon: 'hands',
+        description: 'Deploys a smart AI melee Goodbot that guards bases, dodges hits/bullets, and grapples rarebots for 150 dmg + 0.5s stun.',
+        cost: 100,
+        stats: [
+            { label: 'HP', value: '1000' },
+            { label: 'Grapple', value: '150 Dmg / 5s CD' },
+            { label: 'Stun', value: '0.5s' }
+        ]
+    },
+    {
+        id: 'unit-goodbot-pistol',
+        title: 'Goodbot (Pistol)',
+        kind: 'unit',
+        customTypeLabel: 'UNIT',
+        bodyType: 'goodbot',
+        weapon: 'goodbot-pistol',
+        description: 'Deploys a smart AI ranged Goodbot with Goodbot Pistol that guards bases and dodges hits/bullets.',
+        cost: 250,
+        stats: [
+            { label: 'HP', value: '1000' },
+            { label: 'Weapon', value: 'Goodbot Pistol' }
+        ]
+    }
+];
+
+const ITEM_BY_ID = Object.fromEntries([...SHOP_ITEMS, ...SHOP_UNITS].map(item => [item.id, item]));
 
 function getMyEquippedWeapon() {
     if (ME.faction !== 'goodbot') return 'hands';
@@ -1181,8 +1247,13 @@ function showShopTooltip(item, slot, showCost = true, preferAbove = false) {
         shopTooltipCost.style.display = showCost ? '' : 'none';
         if (showCost) {
             const cantAfford = ME.scraps < item.cost;
-            shopTooltipCost.textContent = cantAfford ? `Cost: ${item.cost} Scraps (Can't afford)` : `Cost: ${item.cost} Scraps`;
-            shopTooltipCost.classList.toggle('cant-afford', cantAfford);
+            const alliesFull = item.kind === 'unit' && currentAllyCount >= maxAlliesCount;
+            if (alliesFull) {
+                shopTooltipCost.textContent = `Cost: ${item.cost} Scraps (Max ${maxAlliesCount} Allies)`;
+            } else {
+                shopTooltipCost.textContent = cantAfford ? `Cost: ${item.cost} Scraps (Can't afford)` : `Cost: ${item.cost} Scraps`;
+            }
+            shopTooltipCost.classList.toggle('cant-afford', cantAfford || alliesFull);
         } else {
             shopTooltipCost.classList.remove('cant-afford');
         }
@@ -1212,7 +1283,21 @@ function hideShopTooltip() {
 }
 
 function refreshShopAffordability() {
+    const alliesFull = currentAllyCount >= maxAlliesCount;
+    if (shopUnitsStatus) {
+        shopUnitsStatus.textContent = alliesFull
+            ? `Allies: ${currentAllyCount}/${maxAlliesCount} (MAX)`
+            : `Allies: ${currentAllyCount}/${maxAlliesCount}`;
+        shopUnitsStatus.classList.toggle('visible', activeShopTab === 'units');
+        shopUnitsStatus.classList.toggle('full', alliesFull);
+    }
     if (shopGrid) {
+        const slotEls = shopGrid.querySelectorAll('.shop-item-slot');
+        for (let i = 0; i < slotEls.length; i++) {
+            const slotEl = slotEls[i];
+            const itemKind = slotEl.dataset.itemKind || '';
+            slotEl.classList.toggle('disabled', itemKind === 'unit' && alliesFull);
+        }
         const costEls = shopGrid.querySelectorAll('.shop-item-cost');
         for (let i = 0; i < costEls.length; i++) {
             const costVal = Number(costEls[i].dataset.cost) || 0;
@@ -1221,24 +1306,56 @@ function refreshShopAffordability() {
     }
     if (lastHoveredShopItem && lastHoveredShowCost && shopTooltip && shopTooltip.classList.contains('visible') && shopTooltipCost) {
         const cantAfford = ME.scraps < lastHoveredShopItem.cost;
-        shopTooltipCost.textContent = cantAfford
-            ? `Cost: ${lastHoveredShopItem.cost} Scraps (Can't afford)`
-            : `Cost: ${lastHoveredShopItem.cost} Scraps`;
-        shopTooltipCost.classList.toggle('cant-afford', cantAfford);
+        const unitFull = lastHoveredShopItem.kind === 'unit' && alliesFull;
+        if (unitFull) {
+            shopTooltipCost.textContent = `Cost: ${lastHoveredShopItem.cost} Scraps (Max ${maxAlliesCount} Allies)`;
+        } else {
+            shopTooltipCost.textContent = cantAfford
+                ? `Cost: ${lastHoveredShopItem.cost} Scraps (Can't afford)`
+                : `Cost: ${lastHoveredShopItem.cost} Scraps`;
+        }
+        shopTooltipCost.classList.toggle('cant-afford', cantAfford || unitFull);
         if (lastHoveredShopSlot) {
             positionShopTooltipForSlot(lastHoveredShopSlot, lastHoveredPreferAbove);
         }
     }
 }
 
+function setShopTab(nextTab) {
+    activeShopTab = nextTab === 'units' ? 'units' : 'items';
+    if (shopTabItemsBtn) {
+        const isItems = activeShopTab === 'items';
+        shopTabItemsBtn.classList.toggle('active', isItems);
+        shopTabItemsBtn.setAttribute('aria-selected', isItems ? 'true' : 'false');
+    }
+    if (shopTabUnitsBtn) {
+        const isUnits = activeShopTab === 'units';
+        shopTabUnitsBtn.classList.toggle('active', isUnits);
+        shopTabUnitsBtn.setAttribute('aria-selected', isUnits ? 'true' : 'false');
+    }
+    hideShopTooltip();
+    renderShopItems();
+}
+
+function refreshShopUnitIcons() {
+    if (!shopGrid || activeShopTab !== 'units') return;
+    const imgs = shopGrid.querySelectorAll('img.shop-item-icon');
+    for (let i = 0; i < imgs.length && i < SHOP_UNITS.length; i++) {
+        imgs[i].src = createEntityPreviewUrl(SHOP_UNITS[i]);
+    }
+}
+
 function renderShopItems() {
     if (!shopGrid) return;
     shopGrid.textContent = '';
-    for (let i = 0; i < SHOP_ITEMS.length; i++) {
-        const item = SHOP_ITEMS[i];
+    const list = activeShopTab === 'units' ? SHOP_UNITS : SHOP_ITEMS;
+    for (let i = 0; i < list.length; i++) {
+        const item = list[i];
         const slot = document.createElement('button');
         slot.type = 'button';
         slot.className = 'shop-item-slot';
+        slot.dataset.itemId = item.id;
+        slot.dataset.itemKind = item.kind;
 
         if (item.kind === 'ability') {
             const tagEl = document.createElement('span');
@@ -1247,7 +1364,14 @@ function renderShopItems() {
             slot.appendChild(tagEl);
         }
 
-        if (item.slotImage) {
+        if (item.kind === 'unit') {
+            const iconEl = document.createElement('img');
+            iconEl.className = 'shop-item-icon';
+            iconEl.src = createEntityPreviewUrl(item);
+            iconEl.alt = item.title;
+            iconEl.draggable = false;
+            slot.appendChild(iconEl);
+        } else if (item.slotImage) {
             const iconEl = document.createElement('img');
             iconEl.className = 'shop-item-icon';
             iconEl.src = item.slotImage;
@@ -1287,6 +1411,7 @@ function renderShopItems() {
         });
         slot.addEventListener('click', () => {
             showShopTooltip(item, slot);
+            if (item.kind === 'unit' && currentAllyCount >= maxAlliesCount) return;
             if (ws && ws.readyState === WebSocket.OPEN && myId !== null) {
                 ws.send(JSON.stringify({ type: 'buy_item', itemId: item.id }));
             }
@@ -1310,6 +1435,7 @@ function openShop() {
         closeChat();
     }
     hideShopTooltip();
+    refreshShopUnitIcons();
     refreshShopAffordability();
     shopOverlay.classList.add('open');
     shopOverlay.setAttribute('aria-hidden', 'false');
@@ -1895,6 +2021,7 @@ function loadAssets() {
     }
     const refreshIcons = () => {
         refreshAdminSpawnIcons();
+        refreshShopUnitIcons();
     };
     goodbotImg.onload = refreshIcons;
     rarebotImg.onload = refreshIcons;
@@ -1945,6 +2072,13 @@ function updateStatsUI() {
 
 function applyGameStateUI(state) {
     if (!state || typeof state !== 'object') return;
+    if (typeof state.allyCount === 'number' && isFinite(state.allyCount)) {
+        currentAllyCount = Math.max(0, Math.floor(state.allyCount));
+    }
+    if (typeof state.maxAllies === 'number' && isFinite(state.maxAllies) && state.maxAllies > 0) {
+        maxAlliesCount = Math.floor(state.maxAllies);
+    }
+    refreshShopAffordability();
     if (goodbotsCount && typeof state.goodbots === 'number') {
         goodbotsCount.textContent = String(Math.max(0, Math.floor(state.goodbots)));
     }
@@ -3805,7 +3939,7 @@ async function connectToServer() {
                 applyServerDeviceMode(data.isMobile);
             }
             updateServerDropdown(data.playerCount, data.maxPlayers);
-            if (inMainMenu) {
+            if (inMainMenu && !suppressReloadDisconnect) {
                 setMenuError(typeof data.regionError === 'string' ? data.regionError : '');
             }
             applyMapPayload(data.map);
@@ -3847,6 +3981,7 @@ async function connectToServer() {
             ME.vy = 0;
             ME.scale = 1;
             ME.faction = data.faction || 'goodbot';
+            refreshAdminReviveButton();
             ME.maxHealth = Math.max(1, Number(data.maxHealth) || 1000);
             ME.maxEnergy = Math.max(1, Number(data.maxEnergy) || 255);
             ME.health = Math.max(0, Math.min(ME.maxHealth, data.health ?? ME.maxHealth));
@@ -4306,6 +4441,7 @@ async function connectToServer() {
                         ME.maxHealth = incoming.maxHealth !== undefined ? Math.max(1, incoming.maxHealth) : (pFaction === 'rarebot' ? 255 : 1000);
                         ME.maxEnergy = incoming.maxEnergy !== undefined ? Math.max(1, incoming.maxEnergy) : (pFaction === 'rarebot' ? 50 : 255);
                         enemyAggroUntil.clear();
+                        refreshAdminReviveButton();
                     } else {
                         if (incoming.maxHealth !== undefined) ME.maxHealth = Math.max(1, incoming.maxHealth);
                         if (incoming.maxEnergy !== undefined) ME.maxEnergy = Math.max(1, incoming.maxEnergy);
@@ -4963,6 +5099,14 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    if (adminReviveBtn) {
+        adminReviveBtn.addEventListener('click', () => {
+            if (ws && ws.readyState === WebSocket.OPEN && isAdmin && ME.faction === 'spectator') {
+                ws.send(JSON.stringify({ type: 'admin_revive' }));
+            }
+        });
+    }
+
     if (adminSkipWaveBtn) {
         adminSkipWaveBtn.addEventListener('click', () => {
             if (ws && ws.readyState === WebSocket.OPEN && isAdmin) {
@@ -4980,6 +5124,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     renderAdminSpawnGrid();
+    refreshAdminReviveButton();
 
     if (tokenInput) {
         tokenInput.addEventListener('focus', () => {
@@ -5114,7 +5259,19 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    renderShopItems();
+    if (shopTabItemsBtn) {
+        shopTabItemsBtn.addEventListener('click', () => {
+            setShopTab('items');
+        });
+    }
+
+    if (shopTabUnitsBtn) {
+        shopTabUnitsBtn.addEventListener('click', () => {
+            setShopTab('units');
+        });
+    }
+
+    setShopTab('items');
 
     if (chatToggleBtn) {
         chatToggleBtn.addEventListener('click', () => {
