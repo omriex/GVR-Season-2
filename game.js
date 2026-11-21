@@ -3225,17 +3225,52 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
             const metrics = getWeaponMetrics(weapon, weaponImg);
             const pxScaleX = ((sW / refW) * HANDS_SCALE) / metrics.resScale;
             const pxScaleY = ((sH / refH) * HANDS_SCALE) / metrics.resScale;
-            const splitX = metrics.splitX;
             const anchorX = metrics.anchorX;
             const anchorY = metrics.anchorY;
+            const fullW = weaponImg.naturalWidth;
             const fullH = weaponImg.naturalHeight;
             const pH = fullH * pxScaleY;
-            const leftW = Math.max(1, Math.min(splitX, weaponImg.naturalWidth));
-            const leftDrawW = leftW * pxScaleX;
-            const rightW = weaponImg.naturalWidth - leftW;
-            const rightDrawW = rightW * pxScaleX;
             const baseLeftX = -anchorX * pxScaleX;
             const baseTopY = -anchorY * pxScaleY;
+            const bodyScale = sW / 48;
+
+            if (isCannon) {
+                const fullDrawW = fullW * pxScaleX;
+                const fullMip = getScaledSpriteCanvas(
+                    `${weapon}_ALL`,
+                    weaponImg,
+                    0,
+                    0,
+                    fullW,
+                    fullH,
+                    (fullW / refW) * (48 / metrics.resScale) * HANDS_SCALE,
+                    (fullH / refH) * (48 / metrics.resScale) * HANDS_SCALE
+                ) || weaponImg;
+                const equip = getEquipTransform(entityKey, nowMs);
+                const recoil = getRecoilTransform(entityKey, nowMs);
+                const cDx = equip ? equip.dx * bodyScale : 0;
+                const cDy = (equip ? equip.dy * bodyScale : 0) + (recoil ? recoil.dy * bodyScale : 0);
+                const cRot = (equip ? equip.rot : 0) + (recoil ? recoil.rot : 0);
+                if (cDx !== 0 || cDy !== 0) {
+                    ctx.translate(cDx, cDy);
+                }
+                if (cRot !== 0) {
+                    ctx.rotate(cRot);
+                }
+                if (fullMip !== weaponImg) {
+                    ctx.drawImage(fullMip, baseLeftX, baseTopY, fullDrawW, pH);
+                } else {
+                    ctx.drawImage(weaponImg, 0, 0, fullW, fullH, baseLeftX, baseTopY, fullDrawW, pH);
+                }
+                ctx.restore();
+                return;
+            }
+
+            const splitX = metrics.splitX;
+            const leftW = Math.max(1, Math.min(splitX, fullW));
+            const leftDrawW = leftW * pxScaleX;
+            const rightW = fullW - leftW;
+            const rightDrawW = rightW * pxScaleX;
             const leftMip = getScaledSpriteCanvas(
                 `${weapon}_L`,
                 weaponImg,
@@ -3246,7 +3281,6 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
                 (leftW / refW) * (48 / metrics.resScale) * HANDS_SCALE,
                 (fullH / refH) * (48 / metrics.resScale) * HANDS_SCALE
             ) || weaponImg;
-            const bodyScale = sW / 48;
             const leftPunch = getLeftPunchOffset(entityKey, nowMs);
             if (leftPunch) {
                 ctx.save();
