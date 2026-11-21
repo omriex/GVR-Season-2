@@ -60,7 +60,9 @@ canvas {
 }
 
 #settings-btn,
-#leave-btn {
+#leave-btn,
+#admin-mod-btn,
+#admin-panel-btn {
     background: transparent;
     border: none;
     padding: 0;
@@ -72,21 +74,29 @@ canvas {
     filter: drop-shadow(2px 2px 0px rgba(0, 0, 0, 0.85));
 }
 
-#leave-btn {
+#leave-btn,
+#admin-mod-btn,
+#admin-panel-btn {
     display: none;
 }
 
-#leave-btn.visible {
+#leave-btn.visible,
+#admin-mod-btn.visible,
+#admin-panel-btn.visible {
     display: flex;
 }
 
 #settings-btn:hover,
-#leave-btn:hover {
+#leave-btn:hover,
+#admin-mod-btn:hover,
+#admin-panel-btn:hover {
     filter: drop-shadow(2px 2px 0px rgba(0, 0, 0, 0.85)) brightness(0.5);
 }
 
 #settings-btn:active,
-#leave-btn:active {
+#leave-btn:active,
+#admin-mod-btn:active,
+#admin-panel-btn:active {
     transform: scale(0.92);
 }
 
@@ -568,20 +578,63 @@ canvas {
 }
 
 #player-name-input,
-#chat-input {
+#chat-input,
+#token-input {
     user-select: text;
     -webkit-user-select: text;
 }
 
 #chat-wrapper {
     position: absolute;
-    bottom: 30px;
+    bottom: 66px;
     left: 30px;
     width: 320px;
     max-width: calc(100% - 60px);
     display: flex;
     flex-direction: column;
     pointer-events: none;
+}
+
+#token-wrapper {
+    position: absolute;
+    bottom: 22px;
+    left: 30px;
+    width: 320px;
+    max-width: calc(100% - 60px);
+    background-color: rgba(0, 0, 0, 0.5);
+    border-radius: 4px;
+    pointer-events: auto;
+}
+
+#token-input {
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 14px;
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    color: #ffffff;
+    outline: none;
+}
+
+#token-input:hover {
+    filter: brightness(0.5);
+}
+
+#token-input:active {
+    transform: scale(0.92);
+}
+
+#token-input::placeholder {
+    color: rgba(255, 255, 255, 0.45);
+}
+
+#token-input.applied {
+    color: #32ff32;
+}
+
+#token-input.applied::placeholder {
+    color: #32ff32;
 }
 
 #shop-btn {
@@ -928,7 +981,9 @@ body.touch-mode #mobile-controls {
 #settings-overlay,
 #leave-overlay,
 #shop-overlay,
-#map-overlay {
+#map-overlay,
+#admin-mod-overlay,
+#admin-panel-overlay {
     position: fixed;
     inset: 0;
     background-color: rgba(0, 0, 0, 0.5);
@@ -943,7 +998,9 @@ body.touch-mode #mobile-controls {
 #settings-overlay.open,
 #leave-overlay.open,
 #shop-overlay.open,
-#map-overlay.open {
+#map-overlay.open,
+#admin-mod-overlay.open,
+#admin-panel-overlay.open {
     display: flex;
 }
 
@@ -963,7 +1020,9 @@ body.touch-mode #mobile-controls {
 
 #settings-dialog,
 #leave-dialog,
-#shop-dialog {
+#shop-dialog,
+#admin-mod-dialog,
+#admin-panel-dialog {
     position: relative;
     width: 340px;
     max-width: 100%;
@@ -976,13 +1035,20 @@ body.touch-mode #mobile-controls {
     color: #eeeeee;
 }
 
-#shop-dialog {
+#shop-dialog,
+#admin-panel-dialog {
     width: auto;
     min-width: 496px;
 }
 
+#admin-mod-dialog {
+    width: 460px;
+}
+
 #settings-close-btn,
-#shop-close-btn {
+#shop-close-btn,
+#admin-mod-close-btn,
+#admin-panel-close-btn {
     position: absolute;
     top: 12px;
     right: 12px;
@@ -999,18 +1065,24 @@ body.touch-mode #mobile-controls {
 }
 
 #settings-close-btn:hover,
-#shop-close-btn:hover {
+#shop-close-btn:hover,
+#admin-mod-close-btn:hover,
+#admin-panel-close-btn:hover {
     filter: brightness(0.5);
 }
 
 #settings-close-btn:active,
-#shop-close-btn:active {
+#shop-close-btn:active,
+#admin-mod-close-btn:active,
+#admin-panel-close-btn:active {
     transform: scale(0.92);
 }
 
 #settings-title,
 #leave-title,
-#shop-title {
+#shop-title,
+#admin-mod-title,
+#admin-panel-title {
     margin: 0 0 18px 0;
     font-size: 26px;
     color: #eeeeee;
@@ -1018,7 +1090,8 @@ body.touch-mode #mobile-controls {
     letter-spacing: 1px;
 }
 
-#shop-grid {
+#shop-grid,
+#admin-spawn-grid {
     display: grid;
     grid-template-columns: repeat(5, 84px);
     gap: 10px;
@@ -1092,6 +1165,10 @@ body.touch-mode #mobile-controls {
     pointer-events: none;
 }
 
+.shop-item-cost.cant-afford {
+    color: #ff5c5c;
+}
+
 #shop-tooltip {
     position: fixed;
     display: none;
@@ -1129,6 +1206,10 @@ body.touch-mode #mobile-controls {
     font-size: 13px;
     color: #ffe100;
     margin-bottom: 6px;
+}
+
+#shop-tooltip-cost.cant-afford {
+    color: #ff5c5c;
 }
 
 #shop-tooltip-desc {
@@ -1193,6 +1274,152 @@ body.touch-mode #mobile-controls {
 
 #leave-yes-btn:active,
 #leave-no-btn:active {
+    transform: scale(0.92);
+}
+
+.admin-section-label {
+    font-size: 14px;
+    color: #bbbbbb;
+    margin: 0 0 8px 0;
+    letter-spacing: 0.5px;
+    text-shadow: 1px 1px 0px #1a1a1a;
+}
+
+#admin-mod-player-list,
+#admin-mod-ban-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#admin-mod-ban-section {
+    display: none;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 2px solid #1a1a1a;
+}
+
+#admin-mod-ban-section.visible {
+    display: block;
+}
+
+.admin-mod-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background-color: #333333;
+    border: 3px solid #1a1a1a;
+    border-radius: 4px;
+    padding: 8px 10px;
+}
+
+.admin-mod-name {
+    font-size: 15px;
+    color: #d84aff;
+    text-shadow: 1px 1px 0px #1a1a1a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.admin-mod-name.rarebot {
+    color: #f00000;
+}
+
+.admin-mod-name.spectator {
+    color: #ffffff;
+}
+
+.admin-mod-name.ban-ip {
+    color: #ff5c5c;
+}
+
+.admin-mod-self {
+    font-size: 12px;
+    color: #bbbbbb;
+    flex-shrink: 0;
+}
+
+.admin-mod-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.admin-mod-action-btn {
+    padding: 4px 9px;
+    font-size: 13px;
+    background-color: #242424;
+    border: 3px solid #1a1a1a;
+    border-radius: 3px;
+    color: #eeeeee;
+    cursor: pointer;
+}
+
+.admin-mod-action-btn.kick {
+    background-color: #b5891e;
+}
+
+.admin-mod-action-btn.ban {
+    background-color: #cc3f3f;
+}
+
+.admin-mod-action-btn.mute {
+    background-color: #444444;
+}
+
+.admin-mod-action-btn.unmute,
+.admin-mod-action-btn.unban {
+    background-color: #4CAF50;
+}
+
+.admin-mod-action-btn:hover {
+    filter: brightness(0.5);
+}
+
+.admin-mod-action-btn:active {
+    transform: scale(0.92);
+}
+
+.admin-mod-empty {
+    font-size: 14px;
+    color: #888888;
+}
+
+#admin-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 18px;
+}
+
+#admin-skip-wave-btn,
+#admin-restart-game-btn {
+    flex: 1;
+    padding: 12px;
+    font-size: 18px;
+    border: 4px solid #1a1a1a;
+    border-radius: 4px;
+    color: #eeeeee;
+    cursor: pointer;
+}
+
+#admin-skip-wave-btn {
+    background-color: #4CAF50;
+}
+
+#admin-restart-game-btn {
+    background-color: #cc3f3f;
+}
+
+#admin-skip-wave-btn:hover,
+#admin-restart-game-btn:hover {
+    filter: brightness(0.5);
+}
+
+#admin-skip-wave-btn:active,
+#admin-restart-game-btn:active {
     transform: scale(0.92);
 }
 
@@ -1385,7 +1612,13 @@ body.touch-mode #mobile-controls {
 }
 
 #ui-scale-layer.layout-tablet #chat-wrapper {
-    bottom: 18px;
+    bottom: 54px;
+    left: 16px;
+    width: 240px;
+}
+
+#ui-scale-layer.layout-tablet #token-wrapper {
+    bottom: 14px;
     left: 16px;
     width: 240px;
 }
@@ -1494,7 +1727,9 @@ body.touch-mode #mobile-controls {
 }
 
 #ui-scale-layer.layout-mobile #settings-btn svg,
-#ui-scale-layer.layout-mobile #leave-btn svg {
+#ui-scale-layer.layout-mobile #leave-btn svg,
+#ui-scale-layer.layout-mobile #admin-mod-btn svg,
+#ui-scale-layer.layout-mobile #admin-panel-btn svg {
     width: 28px;
     height: 28px;
 }
@@ -1575,8 +1810,20 @@ body.touch-mode #mobile-controls {
     font-size: 10px;
 }
 
-#ui-scale-layer.layout-mobile #chat-wrapper {
+#ui-scale-layer.layout-mobile #token-wrapper {
     top: 120px;
+    left: 12px;
+    bottom: auto;
+    width: 205px;
+}
+
+#ui-scale-layer.layout-mobile #token-input {
+    font-size: 12px;
+    padding: 5px 8px;
+}
+
+#ui-scale-layer.layout-mobile #chat-wrapper {
+    top: 154px;
     left: 12px;
     bottom: auto;
     width: 205px;
@@ -1646,13 +1893,15 @@ body.touch-mode #mobile-controls {
     font-size: 12px;
 }
 
-#ui-scale-layer.layout-mobile #shop-dialog {
+#ui-scale-layer.layout-mobile #shop-dialog,
+#ui-scale-layer.layout-mobile #admin-panel-dialog {
     min-width: 0;
     width: auto;
     max-width: 100%;
 }
 
-#ui-scale-layer.layout-mobile #shop-grid {
+#ui-scale-layer.layout-mobile #shop-grid,
+#ui-scale-layer.layout-mobile #admin-spawn-grid {
     grid-template-columns: repeat(5, 52px);
     gap: 6px;
 }
@@ -1708,8 +1957,15 @@ body.touch-mode #mobile-controls {
     height: 16px;
 }
 
-#ui-scale-layer.layout-tiny #chat-wrapper {
+#ui-scale-layer.layout-tiny #token-wrapper {
     top: 112px;
+    left: 8px;
+    bottom: auto;
+    width: 175px;
+}
+
+#ui-scale-layer.layout-tiny #chat-wrapper {
+    top: 146px;
     left: 8px;
     width: 175px;
 }
@@ -1763,11 +2019,14 @@ body.touch-mode #mobile-controls {
 
 #ui-scale-layer.layout-tiny #settings-dialog,
 #ui-scale-layer.layout-tiny #leave-dialog,
-#ui-scale-layer.layout-tiny #shop-dialog {
+#ui-scale-layer.layout-tiny #shop-dialog,
+#ui-scale-layer.layout-tiny #admin-mod-dialog,
+#ui-scale-layer.layout-tiny #admin-panel-dialog {
     padding: 16px;
 }
 
-#ui-scale-layer.layout-tiny #shop-grid {
+#ui-scale-layer.layout-tiny #shop-grid,
+#ui-scale-layer.layout-tiny #admin-spawn-grid {
     grid-template-columns: repeat(5, 44px);
     gap: 5px;
 }
@@ -1869,8 +2128,15 @@ body.touch-mode #mobile-controls {
     font-size: 10px;
 }
 
-#ui-scale-layer.layout-short #chat-wrapper {
+#ui-scale-layer.layout-short #token-wrapper {
     top: 112px;
+    left: 12px;
+    bottom: auto;
+    width: 195px;
+}
+
+#ui-scale-layer.layout-short #chat-wrapper {
+    top: 146px;
     left: 12px;
     bottom: auto;
     width: 195px;
