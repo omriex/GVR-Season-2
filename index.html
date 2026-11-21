@@ -208,6 +208,11 @@
                     </svg>
                 </button>
                 <h2 id="shop-title">Shop</h2>
+                <div id="shop-tabs" role="tablist" aria-label="Shop categories">
+                    <button id="shop-tab-items" class="shop-tab-btn active" type="button" role="tab" aria-selected="true" data-shop-tab="items">Items</button>
+                    <button id="shop-tab-units" class="shop-tab-btn" type="button" role="tab" aria-selected="false" data-shop-tab="units">Units</button>
+                </div>
+                <div id="shop-units-status">Allies: 0/8</div>
                 <div id="shop-grid"></div>
             </div>
         </div>
@@ -232,6 +237,7 @@
                     </svg>
                 </button>
                 <h2 id="admin-mod-title">Moderation</h2>
+                <input type="text" id="admin-mod-reason-input" maxlength="100" placeholder="Kick / ban reason (optional)" autocomplete="off" spellcheck="false">
                 <div class="admin-section-label">Players</div>
                 <div id="admin-mod-player-list"></div>
                 <div id="admin-mod-ban-section">
@@ -251,6 +257,7 @@
                 <h2 id="admin-panel-title">Admin Panel</h2>
                 <div id="admin-spawn-grid"></div>
                 <div id="admin-actions">
+                    <button id="admin-revive-btn" type="button">Revive Self</button>
                     <button id="admin-skip-wave-btn" type="button">Skip Wave</button>
                     <button id="admin-restart-game-btn" type="button">Restart Game</button>
                 </div>
