@@ -36,6 +36,16 @@
                     <path d="M10 8l4 4-4 4"/>
                 </svg>
             </button>
+            <button id="admin-mod-btn" type="button" aria-label="Moderation">
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true">
+                    <path d="M2 19.6l8.6-8.6 2.4 2.4L4.4 22 2 19.6zm10.4-10.4L10 6.8l2.2-2.2c1.2-1.2 3.1-1.4 4.5-.4l2.1-2.1 2.1 2.1-2.1 2.1c1 1.4.8 3.3-.4 4.5l-.8.8 1.5 1.5-2.1 2.1-4.6-4.6z"/>
+                </svg>
+            </button>
+            <button id="admin-panel-btn" type="button" aria-label="Admin panel">
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true">
+                    <path d="M12 2.4l2.9 6 6.6.9-4.8 4.6 1.2 6.6L12 17.3l-5.9 3.2 1.2-6.6-4.8-4.6 6.6-.9L12 2.4z"/>
+                </svg>
+            </button>
         </div>
 
         <div id="main-menu">
@@ -81,6 +91,9 @@
                     <div id="chat-log"></div>
                     <input type="text" id="chat-input" maxlength="80" placeholder="Chat" autocomplete="off" spellcheck="false">
                 </div>
+            </div>
+            <div id="token-wrapper">
+                <input type="text" id="token-input" maxlength="64" placeholder="Token" autocomplete="off" spellcheck="false">
             </div>
             <div id="inventory-layer">
                 <div class="slot active" data-slot="0"><span class="slot-number">1</span></div>
@@ -208,6 +221,39 @@
         <div id="map-overlay" aria-hidden="true">
             <div id="map-expanded-box" role="dialog" aria-modal="true" aria-label="Map">
                 <canvas id="expanded-map-canvas"></canvas>
+            </div>
+        </div>
+        <div id="admin-mod-overlay" aria-hidden="true">
+            <div id="admin-mod-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-mod-title">
+                <button id="admin-mod-close-btn" type="button" aria-label="Close moderation">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" aria-hidden="true">
+                        <line x1="5" y1="5" x2="19" y2="19"/>
+                        <line x1="19" y1="5" x2="5" y2="19"/>
+                    </svg>
+                </button>
+                <h2 id="admin-mod-title">Moderation</h2>
+                <div class="admin-section-label">Players</div>
+                <div id="admin-mod-player-list"></div>
+                <div id="admin-mod-ban-section">
+                    <div class="admin-section-label">Banned IPs</div>
+                    <div id="admin-mod-ban-list"></div>
+                </div>
+            </div>
+        </div>
+        <div id="admin-panel-overlay" aria-hidden="true">
+            <div id="admin-panel-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-panel-title">
+                <button id="admin-panel-close-btn" type="button" aria-label="Close admin panel">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" aria-hidden="true">
+                        <line x1="5" y1="5" x2="19" y2="19"/>
+                        <line x1="19" y1="5" x2="5" y2="19"/>
+                    </svg>
+                </button>
+                <h2 id="admin-panel-title">Admin Panel</h2>
+                <div id="admin-spawn-grid"></div>
+                <div id="admin-actions">
+                    <button id="admin-skip-wave-btn" type="button">Skip Wave</button>
+                    <button id="admin-restart-game-btn" type="button">Restart Game</button>
+                </div>
             </div>
         </div>
     </div>
