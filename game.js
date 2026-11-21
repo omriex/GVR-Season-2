@@ -875,15 +875,49 @@ function createEntityPreviewUrl(opt) {
             const metrics = getWeaponMetrics(opt.weapon, weaponImg);
             const pxScaleX = ((bodySize / refW) * HANDS_SCALE) / metrics.resScale;
             const pxScaleY = ((bodySize / refH) * HANDS_SCALE) / metrics.resScale;
-            const wx = -metrics.anchorX * pxScaleX;
-            const wy = -metrics.anchorY * pxScaleY;
-            const ww = weaponImg.naturalWidth * pxScaleX;
-            const wh = weaponImg.naturalHeight * pxScaleY;
-            wRect = { wx, wy, ww, wh };
-            if (wx < minX) minX = wx;
-            if (wx + ww > maxX) maxX = wx + ww;
-            if (wy < minY) minY = wy;
-            if (wy + wh > maxY) maxY = wy + wh;
+            const bScale = bodySize / 48;
+            if (opt.weapon === 'goodbot-cannon') {
+                const fullH = weaponImg.naturalHeight;
+                const leftW = Math.max(1, Math.min(metrics.splitX, weaponImg.naturalWidth));
+                const rightW = weaponImg.naturalWidth - leftW;
+                const lx = -metrics.anchorX * pxScaleX;
+                const ly = -metrics.anchorY * pxScaleY;
+                const lw = leftW * pxScaleX;
+                const lh = fullH * pxScaleY;
+                const rScale = metrics.rightScale || 1;
+                const rx = (leftW - metrics.anchorX) * pxScaleX + (metrics.rightDx || 0) * bScale;
+                const ry = -metrics.anchorY * pxScaleY * rScale + (metrics.rightDy || 0) * bScale;
+                const rw = rightW * pxScaleX * rScale;
+                const rh = lh * rScale;
+                wRect = {
+                    isSplit: true,
+                    leftW,
+                    rightW,
+                    fullH,
+                    lx,
+                    ly,
+                    lw,
+                    lh,
+                    rx,
+                    ry,
+                    rw,
+                    rh
+                };
+                minX = Math.min(minX, lx, rx);
+                maxX = Math.max(maxX, lx + lw, rx + rw);
+                minY = Math.min(minY, ly, ry);
+                maxY = Math.max(maxY, ly + lh, ry + rh);
+            } else {
+                const wx = -metrics.anchorX * pxScaleX;
+                const wy = -metrics.anchorY * pxScaleY;
+                const ww = weaponImg.naturalWidth * pxScaleX;
+                const wh = weaponImg.naturalHeight * pxScaleY;
+                wRect = { wx, wy, ww, wh };
+                if (wx < minX) minX = wx;
+                if (wx + ww > maxX) maxX = wx + ww;
+                if (wy < minY) minY = wy;
+                if (wy + wh > maxY) maxY = wy + wh;
+            }
         }
     } else {
         const handsImg = opt.bodyType === 'prototype' ? prototypeRarebotHandsImg : botHandsImg;
@@ -913,7 +947,14 @@ function createEntityPreviewUrl(opt) {
     g.scale(fitScale, fitScale);
 
     if (weaponImg && wRect) {
-        g.drawImage(weaponImg, wRect.wx, wRect.wy, wRect.ww, wRect.wh);
+        if (wRect.isSplit) {
+            g.drawImage(weaponImg, 0, 0, wRect.leftW, wRect.fullH, wRect.lx, wRect.ly, wRect.lw, wRect.lh);
+            if (wRect.rightW > 0) {
+                g.drawImage(weaponImg, wRect.leftW, 0, wRect.rightW, wRect.fullH, wRect.rx, wRect.ry, wRect.rw, wRect.rh);
+            }
+        } else {
+            g.drawImage(weaponImg, wRect.wx, wRect.wy, wRect.ww, wRect.wh);
+        }
     }
 
     if (bodyImg.complete && bodyImg.naturalWidth > 0) {
@@ -2795,14 +2836,14 @@ function spawnCannonTrailParticle(wx, wy) {
         explosions.shift();
     }
     const ang = Math.random() * Math.PI * 2;
-    const spd = 18 + Math.random() * 58;
+    const spd = 22 + Math.random() * 68;
     explosions.push({
-        x: wx + (Math.random() - 0.5) * 10,
-        y: wy + (Math.random() - 0.5) * 10,
+        x: wx + (Math.random() - 0.5) * 18,
+        y: wy + (Math.random() - 0.5) * 18,
         vx: Math.cos(ang) * spd,
         vy: Math.sin(ang) * spd,
-        radius: 3.5 + Math.random() * 4.5,
-        life: 0.22 + Math.random() * 0.22,
+        radius: 4.5 + Math.random() * 5.5,
+        life: 0.24 + Math.random() * 0.24,
         age: 0,
         color: GRENADE_EXPLOSION_COLORS[Math.floor(Math.random() * GRENADE_EXPLOSION_COLORS.length)]
     });
@@ -3032,14 +3073,14 @@ function measureOpaqueBounds(img, x0, x1) {
 
 function getWeaponMetrics(weapon, weaponImg) {
     if (weapon !== 'goodbot-cannon') {
-        return { splitX: 284, anchorX: 284, anchorY: 596, resScale: 1 };
+        return { splitX: 284, anchorX: 284, anchorY: 596, resScale: 1, rightScale: 1, rightDx: 0, rightDy: 0, pivotLocalX: 0, pivotLocalY: 0 };
     }
     const w = weaponImg && weaponImg.complete ? weaponImg.naturalWidth : 0;
     const h = weaponImg && weaponImg.complete ? weaponImg.naturalHeight : 0;
     if (!w || !h) {
-        return { splitX: 284, anchorX: 284, anchorY: 596, resScale: 1 };
+        return { splitX: 284, anchorX: 284, anchorY: 596, resScale: 1, rightScale: 1.45, rightDx: 9, rightDy: -12, pivotLocalX: 22, pivotLocalY: -10 };
     }
-    const cacheKey = `${weapon}:${w}x${h}:${botHandsImg.complete ? botHandsImg.naturalWidth : 0}`;
+    const cacheKey = `${weapon}:${w}x${h}:${botHandsImg.complete ? botHandsImg.naturalWidth : 0}:v2`;
     if (calibratedWeaponMetrics.has(cacheKey)) {
         return calibratedWeaponMetrics.get(cacheKey);
     }
@@ -3109,7 +3150,32 @@ function getWeaponMetrics(weapon, weaponImg) {
         }
     }
 
-    const result = { splitX, anchorX, anchorY, resScale };
+    const basePxScale = ((48 / refW) * HANDS_SCALE) / resScale;
+    const cannonRight = measureOpaqueBounds(weaponImg, splitX, w);
+    let rightScale = 1.48;
+    let rightDx = 9;
+    let rightDy = -12;
+    let pivotLocalX = 22;
+    let pivotLocalY = -10;
+    if (cannonRight) {
+        const curRightSpan = Math.max(cannonRight.w, cannonRight.h) * basePxScale;
+        if (curRightSpan > 1) {
+            rightScale = Math.max(1.42, Math.min(1.9, 46 / curRightSpan));
+        }
+        const rawInnerX = (cannonRight.minX - anchorX) * basePxScale;
+        const rawBottomY = (cannonRight.maxY - anchorY) * basePxScale;
+        const scaledLeftAnchorDelta = (splitX - anchorX) * basePxScale;
+        const rawInnerAfterScale = scaledLeftAnchorDelta + (cannonRight.minX - splitX) * basePxScale * rightScale;
+        const rawBottomAfterScale = (cannonRight.maxY - anchorY) * basePxScale * rightScale;
+        rightDx = Math.max(7, Math.min(16, 13 - rawInnerAfterScale));
+        rightDy = Math.min(-9, Math.max(-22, 6 - rawBottomAfterScale));
+        if (rawInnerX > 18) rightDx = 6;
+        if (rawBottomY < -8) rightDy = -8;
+        pivotLocalX = scaledLeftAnchorDelta + rightDx + (cannonRight.cx - splitX) * basePxScale * rightScale * 0.65;
+        pivotLocalY = rightDy + (cannonRight.maxY - cannonRight.h * 0.25 - anchorY) * basePxScale * rightScale;
+    }
+
+    const result = { splitX, anchorX, anchorY, resScale, rightScale, rightDx, rightDy, pivotLocalX, pivotLocalY };
     calibratedWeaponMetrics.set(cacheKey, result);
     return result;
 }
@@ -3120,25 +3186,26 @@ function getRecoilTransform(entityKey, nowMs) {
     if (!entry) return null;
     const startedAt = typeof entry === 'number' ? entry : entry.at;
     const isStrong = typeof entry === 'object' && entry !== null && Boolean(entry.strong);
-    const duration = isStrong ? 280 : 135;
+    const duration = isStrong ? 320 : 135;
     const elapsed = nowMs - startedAt;
     if (elapsed < 0 || elapsed >= duration) {
         recoilAnims.delete(entityKey);
         return null;
     }
     const p = elapsed / duration;
-    const peakP = isStrong ? 0.18 : 0.24;
+    const peakP = isStrong ? 0.16 : 0.24;
     let mag;
     if (p < peakP) {
         const t = p / peakP;
         mag = 1 - (1 - t) * (1 - t);
     } else {
         const t = (p - peakP) / (1 - peakP);
-        mag = Math.pow(1 - t, isStrong ? 1.85 : 2.2);
+        mag = Math.pow(1 - t, isStrong ? 1.75 : 2.2);
     }
     return {
-        dy: mag * (isStrong ? 26 : 10),
-        rot: mag * (isStrong ? 0.14 : 0.045)
+        dx: mag * (isStrong ? 4 : 0),
+        dy: mag * (isStrong ? 18 : 10),
+        rot: mag * (isStrong ? 0.44 : 0.045)
     };
 }
 
@@ -3265,6 +3332,9 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
             }
 
             if (rightW > 0) {
+                const rightScale = isCannon ? (metrics.rightScale || 1) : 1;
+                const rightDrawScaledW = rightDrawW * rightScale;
+                const rightDrawScaledH = pH * rightScale;
                 const rightMip = getScaledSpriteCanvas(
                     `${weapon}_R`,
                     weaponImg,
@@ -3272,29 +3342,38 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
                     0,
                     rightW,
                     fullH,
-                    (rightW / refW) * (48 / metrics.resScale) * HANDS_SCALE,
-                    (fullH / refH) * (48 / metrics.resScale) * HANDS_SCALE
+                    (rightW / refW) * (48 / metrics.resScale) * HANDS_SCALE * rightScale,
+                    (fullH / refH) * (48 / metrics.resScale) * HANDS_SCALE * rightScale
                 ) || weaponImg;
                 const equip = getEquipTransform(entityKey, nowMs);
                 const recoil = getRecoilTransform(entityKey, nowMs);
-                const rDx = equip ? equip.dx * bodyScale : 0;
+                const rDx = (equip ? equip.dx * bodyScale : 0) + (recoil && recoil.dx ? recoil.dx * bodyScale : 0);
                 const rDy = (equip ? equip.dy * bodyScale : 0) + (recoil ? recoil.dy * bodyScale : 0);
                 const rRot = (equip ? equip.rot : 0) + (recoil ? recoil.rot : 0);
                 const needRightXform = rDx !== 0 || rDy !== 0 || rRot !== 0;
-                const rightX = (leftW - anchorX) * pxScaleX;
+                const rightX = (leftW - anchorX) * pxScaleX + (isCannon ? (metrics.rightDx || 0) * bodyScale : 0);
+                const rightTopY = baseTopY * rightScale + (isCannon ? (metrics.rightDy || 0) * bodyScale : 0);
+                const pivotX = isCannon ? (metrics.pivotLocalX || 0) * bodyScale : 0;
+                const pivotY = isCannon ? (metrics.pivotLocalY || 0) * bodyScale : 0;
                 if (needRightXform) {
                     ctx.save();
                     if (rDx !== 0 || rDy !== 0) {
                         ctx.translate(rDx, rDy);
                     }
                     if (rRot !== 0) {
-                        ctx.rotate(rRot);
+                        if (pivotX !== 0 || pivotY !== 0) {
+                            ctx.translate(pivotX, pivotY);
+                            ctx.rotate(rRot);
+                            ctx.translate(-pivotX, -pivotY);
+                        } else {
+                            ctx.rotate(rRot);
+                        }
                     }
                 }
                 if (rightMip !== weaponImg) {
-                    ctx.drawImage(rightMip, rightX, baseTopY, rightDrawW, pH);
+                    ctx.drawImage(rightMip, rightX, rightTopY, rightDrawScaledW, rightDrawScaledH);
                 } else {
-                    ctx.drawImage(weaponImg, leftW, 0, rightW, fullH, rightX, baseTopY, rightDrawW, pH);
+                    ctx.drawImage(weaponImg, leftW, 0, rightW, fullH, rightX, rightTopY, rightDrawScaledW, rightDrawScaledH);
                 }
                 if (needRightXform) {
                     ctx.restore();
@@ -3636,12 +3715,12 @@ function render() {
                     ctx.translate(bx, by);
                     ctx.rotate(proj.spinAngle !== undefined ? proj.spinAngle : (proj.angle || 0));
                     if (goodbotCannonBallImg.complete && goodbotCannonBallImg.naturalWidth > 0) {
-                        const cbMax = 28;
+                        const cbMax = 44;
                         const aspect = goodbotCannonBallImg.naturalHeight / goodbotCannonBallImg.naturalWidth;
                         const cw = aspect >= 1 ? cbMax / aspect : cbMax;
                         const ch = aspect >= 1 ? cbMax : cbMax * aspect;
                         const cbMip = getScaledSpriteCanvas(
-                            'cannonball_goodbot',
+                            'cannonball_goodbot_v2',
                             goodbotCannonBallImg,
                             0,
                             0,
@@ -3655,14 +3734,14 @@ function render() {
                     } else {
                         ctx.fillStyle = '#b833ff';
                         ctx.strokeStyle = '#000000';
-                        ctx.lineWidth = 2;
+                        ctx.lineWidth = 2.5;
                         ctx.beginPath();
-                        ctx.arc(0, 0, 14, 0, Math.PI * 2);
+                        ctx.arc(0, 0, 21, 0, Math.PI * 2);
                         ctx.fill();
                         ctx.stroke();
                         ctx.fillStyle = '#f0aaff';
                         ctx.beginPath();
-                        ctx.arc(-4, -4, 4.5, 0, Math.PI * 2);
+                        ctx.arc(-6, -6, 6.5, 0, Math.PI * 2);
                         ctx.fill();
                     }
                     ctx.restore();
@@ -4147,7 +4226,7 @@ function render() {
             for (const [, proj] of serverProjectiles) {
                 const bx = proj.x - camX;
                 const by = proj.y - camY;
-                const br = proj.radius || ((proj.kind === 'cannonball' || proj.variant === 'goodbot-cannon') ? 14 : 5);
+                const br = proj.radius || ((proj.kind === 'cannonball' || proj.variant === 'goodbot-cannon') ? 21 : 5);
                 if (bx + br < -20 || bx - br > camW + 20 || by + br < -20 || by - br > camH + 20) continue;
                 ctx.beginPath();
                 ctx.arc(bx, by, br, 0, Math.PI * 2);
@@ -4740,7 +4819,7 @@ async function connectToServer() {
                 serverProjectiles.set(data.projId, {
                     id: data.projId,
                     kind: data.projKind || (isCannonShot ? 'cannonball' : 'bullet'),
-                    radius: Number(data.projRadius) || (isCannonShot ? 14 : 5),
+                    radius: Number(data.projRadius) || (isCannonShot ? 21 : 5),
                     variant: data.variant || 'goodbot',
                     x: Number(data.projX) || 0,
                     y: Number(data.projY) || 0,
