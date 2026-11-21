@@ -72,6 +72,19 @@ const mobileSprintBtn = document.getElementById('mobile-sprint-btn');
 const inventoryLayer = document.getElementById('inventory-layer');
 const inventorySlots = document.querySelectorAll('#inventory-layer .slot');
 const abilitySlot = document.getElementById('ability-slot');
+const adminModBtn = document.getElementById('admin-mod-btn');
+const adminPanelBtn = document.getElementById('admin-panel-btn');
+const tokenInput = document.getElementById('token-input');
+const adminModOverlay = document.getElementById('admin-mod-overlay');
+const adminModCloseBtn = document.getElementById('admin-mod-close-btn');
+const adminModPlayerList = document.getElementById('admin-mod-player-list');
+const adminModBanSection = document.getElementById('admin-mod-ban-section');
+const adminModBanList = document.getElementById('admin-mod-ban-list');
+const adminPanelOverlay = document.getElementById('admin-panel-overlay');
+const adminPanelCloseBtn = document.getElementById('admin-panel-close-btn');
+const adminSpawnGrid = document.getElementById('admin-spawn-grid');
+const adminSkipWaveBtn = document.getElementById('admin-skip-wave-btn');
+const adminRestartGameBtn = document.getElementById('admin-restart-game-btn');
 
 const LOGICAL_WIDTH = 1280;
 const LOGICAL_HEIGHT = 720;
@@ -128,6 +141,7 @@ let myName = '';
 let inMainMenu = true;
 let serverPlayers = {};
 let serverEnemies = {};
+let serverAllies = {};
 let stateSeq = 0;
 const lbBuf = [];
 const emptyChats = [];
@@ -179,6 +193,8 @@ const hitPointMarkers = [];
 const activeDamageHitboxes = [];
 const floatingTexts = [];
 const pendingFloatingTexts = [];
+const healParticles = [];
+const MAX_HEAL_PARTICLES = 160;
 const MAX_EXPLOSION_PARTICLES = 240;
 const GRENADE_DRAW_SIZE = 17.68;
 const EXPLOSION_COLORS = ['#ff2a00', '#ff7b00', '#ffd000', '#ff4d00'];
@@ -201,10 +217,21 @@ let lastInputSendTime = 0;
 let isSettingsOpen = false;
 let isLeaveDialogOpen = false;
 let isShopOpen = false;
+let isModDialogOpen = false;
+let isAdminPanelOpen = false;
 let isChatMinimized = false;
 let isMinimapMinimized = false;
 let isMapExpanded = false;
 let isJoining = false;
+let isAdmin = false;
+let isChatMuted = false;
+let suppressReloadDisconnect = false;
+let lastSubmittedAdminToken = '';
+let adminModState = { players: [], bannedIps: [] };
+let lastHoveredShopItem = null;
+let lastHoveredShopSlot = null;
+let lastHoveredShowCost = true;
+let lastHoveredPreferAbove = false;
 let serverPlayerCount = 0;
 let serverMaxPlayers = 5;
 let currentPingMs = null;
@@ -311,6 +338,8 @@ function setMenuError(message) {
 
 function enterGameUI() {
     if (leaveBtn) leaveBtn.classList.add('visible');
+    if (adminModBtn) adminModBtn.classList.toggle('visible', isAdmin);
+    if (adminPanelBtn) adminPanelBtn.classList.toggle('visible', isAdmin);
     if (mainMenu) mainMenu.classList.add('slide-up');
     if (gameUI) {
         gameUI.style.display = 'block';
@@ -329,6 +358,7 @@ function returnToMainMenu() {
     inMainMenu = true;
     serverPlayers = {};
     serverEnemies = {};
+    serverAllies = {};
     swingAnims.clear();
     recoilAnims.clear();
     equipAnims.clear();
@@ -355,6 +385,9 @@ function returnToMainMenu() {
     activeDamageHitboxes.length = 0;
     floatingTexts.length = 0;
     pendingFloatingTexts.length = 0;
+    healParticles.length = 0;
+    isChatMuted = false;
+    setAdminStatus(false);
     syncCanvasCrosshairCursor();
     ME.health = 1000;
     ME.maxHealth = 1000;
@@ -375,6 +408,8 @@ function returnToMainMenu() {
     closeChat();
     closeLeaveDialog();
     closeShop();
+    closeModDialog();
+    closeAdminPanel();
     setMapExpanded(false);
     applyGameStateUI({
         phase: 'waiting',
@@ -514,10 +549,365 @@ function applySettingsToUI() {
     updateUiScale();
 }
 
+function formatDisplayName(name, isAdminFlag) {
+    const raw = String(name || '');
+    return isAdminFlag ? ('\u2B50 ' + raw) : raw;
+}
+
+function setAdminStatus(nextAdmin) {
+    isAdmin = Boolean(nextAdmin);
+    if (adminModBtn) {
+        adminModBtn.classList.toggle('visible', isAdmin && !inMainMenu);
+    }
+    if (adminPanelBtn) {
+        adminPanelBtn.classList.toggle('visible', isAdmin && !inMainMenu);
+    }
+    if (tokenInput) {
+        tokenInput.classList.toggle('applied', isAdmin);
+        tokenInput.readOnly = isAdmin;
+        if (isAdmin) {
+            tokenInput.value = '';
+        } else {
+            tokenInput.value = '';
+            lastSubmittedAdminToken = '';
+        }
+    }
+    if (!isAdmin) {
+        adminModState = { players: [], bannedIps: [] };
+        closeModDialog();
+        closeAdminPanel();
+    }
+    lastLeaderboardSig = '';
+}
+
+function submitAdminToken() {
+    if (!tokenInput || inMainMenu || myId === null || isAdmin) return;
+    const candidate = tokenInput.value.trim().slice(0, 64);
+    if (!candidate || candidate === lastSubmittedAdminToken) return;
+    lastSubmittedAdminToken = candidate;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'auth_admin', token: candidate }));
+    }
+}
+
+function renderAdminModDialog() {
+    if (!adminModPlayerList || !adminModBanList || !adminModBanSection) return;
+    adminModPlayerList.textContent = '';
+    const rows = Array.isArray(adminModState.players) ? adminModState.players : [];
+    if (rows.length === 0) {
+        const emptyEl = document.createElement('div');
+        emptyEl.className = 'admin-mod-empty';
+        emptyEl.textContent = 'No players online';
+        adminModPlayerList.appendChild(emptyEl);
+    } else {
+        for (let i = 0; i < rows.length; i++) {
+            const p = rows[i];
+            const rowEl = document.createElement('div');
+            rowEl.className = 'admin-mod-row';
+
+            const nameEl = document.createElement('span');
+            let fCls = '';
+            if (p.faction === 'rarebot') fCls = ' rarebot';
+            else if (p.faction === 'spectator') fCls = ' spectator';
+            nameEl.className = 'admin-mod-name' + fCls;
+            nameEl.textContent = formatDisplayName(p.name, Boolean(p.isAdmin));
+            rowEl.appendChild(nameEl);
+
+            if (p.isSelf) {
+                const selfEl = document.createElement('span');
+                selfEl.className = 'admin-mod-self';
+                selfEl.textContent = '(You)';
+                rowEl.appendChild(selfEl);
+            } else {
+                const actionsEl = document.createElement('div');
+                actionsEl.className = 'admin-mod-actions';
+
+                const kickBtn = document.createElement('button');
+                kickBtn.type = 'button';
+                kickBtn.className = 'admin-mod-action-btn kick';
+                kickBtn.textContent = 'Kick';
+                kickBtn.addEventListener('click', () => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'admin_kick', targetId: p.id }));
+                    }
+                });
+
+                const banBtn = document.createElement('button');
+                banBtn.type = 'button';
+                banBtn.className = 'admin-mod-action-btn ban';
+                banBtn.textContent = 'Ban';
+                banBtn.addEventListener('click', () => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'admin_ban', targetId: p.id }));
+                    }
+                });
+
+                const muteBtn = document.createElement('button');
+                muteBtn.type = 'button';
+                muteBtn.className = 'admin-mod-action-btn ' + (p.isMuted ? 'unmute' : 'mute');
+                muteBtn.textContent = p.isMuted ? 'Unmute' : 'Mute';
+                muteBtn.addEventListener('click', () => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: p.isMuted ? 'admin_unmute' : 'admin_mute',
+                            targetId: p.id
+                        }));
+                    }
+                });
+
+                actionsEl.appendChild(kickBtn);
+                actionsEl.appendChild(banBtn);
+                actionsEl.appendChild(muteBtn);
+                rowEl.appendChild(actionsEl);
+            }
+
+            adminModPlayerList.appendChild(rowEl);
+        }
+    }
+
+    const bans = Array.isArray(adminModState.bannedIps) ? adminModState.bannedIps : [];
+    adminModBanSection.classList.toggle('visible', bans.length > 0);
+    adminModBanList.textContent = '';
+    for (let i = 0; i < bans.length; i++) {
+        const b = bans[i];
+        const rowEl = document.createElement('div');
+        rowEl.className = 'admin-mod-row';
+
+        const ipEl = document.createElement('span');
+        ipEl.className = 'admin-mod-name ban-ip';
+        ipEl.textContent = b.name ? `${b.ip} (${b.name})` : b.ip;
+        rowEl.appendChild(ipEl);
+
+        const actionsEl = document.createElement('div');
+        actionsEl.className = 'admin-mod-actions';
+        const unbanBtn = document.createElement('button');
+        unbanBtn.type = 'button';
+        unbanBtn.className = 'admin-mod-action-btn unban';
+        unbanBtn.textContent = 'Unban';
+        unbanBtn.addEventListener('click', () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'admin_unban', ip: b.ip }));
+            }
+        });
+        actionsEl.appendChild(unbanBtn);
+        rowEl.appendChild(actionsEl);
+        adminModBanList.appendChild(rowEl);
+    }
+}
+
+function openModDialog() {
+    if (!adminModOverlay || inMainMenu || !isAdmin) return;
+    if (isSettingsOpen) closeSettings();
+    if (isLeaveDialogOpen) closeLeaveDialog();
+    if (isShopOpen) closeShop();
+    if (isAdminPanelOpen) closeAdminPanel();
+    if (isMapExpanded) setMapExpanded(false);
+    isModDialogOpen = true;
+    clearHeldInputs();
+    if (document.activeElement === chatInput) {
+        closeChat();
+    }
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'admin_request_mod_state' }));
+    }
+    renderAdminModDialog();
+    adminModOverlay.classList.add('open');
+    adminModOverlay.setAttribute('aria-hidden', 'false');
+    syncCanvasCrosshairCursor();
+}
+
+function closeModDialog() {
+    if (!adminModOverlay) return;
+    isModDialogOpen = false;
+    adminModOverlay.classList.remove('open');
+    adminModOverlay.setAttribute('aria-hidden', 'true');
+    syncCanvasCrosshairCursor();
+}
+
+const ADMIN_SPAWN_OPTIONS = [
+    {
+        id: 'rarebot',
+        title: 'Rarebot',
+        kindLabel: 'ENEMY',
+        description: 'Spawns a melee Rarebot at a Rarebot spawn region.',
+        bodyType: 'rarebot',
+        weapon: 'hands',
+        stats: [{ label: 'HP', value: '255' }, { label: 'Team', value: 'Rarebot' }]
+    },
+    {
+        id: 'rarebot-pistol',
+        title: 'Rarebot (Pistol)',
+        kindLabel: 'ENEMY',
+        description: 'Spawns a ranged Rarebot with Rarebot Pistol at a Rarebot spawn region.',
+        bodyType: 'rarebot',
+        weapon: 'pistol',
+        stats: [{ label: 'HP', value: '255' }, { label: 'Weapon', value: 'Rarebot Pistol' }]
+    },
+    {
+        id: 'goodbot',
+        title: 'Goodbot',
+        kindLabel: 'ALLY',
+        description: 'Spawns a smart melee AI Goodbot at a Goodbot spawn region.',
+        bodyType: 'goodbot',
+        weapon: 'hands',
+        stats: [{ label: 'HP', value: '1000' }, { label: 'Team', value: 'Goodbot' }]
+    },
+    {
+        id: 'goodbot-pistol',
+        title: 'Goodbot (Pistol)',
+        kindLabel: 'ALLY',
+        description: 'Spawns a smart ranged AI Goodbot with Goodbot Pistol at a Goodbot spawn region.',
+        bodyType: 'goodbot',
+        weapon: 'goodbot-pistol',
+        stats: [{ label: 'HP', value: '1000' }, { label: 'Weapon', value: 'Goodbot Pistol' }]
+    },
+    {
+        id: 'prototype',
+        title: 'Prototype Rarebot',
+        kindLabel: 'ENEMY',
+        description: 'Spawns a fast Prototype Rarebot at a Rarebot spawn region.',
+        bodyType: 'prototype',
+        weapon: 'hands',
+        stats: [{ label: 'HP', value: '120' }, { label: 'Team', value: 'Rarebot' }]
+    }
+];
+
+function createEntityPreviewUrl(opt) {
+    const c = document.createElement('canvas');
+    c.width = 76;
+    c.height = 76;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+
+    const bodyImg = opt.bodyType === 'prototype'
+        ? prototypeRarebotImg
+        : (opt.bodyType === 'rarebot' ? rarebotImg : goodbotImg);
+    const bodySize = 36;
+    const cx = 38;
+    const cy = 44;
+
+    g.save();
+    g.translate(cx, cy);
+    const refW = (goodbotImg.complete && goodbotImg.naturalWidth > 0) ? goodbotImg.naturalWidth : 512;
+    const refH = (goodbotImg.complete && goodbotImg.naturalHeight > 0) ? goodbotImg.naturalHeight : 512;
+
+    if (opt.weapon === 'pistol' || opt.weapon === 'goodbot-pistol') {
+        const pistolImg = opt.weapon === 'pistol' ? rarebotPistolImg : goodbotPistolImg;
+        if (pistolImg.complete && pistolImg.naturalWidth > 0) {
+            const pxScaleX = (bodySize / refW) * HANDS_SCALE;
+            const pxScaleY = (bodySize / refH) * HANDS_SCALE;
+            g.drawImage(pistolImg, -284 * pxScaleX, -596 * pxScaleY, pistolImg.naturalWidth * pxScaleX, pistolImg.naturalHeight * pxScaleY);
+        }
+    } else {
+        const handsImg = opt.bodyType === 'prototype' ? prototypeRarebotHandsImg : botHandsImg;
+        if (handsImg.complete && handsImg.naturalWidth > 0) {
+            const hW = bodySize * (handsImg.naturalWidth / refW) * HANDS_SCALE;
+            const hH = bodySize * (handsImg.naturalHeight / refH) * HANDS_SCALE;
+            g.drawImage(handsImg, -hW / 2, -hH / 2, hW, hH);
+        }
+    }
+
+    if (bodyImg.complete && bodyImg.naturalWidth > 0) {
+        g.drawImage(bodyImg, -bodySize / 2, -bodySize / 2, bodySize, bodySize);
+    } else {
+        g.fillStyle = opt.bodyType === 'goodbot' ? '#b833ff' : '#cc3f3f';
+        g.fillRect(-bodySize / 2, -bodySize / 2, bodySize, bodySize);
+    }
+    g.restore();
+    return c.toDataURL();
+}
+
+function renderAdminSpawnGrid() {
+    if (!adminSpawnGrid) return;
+    adminSpawnGrid.textContent = '';
+    for (let i = 0; i < ADMIN_SPAWN_OPTIONS.length; i++) {
+        const opt = ADMIN_SPAWN_OPTIONS[i];
+        const slot = document.createElement('button');
+        slot.type = 'button';
+        slot.className = 'shop-item-slot';
+        slot.setAttribute('aria-label', opt.title);
+        slot.dataset.spawnEntity = opt.id;
+
+        const img = document.createElement('img');
+        img.className = 'shop-item-icon';
+        img.src = createEntityPreviewUrl(opt);
+        img.alt = opt.title;
+        img.draggable = false;
+        slot.appendChild(img);
+
+        const tipDef = {
+            title: opt.title,
+            kind: opt.kindLabel === 'ALLY' ? 'ability' : 'unit',
+            customTypeLabel: opt.kindLabel,
+            description: opt.description,
+            cost: 0,
+            stats: opt.stats
+        };
+
+        slot.addEventListener('pointerenter', () => {
+            showShopTooltip(tipDef, slot, false, false);
+        });
+        slot.addEventListener('pointerleave', () => {
+            hideShopTooltip();
+        });
+        slot.addEventListener('focus', () => {
+            showShopTooltip(tipDef, slot, false, false);
+        });
+        slot.addEventListener('blur', () => {
+            hideShopTooltip();
+        });
+        slot.addEventListener('click', () => {
+            if (ws && ws.readyState === WebSocket.OPEN && isAdmin) {
+                ws.send(JSON.stringify({ type: 'admin_spawn_entity', entityType: opt.id }));
+            }
+        });
+
+        adminSpawnGrid.appendChild(slot);
+    }
+}
+
+function refreshAdminSpawnIcons() {
+    if (!adminSpawnGrid) return;
+    const imgs = adminSpawnGrid.querySelectorAll('img.shop-item-icon');
+    for (let i = 0; i < imgs.length && i < ADMIN_SPAWN_OPTIONS.length; i++) {
+        imgs[i].src = createEntityPreviewUrl(ADMIN_SPAWN_OPTIONS[i]);
+    }
+}
+
+function openAdminPanel() {
+    if (!adminPanelOverlay || inMainMenu || !isAdmin) return;
+    if (isSettingsOpen) closeSettings();
+    if (isLeaveDialogOpen) closeLeaveDialog();
+    if (isShopOpen) closeShop();
+    if (isModDialogOpen) closeModDialog();
+    if (isMapExpanded) setMapExpanded(false);
+    isAdminPanelOpen = true;
+    clearHeldInputs();
+    if (document.activeElement === chatInput) {
+        closeChat();
+    }
+    hideShopTooltip();
+    refreshAdminSpawnIcons();
+    adminPanelOverlay.classList.add('open');
+    adminPanelOverlay.setAttribute('aria-hidden', 'false');
+    syncCanvasCrosshairCursor();
+}
+
+function closeAdminPanel() {
+    if (!adminPanelOverlay) return;
+    isAdminPanelOpen = false;
+    hideShopTooltip();
+    adminPanelOverlay.classList.remove('open');
+    adminPanelOverlay.setAttribute('aria-hidden', 'true');
+    syncCanvasCrosshairCursor();
+}
+
 function openSettings() {
     if (!settingsOverlay) return;
     if (isLeaveDialogOpen) closeLeaveDialog();
     if (isShopOpen) closeShop();
+    if (isModDialogOpen) closeModDialog();
+    if (isAdminPanelOpen) closeAdminPanel();
     if (isMapExpanded) setMapExpanded(false);
     isSettingsOpen = true;
     clearHeldInputs();
@@ -539,6 +929,8 @@ function openLeaveDialog() {
     if (!leaveOverlay || inMainMenu) return;
     if (isSettingsOpen) closeSettings();
     if (isShopOpen) closeShop();
+    if (isModDialogOpen) closeModDialog();
+    if (isAdminPanelOpen) closeAdminPanel();
     if (isMapExpanded) setMapExpanded(false);
     isLeaveDialogOpen = true;
     clearHeldInputs();
@@ -631,8 +1023,8 @@ function getMyEquippedWeapon() {
 
 function isRangedCrosshairActive() {
     if (inMainMenu || myId === null) return false;
-    if (isSettingsOpen || isLeaveDialogOpen || isShopOpen || isMapExpanded) return false;
-    if (document.activeElement === chatInput) return false;
+    if (isSettingsOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return false;
+    if (document.activeElement === chatInput || (tokenInput && document.activeElement === tokenInput)) return false;
     if (document.body.classList.contains('touch-mode')) return false;
     return getMyEquippedWeapon() === 'goodbot-pistol';
 }
@@ -768,9 +1160,16 @@ function positionShopTooltipForSlot(slot, preferAbove = false) {
 
 function showShopTooltip(item, slot, showCost = true, preferAbove = false) {
     if (!shopTooltip) return;
+    lastHoveredShopItem = item;
+    lastHoveredShopSlot = slot;
+    lastHoveredShowCost = showCost;
+    lastHoveredPreferAbove = preferAbove;
     if (shopTooltipTitle) shopTooltipTitle.textContent = item.title;
     if (shopTooltipType) {
-        if (item.kind === 'ability') {
+        if (item.customTypeLabel) {
+            shopTooltipType.style.display = 'block';
+            shopTooltipType.textContent = item.customTypeLabel;
+        } else if (item.kind === 'ability') {
             shopTooltipType.style.display = 'block';
             shopTooltipType.textContent = 'ABILITY';
         } else {
@@ -781,7 +1180,11 @@ function showShopTooltip(item, slot, showCost = true, preferAbove = false) {
     if (shopTooltipCost) {
         shopTooltipCost.style.display = showCost ? '' : 'none';
         if (showCost) {
-            shopTooltipCost.textContent = `Cost: ${item.cost} Scraps`;
+            const cantAfford = ME.scraps < item.cost;
+            shopTooltipCost.textContent = cantAfford ? `Cost: ${item.cost} Scraps (Can't afford)` : `Cost: ${item.cost} Scraps`;
+            shopTooltipCost.classList.toggle('cant-afford', cantAfford);
+        } else {
+            shopTooltipCost.classList.remove('cant-afford');
         }
     }
     if (shopTooltipDesc) shopTooltipDesc.textContent = item.description;
@@ -802,8 +1205,30 @@ function showShopTooltip(item, slot, showCost = true, preferAbove = false) {
 
 function hideShopTooltip() {
     if (!shopTooltip) return;
+    lastHoveredShopItem = null;
+    lastHoveredShopSlot = null;
     shopTooltip.classList.remove('visible');
     shopTooltip.setAttribute('aria-hidden', 'true');
+}
+
+function refreshShopAffordability() {
+    if (shopGrid) {
+        const costEls = shopGrid.querySelectorAll('.shop-item-cost');
+        for (let i = 0; i < costEls.length; i++) {
+            const costVal = Number(costEls[i].dataset.cost) || 0;
+            costEls[i].classList.toggle('cant-afford', ME.scraps < costVal);
+        }
+    }
+    if (lastHoveredShopItem && lastHoveredShowCost && shopTooltip && shopTooltip.classList.contains('visible') && shopTooltipCost) {
+        const cantAfford = ME.scraps < lastHoveredShopItem.cost;
+        shopTooltipCost.textContent = cantAfford
+            ? `Cost: ${lastHoveredShopItem.cost} Scraps (Can't afford)`
+            : `Cost: ${lastHoveredShopItem.cost} Scraps`;
+        shopTooltipCost.classList.toggle('cant-afford', cantAfford);
+        if (lastHoveredShopSlot) {
+            positionShopTooltipForSlot(lastHoveredShopSlot, lastHoveredPreferAbove);
+        }
+    }
 }
 
 function renderShopItems() {
@@ -844,6 +1269,7 @@ function renderShopItems() {
 
         const costEl = document.createElement('span');
         costEl.className = 'shop-item-cost';
+        costEl.dataset.cost = String(item.cost);
         costEl.textContent = String(item.cost);
         slot.appendChild(costEl);
 
@@ -868,12 +1294,15 @@ function renderShopItems() {
 
         shopGrid.appendChild(slot);
     }
+    refreshShopAffordability();
 }
 
 function openShop() {
     if (!shopOverlay || inMainMenu) return;
     if (isSettingsOpen) closeSettings();
     if (isLeaveDialogOpen) closeLeaveDialog();
+    if (isModDialogOpen) closeModDialog();
+    if (isAdminPanelOpen) closeAdminPanel();
     if (isMapExpanded) setMapExpanded(false);
     isShopOpen = true;
     clearHeldInputs();
@@ -881,6 +1310,7 @@ function openShop() {
         closeChat();
     }
     hideShopTooltip();
+    refreshShopAffordability();
     shopOverlay.classList.add('open');
     shopOverlay.setAttribute('aria-hidden', 'false');
 }
@@ -1016,6 +1446,8 @@ function setMapExpanded(expanded) {
         if (isSettingsOpen) closeSettings();
         if (isLeaveDialogOpen) closeLeaveDialog();
         if (isShopOpen) closeShop();
+        if (isModDialogOpen) closeModDialog();
+        if (isAdminPanelOpen) closeAdminPanel();
         if (document.activeElement === chatInput) {
             closeChat();
         }
@@ -1461,6 +1893,16 @@ function loadAssets() {
     if (tilesheetImg.complete && tilesheetImg.naturalWidth > 0) {
         preRenderMap();
     }
+    const refreshIcons = () => {
+        refreshAdminSpawnIcons();
+    };
+    goodbotImg.onload = refreshIcons;
+    rarebotImg.onload = refreshIcons;
+    prototypeRarebotImg.onload = refreshIcons;
+    botHandsImg.onload = refreshIcons;
+    prototypeRarebotHandsImg.onload = refreshIcons;
+    goodbotPistolImg.onload = refreshIcons;
+    rarebotPistolImg.onload = refreshIcons;
     goodbotImg.src = 'assets/Goodbot.png';
     rarebotImg.src = 'assets/Rarebot.png';
     prototypeRarebotImg.src = 'assets/Prototype Rarebot.png';
@@ -1497,6 +1939,7 @@ function updateStatsUI() {
     if (currentScraps !== lastRenderedScraps) {
         if (scrapsValue) scrapsValue.textContent = String(currentScraps);
         lastRenderedScraps = currentScraps;
+        refreshShopAffordability();
     }
 }
 
@@ -1564,7 +2007,7 @@ function applyGameStateUI(state) {
 
 function updateLeaderboard(entries) {
     if (!leaderboardList) return;
-    const sig = entries.map(e => `${e.name}\t${e.scraps}\t${e.faction || 'goodbot'}`).join('\n');
+    const sig = entries.map(e => `${e.name}\t${e.scraps}\t${e.faction || 'goodbot'}\t${e.isAdmin ? 1 : 0}`).join('\n');
     if (sig === lastLeaderboardSig) return;
     lastLeaderboardSig = sig;
     leaderboardList.textContent = '';
@@ -1583,7 +2026,7 @@ function updateLeaderboard(entries) {
         if (entry.faction === 'rarebot') factionClass = ' leaderboard-name-rarebot';
         else if (entry.faction === 'spectator') factionClass = ' leaderboard-name-spectator';
         nameEl.className = 'leaderboard-name' + factionClass;
-        nameEl.textContent = entry.name;
+        nameEl.textContent = formatDisplayName(entry.name, Boolean(entry.isAdmin));
         const scoreEl = document.createElement('span');
         scoreEl.className = 'leaderboard-score';
         scoreEl.textContent = String(entry.scraps);
@@ -1592,7 +2035,7 @@ function updateLeaderboard(entries) {
     }
 }
 
-function appendChatLog(name, text, faction = 'goodbot') {
+function appendChatLog(name, text, faction = 'goodbot', isAdminFlag = false) {
     if (!chatLog) return;
     const entry = document.createElement('div');
     entry.className = 'chat-log-entry';
@@ -1601,7 +2044,7 @@ function appendChatLog(name, text, faction = 'goodbot') {
     if (faction === 'rarebot') factionClass = ' chat-log-name-rarebot';
     else if (faction === 'spectator') factionClass = ' chat-log-name-spectator';
     nameEl.className = 'chat-log-name' + factionClass;
-    nameEl.textContent = name;
+    nameEl.textContent = formatDisplayName(name, Boolean(isAdminFlag));
     entry.appendChild(nameEl);
     entry.appendChild(document.createTextNode(`: ${text}`));
     chatLog.appendChild(entry);
@@ -1785,6 +2228,35 @@ function update(dt) {
         e.renderAngle += diff * (1 - Math.exp(-dt * 20));
     }
 
+    for (const id in serverAllies) {
+        const a = serverAllies[id];
+        if (a.renderX === undefined) {
+            a.renderX = a.x;
+            a.renderY = a.y;
+            a.renderAngle = a.angle || 0;
+        }
+
+        a.x = Math.max(0, Math.min(maxX, a.x + (a.vx || 0) * dt));
+        a.y = Math.max(0, Math.min(maxY, a.y + (a.vy || 0) * dt));
+
+        const lerpF = 1 - Math.exp(-dt * 20);
+        const rdx = a.x - a.renderX;
+        const rdy = a.y - a.renderY;
+        const rdist = Math.sqrt(rdx * rdx + rdy * rdy);
+        const maxStep = 200;
+        if (rdist > maxStep) {
+            a.renderX = a.x - (rdx / rdist) * maxStep;
+            a.renderY = a.y - (rdy / rdist) * maxStep;
+        }
+        a.renderX += (a.x - a.renderX) * lerpF;
+        a.renderY += (a.y - a.renderY) * lerpF;
+
+        let diff = (a.angle || 0) - a.renderAngle;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        a.renderAngle += diff * (1 - Math.exp(-dt * 20));
+    }
+
     for (const [id, proj] of serverProjectiles) {
         proj.x += proj.vx * dt;
         proj.y += proj.vy * dt;
@@ -1816,6 +2288,77 @@ function update(dt) {
         pt.y += pt.vy * dt;
         pt.vx *= drag;
         pt.vy *= drag;
+    }
+
+    for (let i = healParticles.length - 1; i >= 0; i--) {
+        const hpObj = healParticles[i];
+        let tx = 0;
+        let ty = 0;
+        let validTarget = false;
+        if (hpObj.targetId === myId && ME.faction === 'goodbot') {
+            tx = ME.x + ME.width * 0.5;
+            ty = ME.y + ME.height * 0.5;
+            validTarget = true;
+        } else if (serverPlayers[hpObj.targetId] && serverPlayers[hpObj.targetId].faction === 'goodbot') {
+            const tp = serverPlayers[hpObj.targetId];
+            tx = (tp.renderX ?? tp.x) + (tp.width || 48) * 0.5;
+            ty = (tp.renderY ?? tp.y) + (tp.height || 48) * 0.5;
+            validTarget = true;
+        }
+        if (!validTarget) {
+            healParticles[i] = healParticles[healParticles.length - 1];
+            healParticles.pop();
+            continue;
+        }
+        hpObj.age += dt;
+        if (hpObj.age < hpObj.growDur) {
+            const t = Math.max(0, hpObj.age / hpObj.growDur);
+            const ease = 1 - Math.pow(1 - t, 3);
+            hpObj.curR = hpObj.r * ease;
+            hpObj.x = hpObj.startX + hpObj.ox * ease;
+            hpObj.y = hpObj.startY + hpObj.oy * ease;
+        } else {
+            hpObj.curR = hpObj.r;
+            const dx = tx - hpObj.x;
+            const dy = ty - hpObj.y;
+            const dist = Math.hypot(dx, dy);
+            const step = hpObj.speed * dt;
+            if (dist <= 26 || step >= dist || hpObj.age >= 4.0) {
+                if (hpObj.hp > 0) {
+                    let merged = false;
+                    for (let j = floatingTexts.length - 1; j >= 0; j--) {
+                        const ft = floatingTexts[j];
+                        if (ft.isKillHeal && ft.playerId === hpObj.targetId && ft.age < 0.4) {
+                            ft.healSum = (ft.healSum || 0) + hpObj.hp;
+                            ft.text = `+${Math.round(ft.healSum)}`;
+                            ft.age = Math.min(ft.age, 0.12);
+                            merged = true;
+                            break;
+                        }
+                    }
+                    if (!merged) {
+                        floatingTexts.push({
+                            playerId: hpObj.targetId,
+                            x: tx,
+                            y: ty - 34,
+                            text: `+${Math.round(hpObj.hp)}`,
+                            color: '#32ff32',
+                            age: 0,
+                            life: 1.1,
+                            isKillHeal: true,
+                            healSum: hpObj.hp
+                        });
+                    }
+                }
+                healParticles[i] = healParticles[healParticles.length - 1];
+                healParticles.pop();
+            } else {
+                const inv = 1 / dist;
+                hpObj.x += dx * inv * step;
+                hpObj.y += dy * inv * step;
+                hpObj.speed += 320 * dt;
+            }
+        }
     }
 
     for (let i = floatingTexts.length - 1; i >= 0; i--) {
@@ -1891,7 +2434,7 @@ function update(dt) {
         }
     }
 
-    if (isAttackHeld && !inMainMenu && myId !== null && !isSettingsOpen && !isLeaveDialogOpen && !isShopOpen && !isMapExpanded && document.activeElement !== chatInput) {
+    if (isAttackHeld && !inMainMenu && myId !== null && !isSettingsOpen && !isLeaveDialogOpen && !isShopOpen && !isModDialogOpen && !isAdminPanelOpen && !isMapExpanded && document.activeElement !== chatInput && (!tokenInput || document.activeElement !== tokenInput)) {
         triggerAttack();
     }
 
@@ -2726,6 +3269,37 @@ function render() {
             drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, eLabel, 'rarebot', true, getSwingOffset(key, nowMs), bars, eKind, eWeapon, key, nowMs);
         }
 
+        for (const id in serverAllies) {
+            const a = serverAllies[id];
+            const aw = a.width || 48;
+            const ah = a.height || 48;
+            const aWorldCX = (a.renderX ?? a.x) + aw / 2;
+            const aWorldCY = (a.renderY ?? a.y) + ah / 2;
+            const aRX = aWorldCX - camX;
+            const aRY = aWorldCY - camY;
+            if (aRX < -cullPad || aRX > camW + cullPad || aRY < -cullPad || aRY > camH + cullPad) continue;
+            const as = Math.min(2, Math.max(0.3, a.scale || 1));
+            const key = `ally:${id}`;
+            const aInTree = isWorldPointInTree(aWorldCX, aWorldCY);
+            let showBars = false;
+            if (!aInTree) {
+                if (ME.faction === 'goodbot') {
+                    const adx = aWorldCX - meCX;
+                    const ady = aWorldCY - meCY;
+                    showBars = (adx * adx + ady * ady) <= 260 * 260;
+                } else if (ME.faction === 'rarebot') {
+                    showBars = clientHasLOS(meCX, meCY, aWorldCX, aWorldCY);
+                }
+            }
+            const bars = showBars ? {
+                health: a.health ?? 1000,
+                maxHealth: a.maxHealth ?? 1000,
+                energy: a.energy ?? 255,
+                maxEnergy: a.maxEnergy ?? 255
+            } : null;
+            drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, aInTree ? null : (a.name || 'Goodbot'), 'goodbot', true, getSwingOffset(key, nowMs), bars, null, a.weapon || 'hands', key, nowMs);
+        }
+
         for (const id in serverPlayers) {
             const p = serverPlayers[id];
             const pFaction = p.faction || 'goodbot';
@@ -2758,7 +3332,8 @@ function render() {
                 energy: p.energy ?? (pFaction === 'rarebot' ? 50 : 255),
                 maxEnergy: p.maxEnergy ?? (pFaction === 'rarebot' ? 50 : 255)
             } : null;
-            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, pInTree ? null : p.name, pFaction, true, getSwingOffset(key, nowMs), bars, null, p.weapon || 'hands', key, nowMs);
+            const pLabel = formatDisplayName(p.name, Boolean(p.isAdmin));
+            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, pInTree ? null : pLabel, pFaction, true, getSwingOffset(key, nowMs), bars, null, p.weapon || 'hands', key, nowMs);
         }
 
         if (ME.faction !== 'spectator') {
@@ -2766,7 +3341,7 @@ function render() {
             const pRenderY = ME.y - camY + ME.height / 2;
             const myKey = `player:${myId}`;
             const meInTree = isWorldPointInTree(meCX, meCY);
-            drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, meInTree ? null : myName, ME.faction, true, getSwingOffset(myKey, nowMs), null, null, getMyEquippedWeapon(), myKey, nowMs);
+            drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, meInTree ? null : formatDisplayName(myName, isAdmin), ME.faction, true, getSwingOffset(myKey, nowMs), null, null, getMyEquippedWeapon(), myKey, nowMs);
         }
     }
 
@@ -2803,14 +3378,14 @@ function render() {
             if (pRX < -cullPad || pRX > camW + cullPad || pRY < -cullPad || pRY > camH + cullPad) continue;
             const ps = Math.min(2, Math.max(0.3, p.scale || 1));
             const key = `player:${id}`;
-            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, p.name, 'spectator', false, 0, null, null, 'hands', key, nowMs);
+            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, formatDisplayName(p.name, Boolean(p.isAdmin)), 'spectator', false, 0, null, null, 'hands', key, nowMs);
         }
 
         if (ME.faction === 'spectator') {
             const pRenderX = ME.x - camX + ME.width / 2;
             const pRenderY = ME.y - camY + ME.height / 2;
             const myKey = `player:${myId}`;
-            drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, myName, 'spectator', false, 0, null, null, 'hands', myKey, nowMs);
+            drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, formatDisplayName(myName, isAdmin), 'spectator', false, 0, null, null, 'hands', myKey, nowMs);
         }
     }
 
@@ -2885,6 +3460,21 @@ function render() {
             ctx.fill();
         }
         ctx.globalAlpha = 1;
+    }
+
+    if (healParticles.length > 0) {
+        ctx.fillStyle = '#32ff32';
+        ctx.beginPath();
+        for (let i = 0; i < healParticles.length; i++) {
+            const hpObj = healParticles[i];
+            if (hpObj.curR <= 0.15) continue;
+            const px = hpObj.x - camX;
+            const py = hpObj.y - camY;
+            if (px < -16 || px > camW + 16 || py < -16 || py > camH + 16) continue;
+            ctx.moveTo(px + hpObj.curR, py);
+            ctx.arc(px, py, hpObj.curR, 0, Math.PI * 2);
+        }
+        ctx.fill();
     }
 
     if (!inMainMenu && myId !== null) {
@@ -3052,6 +3642,18 @@ function renderMapView(targetCanvas, baseRadius) {
         mctx.beginPath();
         mctx.arc(cx, cy, r, 0, Math.PI * 2);
         mctx.fillStyle = '#ff2a2a';
+        mctx.fill();
+        mctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+        mctx.stroke();
+    }
+
+    for (const id in serverAllies) {
+        const a = serverAllies[id];
+        const cx = (((a.renderX ?? a.x) + (a.width || 48) * 0.5) / mapW) * pw;
+        const cy = (((a.renderY ?? a.y) + (a.height || 48) * 0.5) / mapH) * ph;
+        mctx.beginPath();
+        mctx.arc(cx, cy, r, 0, Math.PI * 2);
+        mctx.fillStyle = '#b833ff';
         mctx.fill();
         mctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
         mctx.stroke();
@@ -3226,10 +3828,12 @@ async function connectToServer() {
             myId = data.id;
             myName = data.name;
             inMainMenu = false;
+            isChatMuted = Boolean(data.isMuted);
             WORLD.CAMERA.x = null;
             WORLD.CAMERA.y = null;
             setMenuError('');
             updateServerDropdown(data.playerCount, data.maxPlayers);
+            setAdminStatus(Boolean(data.isAdmin));
             enterGameUI();
 
             applyMapPayload(data.map);
@@ -3260,8 +3864,9 @@ async function connectToServer() {
             lastRenderedEnergy = -1;
             lastRenderedMaxHealth = -1;
             lastRenderedMaxEnergy = -1;
+            lastRenderedScraps = -1;
             updateStatsUI();
-            updateLeaderboard([{ name: myName, scraps: ME.scraps, faction: ME.faction }]);
+            updateLeaderboard([{ name: myName, scraps: ME.scraps, faction: ME.faction, isAdmin }]);
             if (data.gameState) {
                 applyGameStateUI(data.gameState);
             }
@@ -3270,7 +3875,7 @@ async function connectToServer() {
                 chatLog.textContent = '';
                 if (Array.isArray(data.chatLog)) {
                     for (let i = 0; i < data.chatLog.length; i++) {
-                        appendChatLog(data.chatLog[i].name, data.chatLog[i].text, data.chatLog[i].faction || 'goodbot');
+                        appendChatLog(data.chatLog[i].name, data.chatLog[i].text, data.chatLog[i].faction || 'goodbot', Boolean(data.chatLog[i].isAdmin));
                     }
                 }
             }
@@ -3289,6 +3894,49 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'kicked' || data.type === 'banned') {
+            suppressReloadDisconnect = true;
+            returnToMainMenu();
+            setMenuError(data.message || (data.type === 'banned' ? 'Your IP has been banned from this server.' : 'You were kicked from the server.'));
+            return;
+        }
+
+        if (data.type === 'chat_muted') {
+            isChatMuted = Boolean(data.muted);
+            return;
+        }
+
+        if (data.type === 'admin_auth_result') {
+            setAdminStatus(Boolean(data.isAdmin));
+            if (!data.ok && tokenInput && !isAdmin) {
+                lastSubmittedAdminToken = '';
+            }
+            return;
+        }
+
+        if (data.type === 'admin_mod_state') {
+            adminModState = {
+                players: Array.isArray(data.players) ? data.players : [],
+                bannedIps: Array.isArray(data.bannedIps) ? data.bannedIps : []
+            };
+            if (isModDialogOpen) {
+                renderAdminModDialog();
+            }
+            return;
+        }
+
+        if (data.type === 'admin_teleported') {
+            if (typeof data.x === 'number' && typeof data.y === 'number') {
+                ME.x = data.x;
+                ME.y = data.y;
+                ME.serverX = data.x;
+                ME.serverY = data.y;
+                ME.vx = 0;
+                ME.vy = 0;
+            }
+            return;
+        }
+
         if (data.type === 'shutdown') {
             window.location.reload();
             return;
@@ -3296,7 +3944,7 @@ async function connectToServer() {
 
         if (data.type === 'chat_log') {
             if (typeof data.name === 'string' && typeof data.text === 'string') {
-                appendChatLog(data.name, data.text, data.faction || 'goodbot');
+                appendChatLog(data.name, data.text, data.faction || 'goodbot', Boolean(data.isAdmin));
             }
             return;
         }
@@ -3496,6 +4144,10 @@ async function connectToServer() {
                 const ae = serverEnemies[data.attackerId];
                 attX = (ae.renderX ?? ae.x) + ae.width / 2;
                 attY = (ae.renderY ?? ae.y) + ae.height / 2;
+            } else if (data.attackerKind === 'ally' && serverAllies[data.attackerId]) {
+                const aa = serverAllies[data.attackerId];
+                attX = (aa.renderX ?? aa.x) + aa.width / 2;
+                attY = (aa.renderY ?? aa.y) + aa.height / 2;
             }
             playSpatialSound('hitDeal', attX, attY);
             if (data.weaponKind === 'ranged') {
@@ -3571,6 +4223,34 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'kill_heal' && Array.isArray(data.particles)) {
+            const baseX = Number(data.x) || 0;
+            const baseY = Number(data.y) || 0;
+            for (let i = 0; i < data.particles.length; i++) {
+                const pt = data.particles[i];
+                if (healParticles.length >= MAX_HEAL_PARTICLES) {
+                    healParticles.shift();
+                }
+                healParticles.push({
+                    targetId: data.targetId,
+                    startX: baseX,
+                    startY: baseY,
+                    x: baseX,
+                    y: baseY,
+                    ox: Number(pt.ox) || 0,
+                    oy: Number(pt.oy) || 0,
+                    hp: Math.max(0, Number(pt.hp) || 0),
+                    r: Math.max(1.5, Number(pt.r) || 4),
+                    growDur: Math.max(0.08, (Number(pt.growMs) || 180) / 1000),
+                    speed: Math.max(200, Number(pt.speed) || 680),
+                    burstAng: Number(pt.burstAng) || 0,
+                    age: 0,
+                    curR: 0
+                });
+            }
+            return;
+        }
+
         if (data.type === 'round_heal' && Array.isArray(data.heals)) {
             for (let i = 0; i < data.heals.length; i++) {
                 const h = data.heals[i];
@@ -3610,8 +4290,12 @@ async function connectToServer() {
                 const numId = parseInt(id, 10);
                 const pScraps = Math.max(0, Math.floor(incoming.scraps ?? 0));
                 const pFaction = incoming.faction || 'goodbot';
-                lbBuf.push({ id: numId, name: incoming.name, scraps: pScraps, faction: pFaction });
+                const pIsAdmin = Boolean(incoming.isAdmin);
+                lbBuf.push({ id: numId, name: incoming.name, scraps: pScraps, faction: pFaction, isAdmin: pIsAdmin });
                 if (numId === myId) {
+                    if (pIsAdmin !== isAdmin) {
+                        setAdminStatus(pIsAdmin);
+                    }
                     ME.serverX = incoming.x;
                     ME.serverY = incoming.y;
                     ME.vx = incoming.vx || 0;
@@ -3647,6 +4331,7 @@ async function connectToServer() {
                     existing.width = incoming.width || existing.width || 48;
                     existing.height = incoming.height || existing.height || 48;
                     if (incoming.name !== undefined) existing.name = incoming.name;
+                    existing.isAdmin = pIsAdmin;
                     existing.faction = pFaction;
                     existing.health = incoming.health ?? existing.health;
                     existing.maxHealth = incoming.maxHealth ?? (pFaction === 'rarebot' ? 255 : 1000);
@@ -3667,6 +4352,7 @@ async function connectToServer() {
                 } else {
                     serverPlayers[id] = {
                         ...incoming,
+                        isAdmin: pIsAdmin,
                         faction: pFaction,
                         vx: incoming.vx || 0,
                         vy: incoming.vy || 0,
@@ -3698,8 +4384,8 @@ async function connectToServer() {
                 for (const id in data.enemies) {
                     const incoming = data.enemies[id];
                     const eKind = incoming.kind || 'rarebot';
-                    const defMaxH = eKind === 'prototype-rarebot' ? 120 : 255;
-                    const defMaxE = eKind === 'prototype-rarebot' ? 100 : 50;
+                    const defMaxH = eKind === 'prototype' ? 120 : 255;
+                    const defMaxE = eKind === 'prototype' ? 100 : 50;
                     const existing = serverEnemies[id];
                     if (existing) {
                         const dx = incoming.x - existing.renderX;
@@ -3750,6 +4436,60 @@ async function connectToServer() {
                     delete serverEnemies[id];
                 }
             }
+
+            if (data.allies && typeof data.allies === 'object') {
+                for (const id in data.allies) {
+                    const incoming = data.allies[id];
+                    const existing = serverAllies[id];
+                    if (existing) {
+                        const dx = incoming.x - existing.renderX;
+                        const dy = incoming.y - existing.renderY;
+                        const jumped = (dx * dx + dy * dy) > 14400;
+                        existing.x = incoming.x;
+                        existing.y = incoming.y;
+                        existing.vx = incoming.vx || 0;
+                        existing.vy = incoming.vy || 0;
+                        existing.angle = incoming.angle || 0;
+                        existing.scale = incoming.scale ?? 1;
+                        existing.width = incoming.width || existing.width || 48;
+                        existing.height = incoming.height || existing.height || 48;
+                        existing.name = incoming.name || existing.name || 'Goodbot';
+                        existing.weapon = incoming.weapon || 'hands';
+                        existing.health = incoming.health ?? existing.health;
+                        existing.maxHealth = incoming.maxHealth ?? 1000;
+                        existing.energy = incoming.energy ?? existing.energy;
+                        existing.maxEnergy = incoming.maxEnergy ?? 255;
+                        existing._seq = stateSeq;
+                        if (jumped) {
+                            existing.renderX = incoming.x;
+                            existing.renderY = incoming.y;
+                        }
+                    } else {
+                        serverAllies[id] = {
+                            ...incoming,
+                            name: incoming.name || 'Goodbot',
+                            vx: incoming.vx || 0,
+                            vy: incoming.vy || 0,
+                            angle: incoming.angle || 0,
+                            scale: incoming.scale ?? 1,
+                            maxHealth: incoming.maxHealth ?? 1000,
+                            maxEnergy: incoming.maxEnergy ?? 255,
+                            weapon: incoming.weapon || 'hands',
+                            width: incoming.width || 48,
+                            height: incoming.height || 48,
+                            renderX: incoming.x,
+                            renderY: incoming.y,
+                            renderAngle: incoming.angle || 0,
+                            _seq: stateSeq
+                        };
+                    }
+                }
+            }
+            for (const id in serverAllies) {
+                if (serverAllies[id]._seq !== stateSeq) {
+                    delete serverAllies[id];
+                }
+            }
             serverGrenades = Array.isArray(data.grenades) ? data.grenades : [];
             return;
         }
@@ -3762,6 +4502,9 @@ async function connectToServer() {
 
     ws.onclose = () => {
         ws = null;
+        if (suppressReloadDisconnect) {
+            return;
+        }
         if (hasConnected) {
             window.location.reload();
             return;
@@ -3835,6 +4578,20 @@ window.addEventListener('keydown', e => {
         }
         return;
     }
+    if (isModDialogOpen) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeModDialog();
+        }
+        return;
+    }
+    if (isAdminPanelOpen) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeAdminPanel();
+        }
+        return;
+    }
     if (isShopOpen) {
         if (e.key === 'Escape' || e.key.toLowerCase() === 'b') {
             e.preventDefault();
@@ -3849,6 +4606,17 @@ window.addEventListener('keydown', e => {
             return;
         }
     }
+    if (tokenInput && document.activeElement === tokenInput) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            submitAdminToken();
+            tokenInput.blur();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            tokenInput.blur();
+        }
+        return;
+    }
     if (e.key === 'Enter') {
         if (inMainMenu) {
             if (playBtn) playBtn.click();
@@ -3858,7 +4626,7 @@ window.addEventListener('keydown', e => {
             e.preventDefault();
             if (document.activeElement === chatInput) {
                 const text = chatInput.value.trim().slice(0, 80);
-                if (text && ws && ws.readyState === WebSocket.OPEN) {
+                if (text && !isChatMuted && ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ type: 'chat', text }));
                 }
                 closeChat();
@@ -3874,6 +4642,15 @@ window.addEventListener('keydown', e => {
         return;
     }
     if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+    if (e.key.toLowerCase() === 't' && !inMainMenu && myId !== null && isAdmin) {
+        e.preventDefault();
+        if (ws && ws.readyState === WebSocket.OPEN && WORLD.CAMERA.x !== null) {
+            const targetWorldX = WORLD.CAMERA.x + (WORLD.INPUTS.mouseX / WORLD.SYSTEM.viewScale);
+            const targetWorldY = WORLD.CAMERA.y + (WORLD.INPUTS.mouseY / WORLD.SYSTEM.viewScale);
+            ws.send(JSON.stringify({ type: 'admin_teleport', x: targetWorldX, y: targetWorldY }));
+        }
+        return;
+    }
     if (e.key.toLowerCase() === 'm' && !inMainMenu && myId !== null) {
         e.preventDefault();
         setMapExpanded(!isMapExpanded);
@@ -3923,11 +4700,14 @@ window.addEventListener('blur', () => {
     if (document.activeElement === chatInput) {
         closeChat();
     }
+    if (tokenInput && document.activeElement === tokenInput) {
+        tokenInput.blur();
+    }
 });
 
 function triggerAttack() {
     ensureAudioContext();
-    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isMapExpanded) return;
+    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
     if (ME.faction === 'spectator') return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
@@ -3956,7 +4736,7 @@ function triggerAttack() {
 
 function triggerAbility(useAimAngleOnly = false) {
     ensureAudioContext();
-    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isMapExpanded) return;
+    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
     if (ME.faction !== 'goodbot') return;
     if (myAbility !== 'goodbot-grenade') return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -3994,8 +4774,8 @@ function triggerAbility(useAimAngleOnly = false) {
 
 window.addEventListener('mousedown', (e) => {
     ensureAudioContext();
-    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isMapExpanded) return;
-    if (document.activeElement === chatInput) return;
+    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
+    if (document.activeElement === chatInput || (tokenInput && document.activeElement === tokenInput)) return;
     if (e.target !== canvas) return;
     if (e.button === 2) {
         triggerAbility(false);
@@ -4039,7 +4819,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (mobileJoystick) {
         mobileJoystick.addEventListener('touchstart', (e) => {
-            if (inMainMenu || isSettingsOpen || isLeaveDialogOpen) return;
+            if (inMainMenu || isSettingsOpen || isLeaveDialogOpen || isModDialogOpen || isAdminPanelOpen) return;
             e.preventDefault();
             if (joystickTouchId !== null) return;
             const touch = e.changedTouches[0];
@@ -4109,7 +4889,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     canvas.addEventListener('touchstart', (e) => {
-        if (inMainMenu || isSettingsOpen || isLeaveDialogOpen) return;
+        if (inMainMenu || isSettingsOpen || isLeaveDialogOpen || isModDialogOpen || isAdminPanelOpen) return;
         if (aimTouchId === null && e.changedTouches[0]) {
             aimTouchId = e.changedTouches[0].identifier;
             WORLD.INPUTS.mouseX = e.changedTouches[0].clientX;
@@ -4140,6 +4920,78 @@ window.addEventListener('DOMContentLoaded', () => {
     };
     canvas.addEventListener('touchend', endAimTouch, { passive: true });
     canvas.addEventListener('touchcancel', endAimTouch, { passive: true });
+
+    if (adminModBtn) {
+        adminModBtn.addEventListener('click', () => {
+            if (isModDialogOpen) closeModDialog();
+            else openModDialog();
+        });
+    }
+
+    if (adminModCloseBtn) {
+        adminModCloseBtn.addEventListener('click', () => {
+            closeModDialog();
+        });
+    }
+
+    if (adminModOverlay) {
+        adminModOverlay.addEventListener('click', (e) => {
+            if (e.target === adminModOverlay) {
+                closeModDialog();
+            }
+        });
+    }
+
+    if (adminPanelBtn) {
+        adminPanelBtn.addEventListener('click', () => {
+            if (isAdminPanelOpen) closeAdminPanel();
+            else openAdminPanel();
+        });
+    }
+
+    if (adminPanelCloseBtn) {
+        adminPanelCloseBtn.addEventListener('click', () => {
+            closeAdminPanel();
+        });
+    }
+
+    if (adminPanelOverlay) {
+        adminPanelOverlay.addEventListener('click', (e) => {
+            if (e.target === adminPanelOverlay) {
+                closeAdminPanel();
+            }
+        });
+    }
+
+    if (adminSkipWaveBtn) {
+        adminSkipWaveBtn.addEventListener('click', () => {
+            if (ws && ws.readyState === WebSocket.OPEN && isAdmin) {
+                ws.send(JSON.stringify({ type: 'admin_skip_wave' }));
+            }
+        });
+    }
+
+    if (adminRestartGameBtn) {
+        adminRestartGameBtn.addEventListener('click', () => {
+            if (ws && ws.readyState === WebSocket.OPEN && isAdmin) {
+                ws.send(JSON.stringify({ type: 'admin_restart_game' }));
+            }
+        });
+    }
+
+    renderAdminSpawnGrid();
+
+    if (tokenInput) {
+        tokenInput.addEventListener('focus', () => {
+            clearHeldInputs();
+        });
+        tokenInput.addEventListener('change', () => {
+            submitAdminToken();
+        });
+        tokenInput.addEventListener('blur', () => {
+            submitAdminToken();
+        });
+    }
 
     if (settingsBtn) {
         settingsBtn.addEventListener('click', () => {
@@ -4454,7 +5306,9 @@ window.addEventListener('DOMContentLoaded', () => {
     if (playBtn) {
         playBtn.addEventListener('click', () => {
             if (!inMainMenu || isJoining) return;
+            suppressReloadDisconnect = false;
             setMenuError('');
+            if (tokenInput) tokenInput.value = '';
 
             if (serverPlayerCount >= serverMaxPlayers) {
                 setMenuError(`Server is full (${serverPlayerCount}/${serverMaxPlayers})`);
