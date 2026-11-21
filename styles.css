@@ -274,11 +274,14 @@ canvas {
 
 #menu-error {
     min-height: 22px;
+    max-width: 520px;
     margin-top: 12px;
     font-size: 16px;
+    line-height: 1.35;
     color: #ff5c5c;
     text-shadow: 2px 2px 0px #1a1a1a;
     text-align: center;
+    word-break: break-word;
 }
 
 #play-btn {
@@ -579,7 +582,8 @@ canvas {
 
 #player-name-input,
 #chat-input,
-#token-input {
+#token-input,
+#admin-mod-reason-input {
     user-select: text;
     -webkit-user-select: text;
 }
@@ -1090,6 +1094,53 @@ body.touch-mode #mobile-controls {
     letter-spacing: 1px;
 }
 
+#shop-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.shop-tab-btn {
+    flex: 1;
+    padding: 8px 14px;
+    font-size: 16px;
+    background-color: #333333;
+    border: 3px solid #1a1a1a;
+    border-radius: 4px;
+    color: #bbbbbb;
+    cursor: pointer;
+    text-shadow: 1px 1px 0px #1a1a1a;
+}
+
+.shop-tab-btn.active {
+    background-color: #4CAF50;
+    color: #eeeeee;
+}
+
+.shop-tab-btn:hover {
+    filter: brightness(0.5);
+}
+
+.shop-tab-btn:active {
+    transform: scale(0.92);
+}
+
+#shop-units-status {
+    display: none;
+    font-size: 14px;
+    color: #d84aff;
+    margin-bottom: 10px;
+    text-shadow: 1px 1px 0px #1a1a1a;
+}
+
+#shop-units-status.visible {
+    display: block;
+}
+
+#shop-units-status.full {
+    color: #ff5c5c;
+}
+
 #shop-grid,
 #admin-spawn-grid {
     display: grid;
@@ -1121,6 +1172,19 @@ body.touch-mode #mobile-controls {
 
 .shop-item-slot:active {
     transform: scale(0.92);
+}
+
+.shop-item-slot.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.shop-item-slot.disabled:hover {
+    filter: none;
+}
+
+.shop-item-slot.disabled:active {
+    transform: none;
 }
 
 .shop-item-icon {
@@ -1277,6 +1341,26 @@ body.touch-mode #mobile-controls {
     transform: scale(0.92);
 }
 
+#admin-mod-reason-input {
+    width: 100%;
+    padding: 9px 12px;
+    margin-bottom: 14px;
+    font-size: 14px;
+    background-color: #333333;
+    border: 3px solid #1a1a1a;
+    border-radius: 4px;
+    color: #eeeeee;
+    outline: none;
+}
+
+#admin-mod-reason-input:focus {
+    border-color: #555555;
+}
+
+#admin-mod-reason-input::placeholder {
+    color: #888888;
+}
+
 .admin-section-label {
     font-size: 14px;
     color: #bbbbbb;
@@ -1312,6 +1396,21 @@ body.touch-mode #mobile-controls {
     border: 3px solid #1a1a1a;
     border-radius: 4px;
     padding: 8px 10px;
+}
+
+.admin-mod-ban-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+}
+
+.admin-mod-ban-reason {
+    font-size: 12px;
+    color: #cccccc;
+    word-break: break-word;
+    line-height: 1.25;
 }
 
 .admin-mod-name {
@@ -1390,19 +1489,26 @@ body.touch-mode #mobile-controls {
 
 #admin-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 12px;
     margin-top: 18px;
 }
 
+#admin-revive-btn,
 #admin-skip-wave-btn,
 #admin-restart-game-btn {
-    flex: 1;
+    flex: 1 1 120px;
     padding: 12px;
     font-size: 18px;
     border: 4px solid #1a1a1a;
     border-radius: 4px;
     color: #eeeeee;
     cursor: pointer;
+    white-space: nowrap;
+}
+
+#admin-revive-btn {
+    background-color: #b833ff;
 }
 
 #admin-skip-wave-btn {
@@ -1413,14 +1519,23 @@ body.touch-mode #mobile-controls {
     background-color: #cc3f3f;
 }
 
+#admin-revive-btn:hover,
 #admin-skip-wave-btn:hover,
 #admin-restart-game-btn:hover {
     filter: brightness(0.5);
 }
 
+#admin-revive-btn:active,
 #admin-skip-wave-btn:active,
 #admin-restart-game-btn:active {
     transform: scale(0.92);
+}
+
+#admin-revive-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: none;
+    transform: none;
 }
 
 .settings-list {
