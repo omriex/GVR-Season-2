@@ -76,6 +76,7 @@ const mobileJoystick = document.getElementById('mobile-joystick');
 const mobileJoystickThumb = document.getElementById('mobile-joystick-thumb');
 const mobileAttackBtn = document.getElementById('mobile-attack-btn');
 const mobileSprintBtn = document.getElementById('mobile-sprint-btn');
+const mobileAbilityBtn = document.getElementById('mobile-ability-btn');
 const inventoryLayer = document.getElementById('inventory-layer');
 const inventorySlots = document.querySelectorAll('#inventory-layer .slot');
 const abilitySlot = document.getElementById('ability-slot');
@@ -1265,23 +1266,33 @@ function syncEquipAnimation(forceSwitch = false) {
 }
 
 function updateAbilitySlotCooldown(nowMs) {
-    if (!abilitySlot) return;
     const remMs = (myAbility && abilityReadyAt > nowMs) ? (abilityReadyAt - nowMs) : 0;
     const remSec = remMs > 0 ? Math.ceil(remMs / 1000) : 0;
     if (remSec === lastRenderedAbilityCooldownSec) return;
     lastRenderedAbilityCooldownSec = remSec;
-    const cdOverlay = abilitySlot.querySelector('.ability-cooldown-overlay');
-    if (remSec > 0) {
-        abilitySlot.classList.add('on-cooldown');
-        if (cdOverlay) {
-            cdOverlay.style.display = 'flex';
-            cdOverlay.textContent = String(remSec);
+    if (abilitySlot) {
+        const cdOverlay = abilitySlot.querySelector('.ability-cooldown-overlay');
+        if (remSec > 0) {
+            abilitySlot.classList.add('on-cooldown');
+            if (cdOverlay) {
+                cdOverlay.style.display = 'flex';
+                cdOverlay.textContent = String(remSec);
+            }
+        } else {
+            abilitySlot.classList.remove('on-cooldown');
+            if (cdOverlay) {
+                cdOverlay.style.display = 'none';
+                cdOverlay.textContent = '';
+            }
         }
-    } else {
-        abilitySlot.classList.remove('on-cooldown');
-        if (cdOverlay) {
-            cdOverlay.style.display = 'none';
-            cdOverlay.textContent = '';
+    }
+    if (mobileAbilityBtn) {
+        if (remSec > 0) {
+            mobileAbilityBtn.classList.add('on-cooldown');
+            mobileAbilityBtn.textContent = String(remSec);
+        } else {
+            mobileAbilityBtn.classList.remove('on-cooldown');
+            mobileAbilityBtn.textContent = 'ABILITY';
         }
     }
 }
@@ -1333,6 +1344,12 @@ function renderInventorySlots() {
         cdOverlay.className = 'ability-cooldown-overlay';
         cdOverlay.style.display = 'none';
         abilitySlot.appendChild(cdOverlay);
+        lastRenderedAbilityCooldownSec = -1;
+        updateAbilitySlotCooldown(performance.now());
+    }
+    if (mobileAbilityBtn) {
+        const canUseAbility = Boolean(myAbility) && ME.faction === 'goodbot';
+        mobileAbilityBtn.classList.toggle('has-ability', canUseAbility);
         lastRenderedAbilityCooldownSec = -1;
         updateAbilitySlotCooldown(performance.now());
     }
@@ -5258,6 +5275,7 @@ async function connectToServer() {
                         ME.maxEnergy = incoming.maxEnergy !== undefined ? Math.max(1, incoming.maxEnergy) : (pFaction === 'rarebot' ? 50 : 255);
                         enemyAggroUntil.clear();
                         refreshAdminReviveButton();
+                        renderInventorySlots();
                     } else {
                         if (incoming.maxHealth !== undefined) ME.maxHealth = Math.max(1, incoming.maxHealth);
                         if (incoming.maxEnergy !== undefined) ME.maxEnergy = Math.max(1, incoming.maxEnergy);
@@ -5850,6 +5868,18 @@ window.addEventListener('DOMContentLoaded', () => {
         }, { passive: true });
     }
 
+    if (mobileAbilityBtn) {
+        mobileAbilityBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            triggerAbility(true);
+        }, { passive: false });
+        mobileAbilityBtn.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            triggerAbility(true);
+        });
+    }
+
     canvas.addEventListener('touchstart', (e) => {
         if (inMainMenu || isSettingsOpen || isLeaveDialogOpen || isModDialogOpen || isAdminPanelOpen) return;
         if (aimTouchId === null && e.changedTouches[0]) {
@@ -6169,8 +6199,8 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     for (let i = 0; i < inventorySlots.length; i++) {
-        inventorySlots[i].addEventListener('pointerenter', () => {
-            if (dragState || isShopOpen) return;
+        inventorySlots[i].addEventListener('pointerenter', (e) => {
+            if (e.pointerType !== 'mouse' || dragState || isShopOpen) return;
             const itemId = myInventory[i];
             const itemDef = itemId ? ITEM_BY_ID[itemId] : null;
             if (itemDef) {
@@ -6207,8 +6237,8 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     if (abilitySlot) {
-        abilitySlot.addEventListener('pointerenter', () => {
-            if (dragState || isShopOpen) return;
+        abilitySlot.addEventListener('pointerenter', (e) => {
+            if (e.pointerType !== 'mouse' || dragState || isShopOpen) return;
             const itemDef = myAbility ? ITEM_BY_ID[myAbility] : null;
             if (itemDef) {
                 showShopTooltip(itemDef, abilitySlot, false, true);
@@ -6219,7 +6249,9 @@ window.addEventListener('DOMContentLoaded', () => {
                 hideShopTooltip();
             }
         });
-        abilitySlot.addEventListener('click', () => {
+        abilitySlot.addEventListener('pointerdown', (e) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            e.preventDefault();
             if (!isShopOpen) {
                 hideShopTooltip();
             }
