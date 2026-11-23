@@ -818,6 +818,7 @@ body.touch-mode #chat-input {
     align-items: flex-end;
     gap: 8px;
     pointer-events: auto;
+    z-index: 35;
 }
 
 .slot,
@@ -1020,6 +1021,42 @@ body.touch-mode #mobile-controls {
 }
 
 #mobile-sprint-btn:active {
+    transform: scale(0.92);
+}
+
+#mobile-ability-btn {
+    display: none;
+    position: absolute;
+    bottom: 108px;
+    right: 108px;
+    width: 72px;
+    height: 72px;
+    background-color: rgba(0, 0, 0, 0.55);
+    border: 3px solid #1a1a1a;
+    border-radius: 4px;
+    color: #ffffff;
+    font-size: 12px;
+    letter-spacing: 0.4px;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    pointer-events: auto;
+    touch-action: none;
+}
+
+body.touch-mode #mobile-ability-btn.has-ability {
+    display: flex;
+}
+
+#mobile-ability-btn.on-cooldown {
+    opacity: 0.55;
+}
+
+#mobile-ability-btn:hover {
+    filter: brightness(0.5);
+}
+
+#mobile-ability-btn:active {
     transform: scale(0.92);
 }
 
@@ -1833,6 +1870,11 @@ body.touch-mode #mobile-controls {
     right: 16px;
 }
 
+#ui-scale-layer.layout-tablet #mobile-ability-btn {
+    bottom: 84px;
+    right: 98px;
+}
+
 #ui-scale-layer.layout-mobile #main-menu h1 {
     font-size: 48px;
     margin-bottom: 24px;
@@ -2049,6 +2091,14 @@ body.touch-mode #mobile-controls {
     font-size: 12px;
 }
 
+#ui-scale-layer.layout-mobile #mobile-ability-btn {
+    bottom: 78px;
+    right: 88px;
+    width: 64px;
+    height: 64px;
+    font-size: 11px;
+}
+
 #ui-scale-layer.layout-mobile #shop-dialog,
 #ui-scale-layer.layout-mobile #admin-panel-dialog {
     min-width: 0;
@@ -2171,6 +2221,14 @@ body.touch-mode #mobile-controls {
     bottom: 68px;
     right: 10px;
     font-size: 11px;
+}
+
+#ui-scale-layer.layout-tiny #mobile-ability-btn {
+    width: 58px;
+    height: 58px;
+    bottom: 68px;
+    right: 76px;
+    font-size: 10px;
 }
 
 #ui-scale-layer.layout-tiny #settings-dialog,
@@ -2344,4 +2402,12 @@ body.touch-mode #mobile-controls {
     width: 60px;
     height: 60px;
     font-size: 11px;
+}
+
+#ui-scale-layer.layout-short #mobile-ability-btn {
+    bottom: 22px;
+    right: 82px;
+    width: 60px;
+    height: 60px;
+    font-size: 10px;
 }
