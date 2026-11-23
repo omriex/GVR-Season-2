@@ -89,7 +89,10 @@
                 </button>
                 <div id="chat-box">
                     <div id="chat-log"></div>
-                    <input type="text" id="chat-input" maxlength="80" placeholder="Chat" autocomplete="off" spellcheck="false">
+                    <form id="chat-form" action="javascript:void(0);">
+                        <input type="text" id="chat-input" maxlength="80" placeholder="Chat" autocomplete="off" spellcheck="false" enterkeyhint="send">
+                        <button id="chat-send-btn" type="submit" aria-label="Send message">SEND</button>
+                    </form>
                 </div>
             </div>
             <div id="token-wrapper">
