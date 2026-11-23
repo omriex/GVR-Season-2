@@ -29,7 +29,9 @@ const waveCount = document.getElementById('wave-count');
 const leaderboardHeader = document.getElementById('leaderboard-header');
 const leaderboardList = document.getElementById('leaderboard-list');
 const chatLog = document.getElementById('chat-log');
+const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
+const chatSendBtn = document.getElementById('chat-send-btn');
 const chatWrapper = document.getElementById('chat-wrapper');
 const chatToggleBtn = document.getElementById('chat-toggle-btn');
 const shopBtn = document.getElementById('shop-btn');
@@ -3102,6 +3104,7 @@ function drawSubtleBars(x, topY, hp, maxHp, en, maxEn) {
 const HANDS_SCALE = 1.15;
 
 function hasFloatingTextBlocking(playerId) {
+    if (playerId === undefined || playerId === null) return false;
     for (let i = 0; i < floatingTexts.length; i++) {
         const ft = floatingTexts[i];
         if (ft.playerId === playerId && ft.age * 24 < 22) {
@@ -3586,6 +3589,16 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
     ctx.restore();
 }
 
+const pendingEntityLabels = [];
+
+function drawEntityLabel(x, y, sH, label, faction) {
+    if (!label) return;
+    const lbl = getLabelSprite(label, faction);
+    const drawX = Math.round((x - lbl.w / 2) * lbl.scale) / lbl.scale;
+    const drawY = Math.round((y - sH / 2 - 10 - lbl.baselineY) * lbl.scale) / lbl.scale;
+    ctx.drawImage(lbl.canvas, drawX, drawY, lbl.drawW, lbl.drawH);
+}
+
 function drawEntity(x, y, width, height, angle, scale, label, faction, showHands, swingOffset, bars, spriteKind = null, weapon = 'hands', entityKey = null, nowMs = 0) {
     const sW = width * scale;
     const sH = height * scale;
@@ -3615,10 +3628,7 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
     }
 
     if (label) {
-        const lbl = getLabelSprite(label, faction);
-        const drawX = Math.round((x - lbl.w / 2) * lbl.scale) / lbl.scale;
-        const drawY = Math.round((y - sH / 2 - 10 - lbl.baselineY) * lbl.scale) / lbl.scale;
-        ctx.drawImage(lbl.canvas, drawX, drawY, lbl.drawW, lbl.drawH);
+        drawEntityLabel(x, y, sH, label, faction);
     }
 
     if (bars) {
@@ -3987,15 +3997,20 @@ function render() {
             ctx.globalAlpha = 1;
         }
 
+        pendingEntityLabels.length = 0;
+
         for (const id in serverEnemies) {
             const e = serverEnemies[id];
             const ew = e.width || 48;
             const eh = e.height || 48;
-            const eRX = (e.renderX ?? e.x) - camX + ew / 2;
-            const eRY = (e.renderY ?? e.y) - camY + eh / 2;
+            const eWorldCX = (e.renderX ?? e.x) + ew / 2;
+            const eWorldCY = (e.renderY ?? e.y) + eh / 2;
+            const eRX = eWorldCX - camX;
+            const eRY = eWorldCY - camY;
             if (eRX < -cullPad || eRX > camW + cullPad || eRY < -cullPad || eRY > camH + cullPad) continue;
             const es = Math.min(2, Math.max(0.3, e.scale || 1));
             const key = `enemy:${id}`;
+            const eInTree = isWorldPointInTree(eWorldCX, eWorldCY);
             const showBars = ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs;
             const eKind = e.kind || 'rarebot';
             const eWeapon = e.weapon || 'hands';
@@ -4007,7 +4022,10 @@ function render() {
                 energy: e.energy ?? (eKind === 'prototype' ? 100 : 50),
                 maxEnergy: e.maxEnergy ?? (eKind === 'prototype' ? 100 : 50)
             } : null;
-            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, eLabel, 'rarebot', true, getSwingOffset(key, nowMs), bars, eKind, eWeapon, key, nowMs);
+            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, null, 'rarebot', true, getSwingOffset(key, nowMs), bars, eKind, eWeapon, key, nowMs);
+            if (!eInTree && eLabel) {
+                pendingEntityLabels.push({ x: eRX, y: eRY, sH: eh * es, label: eLabel, faction: 'rarebot' });
+            }
         }
 
         for (const id in serverAllies) {
@@ -4038,7 +4056,10 @@ function render() {
                 energy: a.energy ?? 255,
                 maxEnergy: a.maxEnergy ?? 255
             } : null;
-            drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, aInTree ? null : (a.name || 'Goodbot'), 'goodbot', true, getSwingOffset(key, nowMs), bars, null, a.weapon || 'hands', key, nowMs);
+            drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, null, 'goodbot', true, getSwingOffset(key, nowMs), bars, null, a.weapon || 'hands', key, nowMs);
+            if (!aInTree) {
+                pendingEntityLabels.push({ x: aRX, y: aRY, sH: ah * as, label: a.name || 'Goodbot', faction: 'goodbot' });
+            }
         }
 
         for (const id in serverPlayers) {
@@ -4074,7 +4095,10 @@ function render() {
                 maxEnergy: p.maxEnergy ?? (pFaction === 'rarebot' ? 50 : 255)
             } : null;
             const pLabel = formatDisplayName(p.name, Boolean(p.isAdmin));
-            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, pInTree ? null : pLabel, pFaction, true, getSwingOffset(key, nowMs), bars, null, p.weapon || 'hands', key, nowMs);
+            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, null, pFaction, true, getSwingOffset(key, nowMs), bars, null, p.weapon || 'hands', key, nowMs);
+            if (!pInTree && pLabel) {
+                pendingEntityLabels.push({ x: pRX, y: pRY, sH: ph * ps, label: pLabel, faction: pFaction });
+            }
         }
 
         if (ME.faction !== 'spectator') {
@@ -4082,7 +4106,10 @@ function render() {
             const pRenderY = ME.y - camY + ME.height / 2;
             const myKey = `player:${myId}`;
             const meInTree = isWorldPointInTree(meCX, meCY);
-            drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, meInTree ? null : formatDisplayName(myName, isAdmin), ME.faction, true, getSwingOffset(myKey, nowMs), null, null, getMyEquippedWeapon(), myKey, nowMs);
+            drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, null, ME.faction, true, getSwingOffset(myKey, nowMs), null, null, getMyEquippedWeapon(), myKey, nowMs);
+            if (!meInTree) {
+                pendingEntityLabels.push({ x: pRenderX, y: pRenderY, sH: ME.height * ME.scale, label: formatDisplayName(myName, isAdmin), faction: ME.faction });
+            }
         }
     }
 
@@ -4109,6 +4136,11 @@ function render() {
     ctx.restore();
 
     if (!inMainMenu && myId !== null) {
+        for (let i = 0; i < pendingEntityLabels.length; i++) {
+            const item = pendingEntityLabels[i];
+            drawEntityLabel(item.x, item.y, item.sH, item.label, item.faction);
+        }
+        pendingEntityLabels.length = 0;
         for (const id in serverPlayers) {
             const p = serverPlayers[id];
             if ((p.faction || 'goodbot') !== 'spectator') continue;
@@ -4239,6 +4271,10 @@ function render() {
                     const fp = serverPlayers[ft.playerId];
                     tx = (fp.renderX ?? fp.x) + fp.width / 2;
                     ty = (fp.renderY ?? fp.y) - 26;
+                } else if (ft.allyId !== undefined && serverAllies[ft.allyId]) {
+                    const fa = serverAllies[ft.allyId];
+                    tx = (fa.renderX ?? fa.x) + (fa.width || 48) / 2;
+                    ty = (fa.renderY ?? fa.y) - 26;
                 } else if (ft.enemyId !== undefined && serverEnemies[ft.enemyId]) {
                     const fe = serverEnemies[ft.enemyId];
                     tx = (fe.renderX ?? fe.x) + (fe.width || 48) / 2;
@@ -5174,7 +5210,8 @@ async function connectToServer() {
                 const hy = Number(h.y) || 0;
                 if (hpGain > 0) {
                     pendingFloatingTexts.push({
-                        playerId: h.id,
+                        playerId: h.allyId !== undefined ? undefined : h.id,
+                        allyId: h.allyId,
                         x: hx,
                         y: hy,
                         text: `+${hpGain}`,
@@ -5468,6 +5505,7 @@ function clearHeldInputs() {
 function openChat() {
     if (!chatInput) return;
     if (isChatMinimized) setChatMinimized(false);
+    resetJoystick();
     clearHeldInputs();
     chatInput.focus();
 }
@@ -5476,6 +5514,15 @@ function closeChat() {
     if (!chatInput) return;
     chatInput.value = '';
     chatInput.blur();
+}
+
+function submitChat() {
+    if (!chatInput) return;
+    const text = chatInput.value.trim().slice(0, 80);
+    if (text && !isChatMuted && ws && ws.readyState === WebSocket.OPEN && myId !== null && !inMainMenu) {
+        ws.send(JSON.stringify({ type: 'chat', text }));
+    }
+    closeChat();
 }
 
 window.addEventListener('keydown', e => {
@@ -5532,7 +5579,7 @@ window.addEventListener('keydown', e => {
         }
         return;
     }
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' || e.key === 'NumpadEnter' || e.keyCode === 13 || e.which === 13) {
         if (inMainMenu) {
             if (playBtn) playBtn.click();
             return;
@@ -5540,11 +5587,7 @@ window.addEventListener('keydown', e => {
         if (myId !== null && chatInput) {
             e.preventDefault();
             if (document.activeElement === chatInput) {
-                const text = chatInput.value.trim().slice(0, 80);
-                if (text && !isChatMuted && ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'chat', text }));
-                }
-                closeChat();
+                submitChat();
             } else {
                 openChat();
             }
@@ -6092,10 +6135,31 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    if (chatForm) {
+        chatForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            submitChat();
+        });
+    }
+
     if (chatInput) {
         chatInput.addEventListener('focus', () => {
+            resetJoystick();
             clearHeldInputs();
         });
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' || e.key === 'NumpadEnter' || e.keyCode === 13 || e.which === 13) {
+                e.preventDefault();
+                e.stopPropagation();
+                submitChat();
+            }
+        });
+    }
+
+    if (chatSendBtn) {
+        chatSendBtn.addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+        }, { passive: true });
     }
 
     if (chatLog) {
