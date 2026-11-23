@@ -597,6 +597,7 @@ canvas {
     display: flex;
     flex-direction: column;
     pointer-events: none;
+    z-index: 40;
 }
 
 #token-wrapper {
@@ -608,6 +609,7 @@ canvas {
     background-color: rgba(0, 0, 0, 0.5);
     border-radius: 4px;
     pointer-events: auto;
+    z-index: 40;
 }
 
 #token-input {
@@ -619,6 +621,7 @@ canvas {
     border-radius: 4px;
     color: #ffffff;
     outline: none;
+    touch-action: manipulation;
 }
 
 #token-input:hover {
@@ -678,6 +681,7 @@ canvas {
     justify-content: center;
     cursor: pointer;
     pointer-events: auto;
+    touch-action: manipulation;
 }
 
 #chat-toggle-btn:hover {
@@ -723,6 +727,7 @@ canvas {
     scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
     user-select: none;
     -webkit-user-select: none;
+    touch-action: pan-y;
 }
 
 .chat-log-entry,
@@ -745,28 +750,63 @@ canvas {
     color: #ffffff;
 }
 
+#chat-form {
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0 0 4px 4px;
+}
+
 #chat-input {
+    flex: 1;
+    min-width: 0;
     width: 100%;
     padding: 8px 10px;
     font-size: 14px;
     background-color: transparent;
     border: none;
-    border-top: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 0 0 4px 4px;
     color: #ffffff;
     outline: none;
+    touch-action: manipulation;
 }
 
 #chat-input:hover {
     filter: brightness(0.5);
 }
 
-#chat-input:active {
-    transform: scale(0.92);
-}
-
 #chat-input::placeholder {
     color: rgba(255, 255, 255, 0.45);
+}
+
+#chat-send-btn {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    background-color: rgba(255, 255, 255, 0.12);
+    border: none;
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0 0 4px 0;
+    color: #ffffff;
+    font-size: 11px;
+    letter-spacing: 0.4px;
+    cursor: pointer;
+    pointer-events: auto;
+    touch-action: manipulation;
+}
+
+body.touch-mode #chat-send-btn {
+    display: flex;
+}
+
+body.touch-mode #chat-input {
+    border-radius: 0 0 0 4px;
+}
+
+#chat-send-btn:active {
+    background-color: rgba(255, 255, 255, 0.25);
 }
 
 #inventory-layer {
@@ -897,6 +937,7 @@ canvas {
     position: absolute;
     inset: 0;
     pointer-events: none;
+    z-index: 20;
 }
 
 body.touch-mode #mobile-controls {
@@ -2258,7 +2299,7 @@ body.touch-mode #mobile-controls {
 }
 
 #ui-scale-layer.layout-short #chat-log {
-    height: 64px;
+    height: 46px;
     font-size: 12px;
 }
 
