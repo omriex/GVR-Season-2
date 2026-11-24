@@ -23,10 +23,17 @@ const gameStateTitle = document.getElementById('game-state-title');
 const gameStateDivider = document.getElementById('game-state-divider');
 const gameStateDesc = document.getElementById('game-state-desc');
 const gameStartBtn = document.getElementById('game-start-btn');
+const bossHealthBar = document.getElementById('boss-health-bar');
+const bossBarTitle = document.getElementById('boss-bar-title');
+const bossBarFill = document.getElementById('boss-bar-fill');
+const bossBarValue = document.getElementById('boss-bar-value');
 const goodbotsCount = document.getElementById('goodbots-count');
 const rarebotsCount = document.getElementById('rarebots-count');
 const waveCount = document.getElementById('wave-count');
 const leaderboardHeader = document.getElementById('leaderboard-header');
+const leaderboardTabs = document.getElementById('leaderboard-tabs');
+const leaderboardTabMatchBtn = document.getElementById('leaderboard-tab-match');
+const leaderboardTabWavesBtn = document.getElementById('leaderboard-tab-waves');
 const leaderboardList = document.getElementById('leaderboard-list');
 const chatLog = document.getElementById('chat-log');
 const chatForm = document.getElementById('chat-form');
@@ -95,6 +102,10 @@ const adminSpawnGrid = document.getElementById('admin-spawn-grid');
 const adminReviveBtn = document.getElementById('admin-revive-btn');
 const adminSkipWaveBtn = document.getElementById('admin-skip-wave-btn');
 const adminRestartGameBtn = document.getElementById('admin-restart-game-btn');
+const waveLeaderboardBtn = document.getElementById('wave-leaderboard-btn');
+const waveLeaderboardOverlay = document.getElementById('wave-leaderboard-overlay');
+const waveLeaderboardCloseBtn = document.getElementById('wave-leaderboard-close-btn');
+const waveLeaderboardRows = document.getElementById('wave-leaderboard-rows');
 
 const LOGICAL_WIDTH = 1280;
 const LOGICAL_HEIGHT = 720;
@@ -142,6 +153,7 @@ const ME = {
     maxEnergy: 255,
     scraps: 0,
     faction: 'goodbot',
+    armor: null,
     chats: []
 };
 
@@ -182,6 +194,7 @@ let abilityReadyAt = 0;
 let lastLocalAbilityAt = 0;
 let lastRenderedAbilityCooldownSec = -1;
 let lastAttackSentAt = 0;
+let lastBeamerHoldSentAt = 0;
 let lastLocalShotAt = 0;
 let isAttackHeld = false;
 let dragState = null;
@@ -248,6 +261,7 @@ let lastSentAngle = 0;
 let lastInputSendTime = 0;
 
 let isSettingsOpen = false;
+let isWaveLeaderboardOpen = false;
 let isLeaveDialogOpen = false;
 let isShopOpen = false;
 let isModDialogOpen = false;
@@ -255,6 +269,10 @@ let isAdminPanelOpen = false;
 let isChatMinimized = false;
 let isMinimapMinimized = false;
 let isMapExpanded = false;
+let activeLeaderboardTab = 'match';
+let waveLeaderboardEntries = [];
+let lastMatchLeaderboardEntries = [];
+let lastGameStateData = null;
 let isJoining = false;
 let isAdmin = false;
 let isChatMuted = false;
@@ -438,17 +456,25 @@ function returnToMainMenu() {
     ME.maxEnergy = 255;
     ME.scraps = 0;
     ME.faction = 'goodbot';
+    ME.armor = null;
     ME.chats = [];
+    if (bossHealthBar) {
+        bossHealthBar.classList.add('hidden');
+        bossHealthBar.classList.remove('ally-boss');
+    }
     lastRenderedHealth = -1;
     lastRenderedEnergy = -1;
     lastRenderedMaxHealth = -1;
     lastRenderedMaxEnergy = -1;
     lastRenderedScraps = -1;
     lastLeaderboardSig = '';
+    lastMatchLeaderboardEntries = [];
+    lastGameStateData = null;
     resetJoystick();
     setMobileSprint(false);
     clearHeldInputs();
     closeChat();
+    closeWaveLeaderboard();
     closeLeaveDialog();
     closeShop();
     closeModDialog();
@@ -494,6 +520,134 @@ async function fetchInitialServerStatus() {
             setMenuError(data.regionError);
         }
     } catch (_) {}
+}
+
+function setWaveLeaderboardEntries(entries) {
+    if (!Array.isArray(entries)) return;
+    waveLeaderboardEntries = entries.map((e, idx) => ({
+        rank: Math.max(1, Math.floor(Number(e && e.rank) || (idx + 1))),
+        name: String((e && e.name) || 'Player'),
+        highestWave: Math.max(1, Math.floor(Number(e && e.highestWave) || 1)),
+        wavesCleared: Math.max(0, Math.floor(Number(e && e.wavesCleared) || 0)),
+        bestScraps: Math.max(0, Math.floor(Number(e && e.bestScraps) || 0))
+    }));
+    if (isWaveLeaderboardOpen) {
+        renderWaveLeaderboardDialog();
+    }
+    if (activeLeaderboardTab === 'waves' && !inMainMenu) {
+        lastLeaderboardSig = '';
+        updateLeaderboard(lastMatchLeaderboardEntries);
+    }
+}
+
+async function fetchWaveLeaderboard() {
+    if (!isNodeHostedOrigin()) return;
+    try {
+        const res = await fetch('/api/wave-leaderboard', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data && Array.isArray(data.entries)) {
+            setWaveLeaderboardEntries(data.entries);
+        }
+    } catch (_) {}
+}
+
+function renderWaveLeaderboardDialog() {
+    if (!waveLeaderboardRows) return;
+    waveLeaderboardRows.textContent = '';
+    if (waveLeaderboardEntries.length === 0) {
+        const emptyEl = document.createElement('div');
+        emptyEl.className = 'wave-lb-empty';
+        emptyEl.textContent = 'No wave records yet';
+        waveLeaderboardRows.appendChild(emptyEl);
+        return;
+    }
+    for (let i = 0; i < waveLeaderboardEntries.length; i++) {
+        const entry = waveLeaderboardEntries[i];
+        const rowEl = document.createElement('div');
+        rowEl.className = 'wave-lb-row';
+
+        const leftEl = document.createElement('div');
+        leftEl.className = 'wave-lb-left';
+
+        const rankEl = document.createElement('span');
+        let rankClass = '';
+        if (entry.rank === 1) rankClass = ' rank-1';
+        else if (entry.rank === 2) rankClass = ' rank-2';
+        else if (entry.rank === 3) rankClass = ' rank-3';
+        rankEl.className = 'wave-lb-rank' + rankClass;
+        rankEl.textContent = `#${entry.rank}`;
+        leftEl.appendChild(rankEl);
+
+        const infoEl = document.createElement('div');
+        infoEl.className = 'wave-lb-info';
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'wave-lb-name';
+        nameEl.textContent = entry.name;
+        infoEl.appendChild(nameEl);
+
+        const metaEl = document.createElement('div');
+        metaEl.className = 'wave-lb-meta';
+        metaEl.textContent = `Cleared: ${entry.wavesCleared} | Best Scraps: ${entry.bestScraps}`;
+        infoEl.appendChild(metaEl);
+
+        leftEl.appendChild(infoEl);
+        rowEl.appendChild(leftEl);
+
+        const waveEl = document.createElement('span');
+        waveEl.className = 'wave-lb-wave';
+        waveEl.textContent = `Wave ${entry.highestWave}`;
+        rowEl.appendChild(waveEl);
+
+        waveLeaderboardRows.appendChild(rowEl);
+    }
+}
+
+function openWaveLeaderboard() {
+    if (!waveLeaderboardOverlay) return;
+    if (isSettingsOpen) closeSettings();
+    if (isLeaveDialogOpen) closeLeaveDialog();
+    if (isShopOpen) closeShop();
+    if (isModDialogOpen) closeModDialog();
+    if (isAdminPanelOpen) closeAdminPanel();
+    if (isMapExpanded) setMapExpanded(false);
+    isWaveLeaderboardOpen = true;
+    clearHeldInputs();
+    if (document.activeElement === chatInput) {
+        closeChat();
+    }
+    renderWaveLeaderboardDialog();
+    fetchWaveLeaderboard();
+    waveLeaderboardOverlay.classList.add('open');
+    waveLeaderboardOverlay.setAttribute('aria-hidden', 'false');
+    syncCanvasCrosshairCursor();
+}
+
+function closeWaveLeaderboard() {
+    if (!waveLeaderboardOverlay) return;
+    isWaveLeaderboardOpen = false;
+    waveLeaderboardOverlay.classList.remove('open');
+    waveLeaderboardOverlay.setAttribute('aria-hidden', 'true');
+    syncCanvasCrosshairCursor();
+}
+
+function setLeaderboardTab(nextTab) {
+    activeLeaderboardTab = nextTab === 'waves' ? 'waves' : 'match';
+    if (leaderboardTabMatchBtn) {
+        const isMatch = activeLeaderboardTab === 'match';
+        leaderboardTabMatchBtn.classList.toggle('active', isMatch);
+        leaderboardTabMatchBtn.setAttribute('aria-selected', isMatch ? 'true' : 'false');
+    }
+    if (leaderboardTabWavesBtn) {
+        const isWaves = activeLeaderboardTab === 'waves';
+        leaderboardTabWavesBtn.classList.toggle('active', isWaves);
+        leaderboardTabWavesBtn.setAttribute('aria-selected', isWaves ? 'true' : 'false');
+    }
+    lastLeaderboardSig = '';
+    if (!inMainMenu) {
+        updateLeaderboard(lastMatchLeaderboardEntries);
+    }
 }
 
 const SETTINGS = {
@@ -771,6 +925,7 @@ function renderAdminModDialog() {
 function openModDialog() {
     if (!adminModOverlay || inMainMenu || !isAdmin) return;
     if (isSettingsOpen) closeSettings();
+    if (isWaveLeaderboardOpen) closeWaveLeaderboard();
     if (isLeaveDialogOpen) closeLeaveDialog();
     if (isShopOpen) closeShop();
     if (isAdminPanelOpen) closeAdminPanel();
@@ -826,6 +981,24 @@ const ADMIN_SPAWN_OPTIONS = [
         stats: [{ label: 'HP', value: '475' }, { label: 'Weapon', value: 'Dual Rarebot Pistol' }]
     },
     {
+        id: 'rarebot-healer',
+        title: 'Rarebot (Healer)',
+        kindLabel: 'ENEMY',
+        description: 'Spawns a Healer Rarebot armed with a Healer Gun that fires green heal bullets at damaged Dropships and Rarebots.',
+        bodyType: 'rarebot',
+        weapon: 'healer-gun',
+        stats: [{ label: 'HP', value: '255' }, { label: 'Heal', value: '60 / Shot' }, { label: 'Team', value: 'Rarebot' }]
+    },
+    {
+        id: 'rarebot-dropship',
+        title: 'Rarebot Dropship',
+        kindLabel: 'ENEMY',
+        description: 'Spawns the slow circling Rarebot Dropship boss that spawns strong Rarebots up to 30 and drops 2200 scraps.',
+        bodyType: 'dropship',
+        weapon: 'hands',
+        stats: [{ label: 'HP', value: '8000' }, { label: 'Reward', value: '2200 Scraps' }, { label: 'Cap', value: '30 Rarebots' }]
+    },
+    {
         id: 'goodbot',
         title: 'Goodbot',
         kindLabel: 'ALLY',
@@ -853,6 +1026,15 @@ const ADMIN_SPAWN_OPTIONS = [
         stats: [{ label: 'HP', value: '1000' }, { label: 'Weapon', value: 'Goodbot Cannon' }, { label: 'Damage', value: '250 AoE' }, { label: 'Stun', value: '1s' }]
     },
     {
+        id: 'goodbot-beamer',
+        title: 'Goodbot (Beamer)',
+        kindLabel: 'ALLY',
+        description: 'Spawns a smart ranged AI Goodbot with Goodbot Beamer at a Goodbot spawn region.',
+        bodyType: 'goodbot',
+        weapon: 'goodbot-beamer',
+        stats: [{ label: 'HP', value: '1000' }, { label: 'Weapon', value: 'Goodbot Beamer' }, { label: 'Damage', value: '15-21 / Beam' }]
+    },
+    {
         id: 'prototype',
         title: 'Prototype Rarebot',
         kindLabel: 'ENEMY',
@@ -870,6 +1052,11 @@ function createEntityPreviewUrl(opt) {
     const g = c.getContext('2d');
     g.imageSmoothingEnabled = false;
 
+    if (opt.bodyType === 'dropship') {
+        drawDropshipSprite(g, 38, 38, 60, 60, 'rarebot', -Math.PI * 0.2);
+        return c.toDataURL();
+    }
+
     const bodyImg = opt.bodyType === 'prototype'
         ? prototypeRarebotImg
         : (opt.bodyType === 'rarebot' ? rarebotImg : goodbotImg);
@@ -883,28 +1070,36 @@ function createEntityPreviewUrl(opt) {
     let maxY = bodySize / 2;
 
     const isDualPistol = opt.weapon === 'dual-pistol';
-    const isRangedPreview = opt.weapon === 'pistol' || isDualPistol || opt.weapon === 'goodbot-pistol' || opt.weapon === 'goodbot-cannon';
+    const isBeamerPreview = opt.weapon === 'goodbot-beamer';
+    const isHealerPreview = opt.weapon === 'healer-gun';
+    const isRangedPreview = opt.weapon === 'pistol' || isDualPistol || opt.weapon === 'goodbot-pistol' || opt.weapon === 'goodbot-cannon' || isBeamerPreview || isHealerPreview;
     let weaponImg = null;
     let wRect = null;
     let dualSplit = null;
     if (isRangedPreview) {
-        weaponImg = opt.weapon === 'goodbot-cannon'
-            ? goodbotCannonImg
-            : ((opt.weapon === 'pistol' || isDualPistol) ? rarebotPistolImg : goodbotPistolImg);
-        if (weaponImg.complete && weaponImg.naturalWidth > 0) {
+        weaponImg = isBeamerPreview
+            ? goodbotBeamerImg
+            : (isHealerPreview
+                ? rarebotHealerGunImg
+                : (opt.weapon === 'goodbot-cannon'
+                    ? goodbotCannonImg
+                    : ((opt.weapon === 'pistol' || isDualPistol) ? rarebotPistolImg : goodbotPistolImg)));
+        const wNatW = weaponImg ? weaponImg.naturalWidth : 0;
+        const wNatH = weaponImg ? weaponImg.naturalHeight : 0;
+        if (weaponImg && weaponImg.complete && wNatW > 0) {
             const metrics = getWeaponMetrics(opt.weapon, weaponImg);
             const pxScaleX = ((bodySize / refW) * HANDS_SCALE) / metrics.resScale;
             const pxScaleY = ((bodySize / refH) * HANDS_SCALE) / metrics.resScale;
             const wx = -metrics.anchorX * pxScaleX;
             const wy = -metrics.anchorY * pxScaleY;
-            const ww = weaponImg.naturalWidth * pxScaleX;
-            const wh = weaponImg.naturalHeight * pxScaleY;
+            const ww = wNatW * pxScaleX;
+            const wh = wNatH * pxScaleY;
             if (isDualPistol) {
-                const sx = Math.max(1, Math.min(metrics.splitX, weaponImg.naturalWidth));
-                const rw = weaponImg.naturalWidth - sx;
+                const sx = Math.max(1, Math.min(metrics.splitX, wNatW));
+                const rw = wNatW - sx;
                 const rightX = (sx - metrics.anchorX) * pxScaleX;
                 const rightDrawW = rw * pxScaleX;
-                dualSplit = { sx, rw, fullH: weaponImg.naturalHeight, rightX, rightDrawW, wy, wh };
+                dualSplit = { sx, rw, fullH: wNatH, rightX, rightDrawW, wy, wh };
                 const leftEdge = -(rightX + rightDrawW);
                 const rightEdge = rightX + rightDrawW;
                 if (leftEdge < minX) minX = leftEdge;
@@ -1031,6 +1226,7 @@ function refreshAdminReviveButton() {
 function openAdminPanel() {
     if (!adminPanelOverlay || inMainMenu || !isAdmin) return;
     if (isSettingsOpen) closeSettings();
+    if (isWaveLeaderboardOpen) closeWaveLeaderboard();
     if (isLeaveDialogOpen) closeLeaveDialog();
     if (isShopOpen) closeShop();
     if (isModDialogOpen) closeModDialog();
@@ -1059,6 +1255,7 @@ function closeAdminPanel() {
 
 function openSettings() {
     if (!settingsOverlay) return;
+    if (isWaveLeaderboardOpen) closeWaveLeaderboard();
     if (isLeaveDialogOpen) closeLeaveDialog();
     if (isShopOpen) closeShop();
     if (isModDialogOpen) closeModDialog();
@@ -1083,6 +1280,7 @@ function closeSettings() {
 function openLeaveDialog() {
     if (!leaveOverlay || inMainMenu) return;
     if (isSettingsOpen) closeSettings();
+    if (isWaveLeaderboardOpen) closeWaveLeaderboard();
     if (isShopOpen) closeShop();
     if (isModDialogOpen) closeModDialog();
     if (isAdminPanelOpen) closeAdminPanel();
@@ -1103,9 +1301,35 @@ function closeLeaveDialog() {
     leaveOverlay.setAttribute('aria-hidden', 'true');
 }
 
+function drawDropshipSprite(targetCtx, x, y, sW, sH, faction, angle) {
+    const img = faction === 'goodbot' ? goodbotDropshipImg : rarebotDropshipImg;
+    targetCtx.save();
+    targetCtx.translate(x, y);
+    targetCtx.rotate(angle);
+    if (img.complete && img.naturalWidth > 0) {
+        targetCtx.imageSmoothingEnabled = true;
+        targetCtx.drawImage(img, -sW / 2, -sH / 2, sW, sH);
+    } else {
+        targetCtx.fillStyle = '#141416';
+        targetCtx.strokeStyle = '#050507';
+        targetCtx.lineWidth = Math.max(3, sW * 0.044);
+        targetCtx.beginPath();
+        targetCtx.ellipse(0, 0, sW * 0.32, sH * 0.42, 0, 0, Math.PI * 2);
+        targetCtx.fill();
+        targetCtx.stroke();
+        targetCtx.fillStyle = faction === 'goodbot' ? '#b833ff' : '#ff2a2a';
+        targetCtx.beginPath();
+        targetCtx.arc(0, -sH * 0.12, sW * 0.1, 0, Math.PI * 2);
+        targetCtx.fill();
+    }
+    targetCtx.restore();
+}
+
 const ITEM_SLOT_IMAGES = {
     'goodbot-pistol': 'assets/Goodbot Pistol Slot.png',
     'goodbot-cannon': 'assets/Goodbot Cannon Slot.png',
+    'goodbot-beamer': 'assets/Goodbot Beamer Slot.png',
+    'goodbot-armor': 'assets/Goodbot Armor Slot.png',
     'goodbot-grenade': 'assets/Goodbot Grenade Slot.png'
 };
 
@@ -1162,6 +1386,31 @@ const SHOP_ITEMS = [
             { label: 'Damage', value: '250 Split AoE' },
             { label: 'Cooldown', value: '2s' },
             { label: 'Stun', value: '1s' }
+        ]
+    },
+    {
+        id: 'goodbot-beamer',
+        title: 'Goodbot Beamer',
+        kind: 'weapon',
+        description: 'Static plasma emitter that fires a thick straight laser beam until it hits a wall with 0 cooldown.',
+        cost: 600,
+        slotImage: ITEM_SLOT_IMAGES['goodbot-beamer'],
+        stats: [
+            { label: 'Damage', value: '15-21 / Beam' },
+            { label: 'Cooldown', value: '0ms' },
+            { label: 'Range', value: 'To Wall' }
+        ]
+    },
+    {
+        id: 'goodbot-armor',
+        title: 'Goodbot Armor',
+        kind: 'armor',
+        description: 'Reinforced dark obsidian plating matched to your chassis. Sets your Max HP to 1500 and grants +500 HP.',
+        cost: 400,
+        slotImage: ITEM_SLOT_IMAGES['goodbot-armor'],
+        stats: [
+            { label: 'Max HP', value: '1500 (+500)' },
+            { label: 'Type', value: 'Armor' }
         ]
     },
     {
@@ -1226,6 +1475,22 @@ const SHOP_UNITS = [
             { label: 'Damage', value: '250 Split AoE / 2s CD' },
             { label: 'Stun', value: '1s' }
         ]
+    },
+    {
+        id: 'unit-goodbot-beamer',
+        title: 'Goodbot (Beamer)',
+        kind: 'unit',
+        customTypeLabel: 'UNIT',
+        bodyType: 'goodbot',
+        weapon: 'goodbot-beamer',
+        description: 'Deploys a smart AI ranged Goodbot wielding the Goodbot Beamer that follows you, dodges hits/bullets, and fires a continuous purple laser beam dealing 15-21 damage.',
+        cost: 850,
+        stats: [
+            { label: 'HP', value: '1000' },
+            { label: 'Weapon', value: 'Goodbot Beamer' },
+            { label: 'Damage', value: '15-21 / Beam' },
+            { label: 'Range', value: 'To Wall' }
+        ]
     }
 ];
 
@@ -1236,16 +1501,17 @@ function getMyEquippedWeapon() {
     const itemId = myInventory[activeSlot];
     if (itemId === 'goodbot-pistol') return 'goodbot-pistol';
     if (itemId === 'goodbot-cannon') return 'goodbot-cannon';
+    if (itemId === 'goodbot-beamer') return 'goodbot-beamer';
     return 'hands';
 }
 
 function isRangedCrosshairActive() {
     if (inMainMenu || myId === null) return false;
-    if (isSettingsOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return false;
+    if (isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return false;
     if (document.activeElement === chatInput || (tokenInput && document.activeElement === tokenInput)) return false;
     if (document.body.classList.contains('touch-mode')) return false;
     const wpn = getMyEquippedWeapon();
-    return wpn === 'goodbot-pistol' || wpn === 'goodbot-cannon';
+    return wpn === 'goodbot-pistol' || wpn === 'goodbot-cannon' || wpn === 'goodbot-beamer';
 }
 
 function syncCanvasCrosshairCursor() {
@@ -1417,12 +1683,15 @@ function showShopTooltip(item, slot, showCost = true, preferAbove = false) {
         if (showCost) {
             const cantAfford = ME.scraps < item.cost;
             const alliesFull = item.kind === 'unit' && currentAllyCount >= maxAlliesCount;
-            if (alliesFull) {
+            const armorOwned = item.kind === 'armor' && ME.armor === item.id;
+            if (armorOwned) {
+                shopTooltipCost.textContent = `Cost: ${item.cost} Scraps (Equipped)`;
+            } else if (alliesFull) {
                 shopTooltipCost.textContent = `Cost: ${item.cost} Scraps (Max ${maxAlliesCount} Allies)`;
             } else {
                 shopTooltipCost.textContent = cantAfford ? `Cost: ${item.cost} Scraps (Can't afford)` : `Cost: ${item.cost} Scraps`;
             }
-            shopTooltipCost.classList.toggle('cant-afford', cantAfford || alliesFull);
+            shopTooltipCost.classList.toggle('cant-afford', cantAfford || alliesFull || armorOwned);
         } else {
             shopTooltipCost.classList.remove('cant-afford');
         }
@@ -1465,7 +1734,9 @@ function refreshShopAffordability() {
         for (let i = 0; i < slotEls.length; i++) {
             const slotEl = slotEls[i];
             const itemKind = slotEl.dataset.itemKind || '';
-            slotEl.classList.toggle('disabled', itemKind === 'unit' && alliesFull);
+            const itemId = slotEl.dataset.itemId || '';
+            const armorOwned = itemKind === 'armor' && ME.armor === itemId;
+            slotEl.classList.toggle('disabled', (itemKind === 'unit' && alliesFull) || armorOwned);
         }
         const costEls = shopGrid.querySelectorAll('.shop-item-cost');
         for (let i = 0; i < costEls.length; i++) {
@@ -1476,14 +1747,17 @@ function refreshShopAffordability() {
     if (lastHoveredShopItem && lastHoveredShowCost && shopTooltip && shopTooltip.classList.contains('visible') && shopTooltipCost) {
         const cantAfford = ME.scraps < lastHoveredShopItem.cost;
         const unitFull = lastHoveredShopItem.kind === 'unit' && alliesFull;
-        if (unitFull) {
+        const armorOwned = lastHoveredShopItem.kind === 'armor' && ME.armor === lastHoveredShopItem.id;
+        if (armorOwned) {
+            shopTooltipCost.textContent = `Cost: ${lastHoveredShopItem.cost} Scraps (Equipped)`;
+        } else if (unitFull) {
             shopTooltipCost.textContent = `Cost: ${lastHoveredShopItem.cost} Scraps (Max ${maxAlliesCount} Allies)`;
         } else {
             shopTooltipCost.textContent = cantAfford
                 ? `Cost: ${lastHoveredShopItem.cost} Scraps (Can't afford)`
                 : `Cost: ${lastHoveredShopItem.cost} Scraps`;
         }
-        shopTooltipCost.classList.toggle('cant-afford', cantAfford || unitFull);
+        shopTooltipCost.classList.toggle('cant-afford', cantAfford || unitFull || armorOwned);
         if (lastHoveredShopSlot) {
             positionShopTooltipForSlot(lastHoveredShopSlot, lastHoveredPreferAbove);
         }
@@ -1581,6 +1855,7 @@ function renderShopItems() {
         slot.addEventListener('click', () => {
             showShopTooltip(item, slot);
             if (item.kind === 'unit' && currentAllyCount >= maxAlliesCount) return;
+            if (item.kind === 'armor' && ME.armor === item.id) return;
             if (ws && ws.readyState === WebSocket.OPEN && myId !== null) {
                 ws.send(JSON.stringify({ type: 'buy_item', itemId: item.id }));
             }
@@ -1594,6 +1869,7 @@ function renderShopItems() {
 function openShop() {
     if (!shopOverlay || inMainMenu) return;
     if (isSettingsOpen) closeSettings();
+    if (isWaveLeaderboardOpen) closeWaveLeaderboard();
     if (isLeaveDialogOpen) closeLeaveDialog();
     if (isModDialogOpen) closeModDialog();
     if (isAdminPanelOpen) closeAdminPanel();
@@ -1739,6 +2015,7 @@ function setMapExpanded(expanded) {
     isMapExpanded = Boolean(expanded);
     if (isMapExpanded) {
         if (isSettingsOpen) closeSettings();
+        if (isWaveLeaderboardOpen) closeWaveLeaderboard();
         if (isLeaveDialogOpen) closeLeaveDialog();
         if (isShopOpen) closeShop();
         if (isModDialogOpen) closeModDialog();
@@ -1825,7 +2102,13 @@ const rarebotPistolImg = new Image();
 const goodbotBulletImg = new Image();
 const goodbotCannonBallImg = new Image();
 const rarebotBulletImg = new Image();
+const rarebotHealBulletImg = new Image();
 const goodbotGrenadeImg = new Image();
+const goodbotBeamerImg = new Image();
+const goodbotArmorImg = new Image();
+const rarebotHealerGunImg = new Image();
+const rarebotDropshipImg = new Image();
+const goodbotDropshipImg = new Image();
 
 let audioCtx = null;
 let soundBuffersLoaded = false;
@@ -1907,6 +2190,7 @@ const lastSoundAt = {
     hitReceive: 0,
     hitDeal: 0,
     laserShot: 0,
+    beamerShot: 0,
     laserCannonShot: 0,
     bulletImpact1: 0,
     bulletImpact2: 0,
@@ -1920,7 +2204,7 @@ function playSpatialSound(key, wx, wy) {
     const masterVol = window.GAME_AUDIO_SETTINGS ? Number(window.GAME_AUDIO_SETTINGS.soundVolume) : 1;
     if (!isFinite(masterVol) || masterVol <= 0.005) return;
     const nowMs = performance.now();
-    const minGap = key === 'explosion' ? 60 : ((key === 'swing' || key === 'hit') ? 45 : (key === 'dropslide' ? 40 : 15));
+    const minGap = key === 'beamerShot' ? 110 : (key === 'bulletWallImpact' ? 70 : (key === 'explosion' ? 60 : ((key === 'swing' || key === 'hit') ? 45 : (key === 'dropslide' ? 40 : 15))));
     if (nowMs - (lastSoundAt[key] || 0) < minGap) return;
 
     const ctxAudio = ensureAudioContext();
@@ -1937,21 +2221,25 @@ function playSpatialSound(key, wx, wy) {
         dist = Math.sqrt(dSq);
     }
     const falloff = Math.max(0, Math.min(1, 1 - Math.max(0, dist - 80) / 1000));
-    const volumeMult = (key === 'hitReceive' || key === 'hitDeal') ? 0.1 : (key === 'grapple1' ? 2.7 : 1);
+    const volumeMult = key === 'beamerShot' ? 0.55 : ((key === 'hitReceive' || key === 'hitDeal') ? 0.1 : (key === 'grapple1' ? 2.7 : 1));
     const gainValue = falloff * falloff * masterVol * volumeMult;
     if (gainValue <= 0.005) return;
 
-    if (!soundBuffers[key]) {
+    const bufferKey = key === 'beamerShot' ? 'laserShot' : key;
+    if (!soundBuffers[bufferKey]) {
         const reqAt = nowMs;
-        loadSoundBuffer(key, ctxAudio).then(() => {
-            if (!soundBuffers[key]) return;
+        loadSoundBuffer(bufferKey, ctxAudio).then(() => {
+            if (!soundBuffers[bufferKey]) return;
             if (performance.now() - reqAt > 400) return;
             const curNow = performance.now();
             if (curNow - (lastSoundAt[key] || 0) < minGap) return;
             lastSoundAt[key] = curNow;
             try {
                 const source = ctxAudio.createBufferSource();
-                source.buffer = soundBuffers[key];
+                source.buffer = soundBuffers[bufferKey];
+                if (key === 'beamerShot') {
+                    source.playbackRate.value = 0.78;
+                }
                 const gainNode = ctxAudio.createGain();
                 gainNode.gain.value = gainValue;
                 source.connect(gainNode);
@@ -1965,7 +2253,10 @@ function playSpatialSound(key, wx, wy) {
     lastSoundAt[key] = nowMs;
     try {
         const source = ctxAudio.createBufferSource();
-        source.buffer = soundBuffers[key];
+        source.buffer = soundBuffers[bufferKey];
+        if (key === 'beamerShot') {
+            source.playbackRate.value = 0.78;
+        }
         const gainNode = ctxAudio.createGain();
         gainNode.gain.value = gainValue;
         source.connect(gainNode);
@@ -2227,6 +2518,11 @@ function loadAssets() {
     goodbotPistolImg.onload = refreshIcons;
     goodbotCannonImg.onload = refreshIcons;
     rarebotPistolImg.onload = refreshIcons;
+    goodbotBeamerImg.onload = refreshIcons;
+    goodbotArmorImg.onload = refreshIcons;
+    rarebotHealerGunImg.onload = refreshIcons;
+    rarebotDropshipImg.onload = refreshIcons;
+    goodbotDropshipImg.onload = refreshIcons;
     goodbotImg.src = 'assets/Goodbot.png';
     rarebotImg.src = 'assets/Rarebot.png';
     prototypeRarebotImg.src = 'assets/Prototype Rarebot.png';
@@ -2235,10 +2531,16 @@ function loadAssets() {
     goodbotPistolImg.src = 'assets/Goodbot Pistol.png';
     goodbotCannonImg.src = 'assets/Goodbot Cannon.png';
     rarebotPistolImg.src = 'assets/Rarebot Pistol.png';
+    goodbotBeamerImg.src = 'assets/Goodbot Beamer.png';
+    goodbotArmorImg.src = 'assets/Goodbot Armor.png';
+    rarebotHealerGunImg.src = 'assets/Rarebot Healer Gun.png';
     goodbotBulletImg.src = 'assets/Goodbot Bullet.png';
     goodbotCannonBallImg.src = 'assets/Goodbot Cannon Ball.png';
     rarebotBulletImg.src = 'assets/Rarebot Bullet.png';
+    rarebotHealBulletImg.src = 'assets/Rarebot Heal Bullet.png';
     goodbotGrenadeImg.src = 'assets/Goodbot Grenade.png';
+    rarebotDropshipImg.src = 'assets/Rarebot Dropship.png';
+    goodbotDropshipImg.src = 'assets/Goodbot Dropship.png';
 }
 
 function updateStatsUI() {
@@ -2267,6 +2569,42 @@ function updateStatsUI() {
         lastRenderedScraps = currentScraps;
         refreshShopAffordability();
     }
+}
+
+function updateBossHealthBar() {
+    if (!bossHealthBar || !bossBarTitle || !bossBarFill || !bossBarValue) return;
+    let boss = null;
+    let isAllyBoss = false;
+    for (const id in serverEnemies) {
+        const e = serverEnemies[id];
+        if (e.kind === 'dropship' && (e.health || 0) > 0) {
+            boss = e;
+            isAllyBoss = false;
+            break;
+        }
+    }
+    if (!boss) {
+        for (const id in serverAllies) {
+            const a = serverAllies[id];
+            if (a.kind === 'dropship' && (a.health || 0) > 0) {
+                boss = a;
+                isAllyBoss = true;
+                break;
+            }
+        }
+    }
+    if (!boss) {
+        bossHealthBar.classList.add('hidden');
+        bossHealthBar.classList.remove('ally-boss');
+        return;
+    }
+    bossHealthBar.classList.remove('hidden');
+    bossHealthBar.classList.toggle('ally-boss', isAllyBoss);
+    bossBarTitle.textContent = boss.name || (isAllyBoss ? 'Goodbot Dropship' : 'Rarebot Dropship');
+    const maxHp = Math.max(1, Math.round(boss.maxHealth || 8000));
+    const hp = Math.max(0, Math.min(maxHp, Math.round(boss.health || 0)));
+    bossBarFill.style.width = `${(hp / maxHp) * 100}%`;
+    bossBarValue.textContent = `${hp} / ${maxHp}`;
 }
 
 function applyGameStateUI(state) {
@@ -2299,6 +2637,7 @@ function applyGameStateUI(state) {
         return;
     }
 
+    lastGameStateData = state;
     const phase = state.phase || 'waiting';
     if (phase === 'waiting') {
         if (gameStateTitle) gameStateTitle.textContent = 'Waiting to start...';
@@ -2324,7 +2663,23 @@ function applyGameStateUI(state) {
         if (gameStateTitle) gameStateTitle.textContent = `Intermission: ${secs}`;
         if (gameStateDivider) gameStateDivider.classList.add('hidden');
         if (gameStateDesc) gameStateDesc.classList.add('hidden');
-        if (gameStartBtn) gameStartBtn.classList.add('hidden');
+        if (gameStartBtn) {
+            if (ME.faction !== 'goodbot') {
+                gameStartBtn.classList.add('hidden');
+                gameStartBtn.classList.remove('voted');
+            } else {
+                gameStartBtn.classList.remove('hidden');
+                const votes = Number(state.startVotes) || 0;
+                const req = Math.max(1, Number(state.requiredVotes) || 1);
+                const voted = state.hasVoted === true;
+                gameStartBtn.classList.toggle('voted', voted);
+                if (req <= 1 && !voted) {
+                    gameStartBtn.textContent = 'Skip';
+                } else {
+                    gameStartBtn.textContent = voted ? `Skipping (${votes}/${req})` : `Skip (${votes}/${req})`;
+                }
+            }
+        }
         return;
     }
 
@@ -2335,12 +2690,53 @@ function applyGameStateUI(state) {
         gameStateDesc.textContent = 'Eliminate all the enemies';
         gameStateDesc.classList.remove('hidden');
     }
-    if (gameStartBtn) gameStartBtn.classList.add('hidden');
+    if (gameStartBtn) {
+        gameStartBtn.classList.add('hidden');
+        gameStartBtn.classList.remove('voted');
+    }
 }
 
 function updateLeaderboard(entries) {
+    lastMatchLeaderboardEntries = Array.isArray(entries) ? entries : [];
     if (!leaderboardList) return;
-    const sig = entries.map(e => `${e.name}\t${e.scraps}\t${e.faction || 'goodbot'}\t${e.isAdmin ? 1 : 0}`).join('\n');
+
+    if (activeLeaderboardTab === 'waves') {
+        const topWaves = waveLeaderboardEntries.slice(0, 10);
+        const waveSig = 'waves|' + topWaves.map(e => `${e.rank}\t${e.name}\t${e.highestWave}`).join('\n');
+        if (waveSig === lastLeaderboardSig) return;
+        lastLeaderboardSig = waveSig;
+        leaderboardList.textContent = '';
+
+        const spacerEl = document.createElement('span');
+        const colLabelEl = document.createElement('span');
+        colLabelEl.className = 'leaderboard-col-label';
+        colLabelEl.textContent = 'wave';
+        leaderboardList.appendChild(spacerEl);
+        leaderboardList.appendChild(colLabelEl);
+
+        if (topWaves.length === 0) {
+            const emptyEl = document.createElement('span');
+            emptyEl.className = 'leaderboard-empty';
+            emptyEl.textContent = 'No records yet';
+            leaderboardList.appendChild(emptyEl);
+            return;
+        }
+
+        for (let i = 0; i < topWaves.length; i++) {
+            const entry = topWaves[i];
+            const nameEl = document.createElement('span');
+            nameEl.className = 'leaderboard-name';
+            nameEl.textContent = `#${entry.rank} ${entry.name}`;
+            const scoreEl = document.createElement('span');
+            scoreEl.className = 'leaderboard-score';
+            scoreEl.textContent = `W${entry.highestWave}`;
+            leaderboardList.appendChild(nameEl);
+            leaderboardList.appendChild(scoreEl);
+        }
+        return;
+    }
+
+    const sig = 'match|' + lastMatchLeaderboardEntries.map(e => `${e.name}\t${e.scraps}\t${e.faction || 'goodbot'}\t${e.isAdmin ? 1 : 0}`).join('\n');
     if (sig === lastLeaderboardSig) return;
     lastLeaderboardSig = sig;
     leaderboardList.textContent = '';
@@ -2352,8 +2748,8 @@ function updateLeaderboard(entries) {
     leaderboardList.appendChild(spacerEl);
     leaderboardList.appendChild(colLabelEl);
 
-    for (let i = 0; i < entries.length; i++) {
-        const entry = entries[i];
+    for (let i = 0; i < lastMatchLeaderboardEntries.length; i++) {
+        const entry = lastMatchLeaderboardEntries[i];
         const nameEl = document.createElement('span');
         let factionClass = '';
         if (entry.faction === 'rarebot') factionClass = ' leaderboard-name-rarebot';
@@ -2532,6 +2928,9 @@ function update(dt) {
         p.renderAngle += diff * (1 - Math.exp(-dt * 20));
     }
 
+    const worldW = WORLD.MAP.columns * WORLD.MAP.tileSize;
+    const worldH = WORLD.MAP.rows * WORLD.MAP.tileSize;
+
     for (const id in serverEnemies) {
         const e = serverEnemies[id];
         if (e.renderX === undefined) {
@@ -2540,8 +2939,10 @@ function update(dt) {
             e.renderAngle = e.angle || 0;
         }
 
-        e.x = Math.max(0, Math.min(maxX, e.x + (e.vx || 0) * dt));
-        e.y = Math.max(0, Math.min(maxY, e.y + (e.vy || 0) * dt));
+        const eMaxX = Math.max(0, worldW - (e.width || 48));
+        const eMaxY = Math.max(0, worldH - (e.height || 48));
+        e.x = Math.max(0, Math.min(eMaxX, e.x + (e.vx || 0) * dt));
+        e.y = Math.max(0, Math.min(eMaxY, e.y + (e.vy || 0) * dt));
 
         const lerpF = 1 - Math.exp(-dt * 20);
         const rdx = e.x - e.renderX;
@@ -2569,8 +2970,10 @@ function update(dt) {
             a.renderAngle = a.angle || 0;
         }
 
-        a.x = Math.max(0, Math.min(maxX, a.x + (a.vx || 0) * dt));
-        a.y = Math.max(0, Math.min(maxY, a.y + (a.vy || 0) * dt));
+        const aMaxX = Math.max(0, worldW - (a.width || 48));
+        const aMaxY = Math.max(0, worldH - (a.height || 48));
+        a.x = Math.max(0, Math.min(aMaxX, a.x + (a.vx || 0) * dt));
+        a.y = Math.max(0, Math.min(aMaxY, a.y + (a.vy || 0) * dt));
 
         const lerpF = 1 - Math.exp(-dt * 20);
         const rdx = a.x - a.renderX;
@@ -2821,8 +3224,8 @@ function update(dt) {
         }
     }
 
-    if (isAttackHeld && !inMainMenu && myId !== null && !isSettingsOpen && !isLeaveDialogOpen && !isShopOpen && !isModDialogOpen && !isAdminPanelOpen && !isMapExpanded && document.activeElement !== chatInput && (!tokenInput || document.activeElement !== tokenInput)) {
-        triggerAttack();
+    if (isAttackHeld && !inMainMenu && myId !== null && !isSettingsOpen && !isWaveLeaderboardOpen && !isLeaveDialogOpen && !isShopOpen && !isModDialogOpen && !isAdminPanelOpen && !isMapExpanded && document.activeElement !== chatInput && (!tokenInput || document.activeElement !== tokenInput)) {
+        triggerAttack(true);
     }
 
     if (SETTINGS.cameraShake && camShakeTrauma > 0.001) {
@@ -3337,7 +3740,10 @@ const scaledSpriteCache = new Map();
 let scaledSpriteViewScale = 0;
 
 function getScaledSpriteCanvas(key, img, sx, sy, sw, sh, logicalW, logicalH) {
-    if (!img || !img.complete || img.naturalWidth === 0) return null;
+    const isCanvas = img instanceof HTMLCanvasElement;
+    const natW = img ? (isCanvas ? img.width : img.naturalWidth) : 0;
+    const natH = img ? (isCanvas ? img.height : img.naturalHeight) : 0;
+    if (!img || (!isCanvas && !img.complete) || natW === 0 || natH === 0) return null;
     const vs = Math.max(0.5, WORLD.SYSTEM.viewScale || 1);
     if (scaledSpriteViewScale !== vs) {
         scaledSpriteCache.clear();
@@ -3361,30 +3767,36 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
     ctx.save();
     ctx.translate(x, y);
     const isCannon = weapon === 'goodbot-cannon';
+    const isBeamer = weapon === 'goodbot-beamer';
+    const isHealer = weapon === 'healer-gun';
     const isDualPistol = weapon === 'dual-pistol';
-    const isRangedWeapon = isCannon || isDualPistol || weapon === 'goodbot-pistol' || weapon === 'pistol';
+    const isRangedWeapon = isCannon || isBeamer || isHealer || isDualPistol || weapon === 'goodbot-pistol' || weapon === 'pistol';
     ctx.rotate(angle + (isRangedWeapon ? 0 : swingOffset));
     const refW = goodbotImg.complete && goodbotImg.naturalWidth > 0 ? goodbotImg.naturalWidth : 512;
     const refH = goodbotImg.complete && goodbotImg.naturalHeight > 0 ? goodbotImg.naturalHeight : 512;
 
     if (isRangedWeapon) {
-        const weaponImg = isCannon
-            ? goodbotCannonImg
-            : ((weapon === 'pistol' || isDualPistol) ? rarebotPistolImg : goodbotPistolImg);
-        if (weaponImg.complete && weaponImg.naturalWidth > 0) {
+        const weaponImg = isBeamer
+            ? goodbotBeamerImg
+            : (isHealer
+                ? rarebotHealerGunImg
+                : (isCannon
+                    ? goodbotCannonImg
+                    : ((weapon === 'pistol' || isDualPistol) ? rarebotPistolImg : goodbotPistolImg)));
+        const fullW = weaponImg ? weaponImg.naturalWidth : 0;
+        const fullH = weaponImg ? weaponImg.naturalHeight : 0;
+        if (weaponImg && weaponImg.complete && fullW > 0) {
             const metrics = getWeaponMetrics(weapon, weaponImg);
             const pxScaleX = ((sW / refW) * HANDS_SCALE) / metrics.resScale;
             const pxScaleY = ((sH / refH) * HANDS_SCALE) / metrics.resScale;
             const anchorX = metrics.anchorX;
             const anchorY = metrics.anchorY;
-            const fullW = weaponImg.naturalWidth;
-            const fullH = weaponImg.naturalHeight;
             const pH = fullH * pxScaleY;
             const baseLeftX = -anchorX * pxScaleX;
             const baseTopY = -anchorY * pxScaleY;
             const bodyScale = sW / 48;
 
-            if (isCannon) {
+            if (isCannon || isBeamer) {
                 const fullDrawW = fullW * pxScaleX;
                 const fullMip = getScaledSpriteCanvas(
                     `${weapon}_ALL`,
@@ -3616,9 +4028,22 @@ function drawEntityLabel(x, y, sH, label, faction) {
     ctx.drawImage(lbl.canvas, drawX, drawY, lbl.drawW, lbl.drawH);
 }
 
-function drawEntity(x, y, width, height, angle, scale, label, faction, showHands, swingOffset, bars, spriteKind = null, weapon = 'hands', entityKey = null, nowMs = 0) {
+function drawEntity(x, y, width, height, angle, scale, label, faction, showHands, swingOffset, bars, spriteKind = null, weapon = 'hands', entityKey = null, nowMs = 0, armor = null) {
     const sW = width * scale;
     const sH = height * scale;
+    const isSpectator = faction === 'spectator';
+
+    if (spriteKind === 'dropship') {
+        drawDropshipSprite(ctx, x, y, sW, sH, faction, angle);
+        if (label) {
+            drawEntityLabel(x, y, sH, label, faction);
+        }
+        if (bars) {
+            drawSubtleBars(x, y + sH / 2 + 6, bars.health, bars.maxHealth, bars.energy, bars.maxEnergy);
+        }
+        return;
+    }
+
     let spriteImg = goodbotImg;
     let bodyKey = 'body_goodbot';
     if (spriteKind === 'prototype') {
@@ -3628,7 +4053,6 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         spriteImg = rarebotImg;
         bodyKey = 'body_rarebot';
     }
-    const isSpectator = faction === 'spectator';
 
     if (showHands && !isSpectator) {
         drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, entityKey, nowMs);
@@ -3641,6 +4065,10 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         ctx.translate(x, y);
         ctx.rotate(angle);
         ctx.drawImage(bodyMip, -sW / 2, -sH / 2, sW, sH);
+        if (armor === 'goodbot-armor' && !isSpectator && faction === 'goodbot' && goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
+            const armorMip = getScaledSpriteCanvas('armor_goodbot', goodbotArmorImg, 0, 0, goodbotArmorImg.naturalWidth, goodbotArmorImg.naturalHeight, width, height) || goodbotArmorImg;
+            ctx.drawImage(armorMip, -sW / 2, -sH / 2, sW, sH);
+        }
         ctx.restore();
     }
 
@@ -3816,7 +4244,7 @@ function render() {
     ctx.scale(vs, vs);
     ctx.imageSmoothingEnabled = false;
 
-    const cullPad = 96;
+    const cullPad = 280;
     const nowMs = performance.now();
 
     if (!inMainMenu && myId !== null) {
@@ -3832,8 +4260,74 @@ function render() {
                 const dy = b.y2 - b.y1;
                 const beamLen = Math.hypot(dx, dy);
                 if (beamLen < 2) continue;
-                const alpha = Math.max(0, 1 - b.age / b.life);
                 const beamAngle = Math.atan2(dy, dx) + Math.PI / 2;
+                if (b.variant === 'goodbot-beamer') {
+                    const alpha = Math.min(1, Math.max(0, (1 - b.age / b.life) * 1.4));
+                    const seed = b.seed || 0;
+                    const pulse = Math.sin(nowMs * 0.032 + seed);
+                    ctx.save();
+                    ctx.globalAlpha = alpha;
+                    ctx.translate(b.x1 - camX, b.y1 - camY);
+                    ctx.rotate(beamAngle);
+
+                    ctx.lineCap = 'round';
+                    ctx.strokeStyle = 'rgba(184, 51, 255, 0.32)';
+                    ctx.lineWidth = 28 + pulse * 4;
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(0, -beamLen);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = 'rgba(216, 74, 255, 0.85)';
+                    ctx.lineWidth = 14 + pulse * 2;
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(0, -beamLen);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 5.5 + pulse * 0.8;
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(0, -beamLen);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = '#f5c2ff';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    const segStep = 26;
+                    const segCount = Math.max(2, Math.ceil(beamLen / segStep));
+                    for (let s = 1; s < segCount; s++) {
+                        const sy = -(beamLen * s) / segCount;
+                        const wave = Math.sin(s * 2.1 + nowMs * 0.045 + seed * 3) * 6.5;
+                        ctx.lineTo(wave, sy);
+                    }
+                    ctx.lineTo(0, -beamLen);
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#f0aaff';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 10 + pulse * 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 5, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = 'rgba(216, 74, 255, 0.6)';
+                    ctx.beginPath();
+                    ctx.arc(0, -beamLen, 16 + pulse * 2.5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(0, -beamLen, 7 + pulse, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.restore();
+                    continue;
+                }
+                const alpha = Math.max(0, 1 - b.age / b.life);
                 const bulletImg = b.variant === 'rarebot' ? rarebotBulletImg : goodbotBulletImg;
                 ctx.save();
                 ctx.globalAlpha = alpha;
@@ -3888,6 +4382,31 @@ function render() {
                         ctx.beginPath();
                         ctx.arc(-8, -8, 8, 0, Math.PI * 2);
                         ctx.fill();
+                    }
+                    ctx.restore();
+                    continue;
+                }
+                if (proj.kind === 'heal-bullet' || proj.variant === 'rarebot-heal') {
+                    ctx.save();
+                    ctx.translate(bx, by);
+                    ctx.rotate(proj.angle || 0);
+                    if (rarebotHealBulletImg.complete && rarebotHealBulletImg.naturalWidth > 0) {
+                        const bw = rarebotHealBulletImg.naturalWidth * bulletScale;
+                        const bh = rarebotHealBulletImg.naturalHeight * bulletScale;
+                        const healMip = getScaledSpriteCanvas(
+                            'bullet_rarebot_heal',
+                            rarebotHealBulletImg,
+                            0,
+                            0,
+                            rarebotHealBulletImg.naturalWidth,
+                            rarebotHealBulletImg.naturalHeight,
+                            bw,
+                            bh
+                        ) || rarebotHealBulletImg;
+                        ctx.drawImage(healMip, -bw / 2, -bh / 2, bw, bh);
+                    } else {
+                        ctx.fillStyle = '#24f042';
+                        ctx.fillRect(-2, -12, 4, 24);
                     }
                     ctx.restore();
                     continue;
@@ -4018,6 +4537,8 @@ function render() {
 
         for (const id in serverEnemies) {
             const e = serverEnemies[id];
+            const eKind = e.kind || 'rarebot';
+            if (eKind === 'dropship') continue;
             const ew = e.width || 48;
             const eh = e.height || 48;
             const eWorldCX = (e.renderX ?? e.x) + ew / 2;
@@ -4028,10 +4549,9 @@ function render() {
             const es = Math.min(2, Math.max(0.3, e.scale || 1));
             const key = `enemy:${id}`;
             const eInTree = isWorldPointInTree(eWorldCX, eWorldCY);
-            const showBars = ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs;
-            const eKind = e.kind || 'rarebot';
+            const showBars = !eInTree && ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs;
             const eWeapon = e.weapon || 'hands';
-            const eLabel = e.name || (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot'));
+            const eLabel = e.name || (eKind === 'healer' ? 'Healer Rarebot' : (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot')));
             const defMaxH = eKind === 'prototype' ? 120 : (eKind === 'rarebot2' ? 475 : 255);
             const bars = showBars ? {
                 health: e.health ?? defMaxH,
@@ -4047,6 +4567,8 @@ function render() {
 
         for (const id in serverAllies) {
             const a = serverAllies[id];
+            const aKind = a.kind || null;
+            if (aKind === 'dropship') continue;
             const aw = a.width || 48;
             const ah = a.height || 48;
             const aWorldCX = (a.renderX ?? a.x) + aw / 2;
@@ -4073,7 +4595,7 @@ function render() {
                 energy: a.energy ?? 255,
                 maxEnergy: a.maxEnergy ?? 255
             } : null;
-            drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, null, 'goodbot', true, getSwingOffset(key, nowMs), bars, null, a.weapon || 'hands', key, nowMs);
+            drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, null, 'goodbot', true, getSwingOffset(key, nowMs), bars, aKind, a.weapon || 'hands', key, nowMs);
             if (!aInTree) {
                 pendingEntityLabels.push({ x: aRX, y: aRY, sH: ah * as, label: a.name || 'Goodbot', faction: 'goodbot' });
             }
@@ -4112,7 +4634,7 @@ function render() {
                 maxEnergy: p.maxEnergy ?? (pFaction === 'rarebot' ? 50 : 255)
             } : null;
             const pLabel = formatDisplayName(p.name, Boolean(p.isAdmin));
-            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, null, pFaction, true, getSwingOffset(key, nowMs), bars, null, p.weapon || 'hands', key, nowMs);
+            drawEntity(pRX, pRY, pw, ph, p.renderAngle ?? 0, ps, null, pFaction, true, getSwingOffset(key, nowMs), bars, null, p.weapon || 'hands', key, nowMs, p.armor || null);
             if (!pInTree && pLabel) {
                 pendingEntityLabels.push({ x: pRX, y: pRY, sH: ph * ps, label: pLabel, faction: pFaction });
             }
@@ -4123,7 +4645,7 @@ function render() {
             const pRenderY = ME.y - camY + ME.height / 2;
             const myKey = `player:${myId}`;
             const meInTree = isWorldPointInTree(meCX, meCY);
-            drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, null, ME.faction, true, getSwingOffset(myKey, nowMs), null, null, getMyEquippedWeapon(), myKey, nowMs);
+            drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, null, ME.faction, true, getSwingOffset(myKey, nowMs), null, null, getMyEquippedWeapon(), myKey, nowMs, ME.armor);
             if (!meInTree) {
                 pendingEntityLabels.push({ x: pRenderX, y: pRenderY, sH: ME.height * ME.scale, label: formatDisplayName(myName, isAdmin), faction: ME.faction });
             }
@@ -4176,6 +4698,32 @@ function render() {
             const pRenderY = ME.y - camY + ME.height / 2;
             const myKey = `player:${myId}`;
             drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, formatDisplayName(myName, isAdmin), 'spectator', false, 0, null, null, 'hands', myKey, nowMs);
+        }
+
+        for (const id in serverEnemies) {
+            const e = serverEnemies[id];
+            if ((e.kind || 'rarebot') !== 'dropship') continue;
+            const ew = e.width || 224;
+            const eh = e.height || 224;
+            const eRX = (e.renderX ?? e.x) + ew / 2 - camX;
+            const eRY = (e.renderY ?? e.y) + eh / 2 - camY;
+            if (eRX < -cullPad || eRX > camW + cullPad || eRY < -cullPad || eRY > camH + cullPad) continue;
+            const es = Math.min(2, Math.max(0.3, e.scale || 1));
+            const key = `enemy:${id}`;
+            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, e.name || 'Rarebot Dropship', 'rarebot', false, 0, null, 'dropship', 'none', key, nowMs);
+        }
+
+        for (const id in serverAllies) {
+            const a = serverAllies[id];
+            if (a.kind !== 'dropship') continue;
+            const aw = a.width || 224;
+            const ah = a.height || 224;
+            const aRX = (a.renderX ?? a.x) + aw / 2 - camX;
+            const aRY = (a.renderY ?? a.y) + ah / 2 - camY;
+            if (aRX < -cullPad || aRX > camW + cullPad || aRY < -cullPad || aRY > camH + cullPad) continue;
+            const as = Math.min(2, Math.max(0.3, a.scale || 1));
+            const key = `ally:${id}`;
+            drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, a.name || 'Goodbot Dropship', 'goodbot', false, 0, null, 'dropship', 'none', key, nowMs);
         }
     }
 
@@ -4545,6 +5093,7 @@ function renderMapView(targetCanvas, baseRadius) {
 
     for (const id in serverEnemies) {
         const e = serverEnemies[id];
+        if (e.kind === 'dropship') continue;
         const cx = (((e.renderX ?? e.x) + (e.width || 48) * 0.5) / mapW) * pw;
         const cy = (((e.renderY ?? e.y) + (e.height || 48) * 0.5) / mapH) * ph;
         mctx.beginPath();
@@ -4557,6 +5106,7 @@ function renderMapView(targetCanvas, baseRadius) {
 
     for (const id in serverAllies) {
         const a = serverAllies[id];
+        if (a.kind === 'dropship') continue;
         const cx = (((a.renderX ?? a.x) + (a.width || 48) * 0.5) / mapW) * pw;
         const cy = (((a.renderY ?? a.y) + (a.height || 48) * 0.5) / mapH) * ph;
         mctx.beginPath();
@@ -4587,6 +5137,32 @@ function renderMapView(targetCanvas, baseRadius) {
         mctx.beginPath();
         mctx.arc(mx, my, r * 1.15, 0, Math.PI * 2);
         mctx.fillStyle = ME.faction === 'rarebot' ? '#ff2a2a' : '#b833ff';
+        mctx.fill();
+        mctx.strokeStyle = '#ffffff';
+        mctx.stroke();
+    }
+
+    for (const id in serverEnemies) {
+        const e = serverEnemies[id];
+        if (e.kind !== 'dropship') continue;
+        const cx = (((e.renderX ?? e.x) + (e.width || 224) * 0.5) / mapW) * pw;
+        const cy = (((e.renderY ?? e.y) + (e.height || 224) * 0.5) / mapH) * ph;
+        mctx.beginPath();
+        mctx.arc(cx, cy, r * 2.1, 0, Math.PI * 2);
+        mctx.fillStyle = '#ff2a2a';
+        mctx.fill();
+        mctx.strokeStyle = '#ffffff';
+        mctx.stroke();
+    }
+
+    for (const id in serverAllies) {
+        const a = serverAllies[id];
+        if (a.kind !== 'dropship') continue;
+        const cx = (((a.renderX ?? a.x) + (a.width || 224) * 0.5) / mapW) * pw;
+        const cy = (((a.renderY ?? a.y) + (a.height || 224) * 0.5) / mapH) * ph;
+        mctx.beginPath();
+        mctx.arc(cx, cy, r * 2.1, 0, Math.PI * 2);
+        mctx.fillStyle = '#b833ff';
         mctx.fill();
         mctx.strokeStyle = '#ffffff';
         mctx.stroke();
@@ -4686,6 +5262,13 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'wave_leaderboard') {
+            if (Array.isArray(data.entries)) {
+                setWaveLeaderboardEntries(data.entries);
+            }
+            return;
+        }
+
         if (data.type === 'left_server') {
             updateServerDropdown(data.playerCount, data.maxPlayers);
             return;
@@ -4713,6 +5296,9 @@ async function connectToServer() {
                 applyServerDeviceMode(data.isMobile);
             }
             updateServerDropdown(data.playerCount, data.maxPlayers);
+            if (Array.isArray(data.waveLeaderboard)) {
+                setWaveLeaderboardEntries(data.waveLeaderboard);
+            }
             if (inMainMenu && !suppressReloadDisconnect) {
                 setMenuError(typeof data.regionError === 'string' ? data.regionError : '');
             }
@@ -4761,6 +5347,7 @@ async function connectToServer() {
             ME.health = Math.max(0, Math.min(ME.maxHealth, data.health ?? ME.maxHealth));
             ME.energy = Math.max(0, Math.min(ME.maxEnergy, data.energy ?? ME.maxEnergy));
             ME.scraps = Math.max(0, Math.floor(data.scraps ?? 0));
+            ME.armor = data.armor || null;
             ME.chats = [];
             myInventory = Array.isArray(data.inventory) ? data.inventory.slice(0, 5) : [null, null, null, null, null];
             while (myInventory.length < 5) myInventory.push(null);
@@ -4775,6 +5362,11 @@ async function connectToServer() {
             lastRenderedMaxEnergy = -1;
             lastRenderedScraps = -1;
             updateStatsUI();
+            refreshShopAffordability();
+            updateBossHealthBar();
+            if (Array.isArray(data.waveLeaderboard)) {
+                setWaveLeaderboardEntries(data.waveLeaderboard);
+            }
             updateLeaderboard([{ name: myName, scraps: ME.scraps, faction: ME.faction, isAdmin }]);
             if (data.gameState) {
                 applyGameStateUI(data.gameState);
@@ -4975,6 +5567,15 @@ async function connectToServer() {
             if (data.ability !== undefined) {
                 myAbility = data.ability || null;
             }
+            if (data.armor !== undefined) {
+                ME.armor = data.armor || null;
+            }
+            if (typeof data.maxHealth === 'number' && isFinite(data.maxHealth)) {
+                ME.maxHealth = Math.max(1, data.maxHealth);
+            }
+            if (typeof data.health === 'number' && isFinite(data.health)) {
+                ME.health = Math.max(0, Math.min(ME.maxHealth, data.health));
+            }
             if (typeof data.abilityCooldownMs === 'number') {
                 abilityReadyAt = data.abilityCooldownMs > 0 ? (performance.now() + data.abilityCooldownMs) : 0;
             }
@@ -4988,6 +5589,7 @@ async function connectToServer() {
             selectSlot(activeSlot, false);
             syncEquipAnimation(false);
             updateStatsUI();
+            refreshShopAffordability();
             return;
         }
 
@@ -5022,6 +5624,7 @@ async function connectToServer() {
 
         if (data.type === 'ranged_shot') {
             const isCannonShot = data.variant === 'goodbot-cannon' || data.projKind === 'cannonball';
+            const isBeamerShot = data.variant === 'goodbot-beamer';
             if (typeof data.endX === 'number' && typeof data.endY === 'number') {
                 raycastBeams.push({
                     variant: data.variant || 'goodbot',
@@ -5030,7 +5633,8 @@ async function connectToServer() {
                     x2: data.endX,
                     y2: data.endY,
                     age: 0,
-                    life: 0.14
+                    life: isBeamerShot ? 0.13 : 0.14,
+                    seed: isBeamerShot ? Math.random() * 100 : 0
                 });
             } else if (typeof data.projId === 'number') {
                 serverProjectiles.set(data.projId, {
@@ -5051,12 +5655,14 @@ async function connectToServer() {
             const nowMs = performance.now();
             if (!(data.kind === 'player' && data.id === myId && nowMs - lastLocalShotAt < 250)) {
                 const entityKey = `${data.kind}:${data.id}`;
-                if (data.hand === 'left') {
-                    leftRecoilAnims.set(entityKey, { at: nowMs, strong: false });
-                } else {
-                    recoilAnims.set(entityKey, { at: nowMs, strong: isCannonShot });
+                if (!isBeamerShot) {
+                    if (data.hand === 'left') {
+                        leftRecoilAnims.set(entityKey, { at: nowMs, strong: false });
+                    } else {
+                        recoilAnims.set(entityKey, { at: nowMs, strong: isCannonShot });
+                    }
                 }
-                playSpatialSound(isCannonShot ? 'laserCannonShot' : 'laserShot', data.x, data.y);
+                playSpatialSound(isBeamerShot ? 'beamerShot' : (isCannonShot ? 'laserCannonShot' : 'laserShot'), data.x, data.y);
             }
             if (ME.faction === 'goodbot' && data.kind === 'enemy' && typeof data.x === 'number' && typeof data.y === 'number') {
                 const dist = Math.hypot(data.x - (ME.x + ME.width / 2), data.y - (ME.y + ME.height / 2));
@@ -5145,6 +5751,39 @@ async function connectToServer() {
                     color: '#ff3030',
                     age: 0,
                     life: 1.3
+                });
+            }
+            return;
+        }
+
+        if (data.type === 'entity_healed') {
+            if (data.projId) {
+                serverProjectiles.delete(data.projId);
+            }
+            const healVal = Math.max(1, Math.round(Number(data.amount) || 0));
+            const hx = Number(data.x) || 0;
+            const hy = Number(data.y) || 0;
+            if (data.targetKind === 'enemy') {
+                floatingTexts.push({
+                    enemyId: data.id,
+                    x: hx,
+                    y: hy - 36,
+                    xOff: (Math.random() - 0.5) * 18,
+                    text: `+${healVal}`,
+                    color: '#32ff4a',
+                    age: 0,
+                    life: 1.15
+                });
+            } else if (data.targetKind === 'ally') {
+                floatingTexts.push({
+                    allyId: data.id,
+                    x: hx,
+                    y: hy - 36,
+                    xOff: (Math.random() - 0.5) * 18,
+                    text: `+${healVal}`,
+                    color: '#32ff4a',
+                    age: 0,
+                    life: 1.15
                 });
             }
             return;
@@ -5276,12 +5915,20 @@ async function connectToServer() {
                         enemyAggroUntil.clear();
                         refreshAdminReviveButton();
                         renderInventorySlots();
+                        if (lastGameStateData) {
+                            applyGameStateUI(lastGameStateData);
+                        }
                     } else {
                         if (incoming.maxHealth !== undefined) ME.maxHealth = Math.max(1, incoming.maxHealth);
                         if (incoming.maxEnergy !== undefined) ME.maxEnergy = Math.max(1, incoming.maxEnergy);
                     }
                     if (incoming.health !== undefined) ME.health = Math.max(0, Math.min(ME.maxHealth, incoming.health));
                     if (incoming.energy !== undefined) ME.energy = Math.max(0, Math.min(ME.maxEnergy, incoming.energy));
+                    const nextArmor = incoming.armor || null;
+                    if (nextArmor !== ME.armor) {
+                        ME.armor = nextArmor;
+                        refreshShopAffordability();
+                    }
                     ME.scraps = pScraps;
                     ME.chats = Array.isArray(incoming.chats) ? incoming.chats : [];
                     updateStatsUI();
@@ -5303,6 +5950,7 @@ async function connectToServer() {
                     if (incoming.name !== undefined) existing.name = incoming.name;
                     existing.isAdmin = pIsAdmin;
                     existing.faction = pFaction;
+                    existing.armor = incoming.armor || null;
                     existing.health = incoming.health ?? existing.health;
                     existing.maxHealth = incoming.maxHealth ?? 1000;
                     existing.energy = incoming.energy ?? existing.energy;
@@ -5324,6 +5972,7 @@ async function connectToServer() {
                         ...incoming,
                         isAdmin: pIsAdmin,
                         faction: pFaction,
+                        armor: incoming.armor || null,
                         vx: incoming.vx || 0,
                         vy: incoming.vy || 0,
                         angle: incoming.angle || 0,
@@ -5354,8 +6003,9 @@ async function connectToServer() {
                 for (const id in data.enemies) {
                     const incoming = data.enemies[id];
                     const eKind = incoming.kind || 'rarebot';
-                    const defMaxH = eKind === 'prototype' ? 120 : (eKind === 'rarebot2' ? 475 : 255);
+                    const defMaxH = eKind === 'dropship' ? 8000 : (eKind === 'prototype' ? 120 : (eKind === 'rarebot2' ? 475 : 255));
                     const defMaxE = eKind === 'prototype' ? 100 : 50;
+                    const defSize = eKind === 'dropship' ? 224 : 48;
                     const existing = serverEnemies[id];
                     if (existing) {
                         const dx = incoming.x - existing.renderX;
@@ -5367,8 +6017,9 @@ async function connectToServer() {
                         existing.vy = incoming.vy || 0;
                         existing.angle = incoming.angle || 0;
                         existing.scale = incoming.scale ?? 1;
-                        existing.width = incoming.width || existing.width || 48;
-                        existing.height = incoming.height || existing.height || 48;
+                        existing.width = incoming.width || existing.width || defSize;
+                        existing.height = incoming.height || existing.height || defSize;
+                        existing.name = incoming.name !== undefined ? incoming.name : existing.name;
                         existing.kind = eKind;
                         existing.weapon = incoming.weapon || 'hands';
                         existing.health = incoming.health ?? existing.health;
@@ -5391,8 +6042,8 @@ async function connectToServer() {
                             maxHealth: incoming.maxHealth ?? defMaxH,
                             maxEnergy: incoming.maxEnergy ?? defMaxE,
                             weapon: incoming.weapon || 'hands',
-                            width: incoming.width || 48,
-                            height: incoming.height || 48,
+                            width: incoming.width || defSize,
+                            height: incoming.height || defSize,
                             renderX: incoming.x,
                             renderY: incoming.y,
                             renderAngle: incoming.angle || 0,
@@ -5410,6 +6061,9 @@ async function connectToServer() {
             if (data.allies && typeof data.allies === 'object') {
                 for (const id in data.allies) {
                     const incoming = data.allies[id];
+                    const aKind = incoming.kind || null;
+                    const aDefSize = aKind === 'dropship' ? 224 : 48;
+                    const aDefMaxH = aKind === 'dropship' ? 8000 : 1000;
                     const existing = serverAllies[id];
                     if (existing) {
                         const dx = incoming.x - existing.renderX;
@@ -5421,12 +6075,13 @@ async function connectToServer() {
                         existing.vy = incoming.vy || 0;
                         existing.angle = incoming.angle || 0;
                         existing.scale = incoming.scale ?? 1;
-                        existing.width = incoming.width || existing.width || 48;
-                        existing.height = incoming.height || existing.height || 48;
-                        existing.name = incoming.name || existing.name || 'Goodbot';
+                        existing.width = incoming.width || existing.width || aDefSize;
+                        existing.height = incoming.height || existing.height || aDefSize;
+                        existing.kind = aKind;
+                        existing.name = incoming.name || existing.name || (aKind === 'dropship' ? 'Goodbot Dropship' : 'Goodbot');
                         existing.weapon = incoming.weapon || 'hands';
                         existing.health = incoming.health ?? existing.health;
-                        existing.maxHealth = incoming.maxHealth ?? 1000;
+                        existing.maxHealth = incoming.maxHealth ?? aDefMaxH;
                         existing.energy = incoming.energy ?? existing.energy;
                         existing.maxEnergy = incoming.maxEnergy ?? 255;
                         existing._seq = stateSeq;
@@ -5437,16 +6092,17 @@ async function connectToServer() {
                     } else {
                         serverAllies[id] = {
                             ...incoming,
-                            name: incoming.name || 'Goodbot',
+                            kind: aKind,
+                            name: incoming.name || (aKind === 'dropship' ? 'Goodbot Dropship' : 'Goodbot'),
                             vx: incoming.vx || 0,
                             vy: incoming.vy || 0,
                             angle: incoming.angle || 0,
                             scale: incoming.scale ?? 1,
-                            maxHealth: incoming.maxHealth ?? 1000,
+                            maxHealth: incoming.maxHealth ?? aDefMaxH,
                             maxEnergy: incoming.maxEnergy ?? 255,
                             weapon: incoming.weapon || 'hands',
-                            width: incoming.width || 48,
-                            height: incoming.height || 48,
+                            width: incoming.width || aDefSize,
+                            height: incoming.height || aDefSize,
                             renderX: incoming.x,
                             renderY: incoming.y,
                             renderAngle: incoming.angle || 0,
@@ -5461,6 +6117,7 @@ async function connectToServer() {
                 }
             }
             serverGrenades = Array.isArray(data.grenades) ? data.grenades : [];
+            updateBossHealthBar();
             return;
         }
 
@@ -5555,6 +6212,13 @@ window.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
             e.preventDefault();
             closeSettings();
+        }
+        return;
+    }
+    if (isWaveLeaderboardOpen) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeWaveLeaderboard();
         }
         return;
     }
@@ -5681,17 +6345,32 @@ window.addEventListener('blur', () => {
     }
 });
 
-function triggerAttack() {
+function triggerAttack(isHoldRepeat = false) {
     ensureAudioContext();
-    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
+    if (inMainMenu || myId === null || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
     if (ME.faction === 'spectator') return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     const equippedWeapon = getMyEquippedWeapon();
     const isCannon = equippedWeapon === 'goodbot-cannon';
     const isPistol = equippedWeapon === 'goodbot-pistol';
-    const cooldown = isCannon ? 2008 : (isPistol ? 408 : (ME.faction === 'rarebot' ? 508 : 428));
+    const isBeamer = equippedWeapon === 'goodbot-beamer';
     const nowMs = performance.now();
+
+    if (isBeamer) {
+        if (isHoldRepeat && nowMs - lastBeamerHoldSentAt < 60) return;
+        lastBeamerHoldSentAt = nowMs;
+        lastAttackSentAt = nowMs;
+        lastLocalShotAt = nowMs;
+        const roundedAttackAngle = Math.round(ME.angle * 1000) / 1000;
+        lastSentAngle = roundedAttackAngle;
+        lastInputSendTime = nowMs;
+        playSpatialSound('beamerShot', ME.x + ME.width / 2, ME.y + ME.height / 2);
+        ws.send(JSON.stringify({ type: 'attack', angle: roundedAttackAngle }));
+        return;
+    }
+
+    const cooldown = isCannon ? 2008 : (isPistol ? 408 : (ME.faction === 'rarebot' ? 508 : 428));
     if (nowMs - lastAttackSentAt < cooldown) return;
     lastAttackSentAt = nowMs;
 
@@ -5716,7 +6395,7 @@ function triggerAttack() {
 
 function triggerAbility(useAimAngleOnly = false) {
     ensureAudioContext();
-    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
+    if (inMainMenu || myId === null || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
     if (ME.faction !== 'goodbot') return;
     if (myAbility !== 'goodbot-grenade') return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -5754,7 +6433,7 @@ function triggerAbility(useAimAngleOnly = false) {
 
 window.addEventListener('mousedown', (e) => {
     ensureAudioContext();
-    if (inMainMenu || myId === null || isSettingsOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
+    if (inMainMenu || myId === null || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
     if (document.activeElement === chatInput || (tokenInput && document.activeElement === tokenInput)) return;
     if (e.target !== canvas) return;
     if (e.button === 2) {
@@ -5790,6 +6469,7 @@ window.addEventListener('DOMContentLoaded', () => {
     updateUiScale();
     loadAssets();
     fetchInitialServerStatus();
+    fetchWaveLeaderboard();
     connectToServer();
 
     window.addEventListener('touchstart', () => {
@@ -5799,7 +6479,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (mobileJoystick) {
         mobileJoystick.addEventListener('touchstart', (e) => {
-            if (inMainMenu || isSettingsOpen || isLeaveDialogOpen || isModDialogOpen || isAdminPanelOpen) return;
+            if (inMainMenu || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isModDialogOpen || isAdminPanelOpen) return;
             e.preventDefault();
             if (joystickTouchId !== null) return;
             const touch = e.changedTouches[0];
@@ -5881,7 +6561,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     canvas.addEventListener('touchstart', (e) => {
-        if (inMainMenu || isSettingsOpen || isLeaveDialogOpen || isModDialogOpen || isAdminPanelOpen) return;
+        if (inMainMenu || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isModDialogOpen || isAdminPanelOpen) return;
         if (aimTouchId === null && e.changedTouches[0]) {
             aimTouchId = e.changedTouches[0].identifier;
             WORLD.INPUTS.mouseX = e.changedTouches[0].clientX;
@@ -5997,6 +6677,27 @@ window.addEventListener('DOMContentLoaded', () => {
     if (settingsBtn) {
         settingsBtn.addEventListener('click', () => {
             openSettings();
+        });
+    }
+
+    if (waveLeaderboardBtn) {
+        waveLeaderboardBtn.addEventListener('click', () => {
+            if (isWaveLeaderboardOpen) closeWaveLeaderboard();
+            else openWaveLeaderboard();
+        });
+    }
+
+    if (waveLeaderboardCloseBtn) {
+        waveLeaderboardCloseBtn.addEventListener('click', () => {
+            closeWaveLeaderboard();
+        });
+    }
+
+    if (waveLeaderboardOverlay) {
+        waveLeaderboardOverlay.addEventListener('click', (e) => {
+            if (e.target === waveLeaderboardOverlay) {
+                closeWaveLeaderboard();
+            }
         });
     }
 
@@ -6351,7 +7052,22 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (leaderboardHeader && leaderboardList) {
         leaderboardHeader.addEventListener('click', () => {
-            leaderboardList.classList.toggle('hidden');
+            const collapsed = leaderboardList.classList.toggle('hidden');
+            if (leaderboardTabs) {
+                leaderboardTabs.classList.toggle('hidden', collapsed);
+            }
+        });
+    }
+
+    if (leaderboardTabMatchBtn) {
+        leaderboardTabMatchBtn.addEventListener('click', () => {
+            setLeaderboardTab('match');
+        });
+    }
+
+    if (leaderboardTabWavesBtn) {
+        leaderboardTabWavesBtn.addEventListener('click', () => {
+            setLeaderboardTab('waves');
         });
     }
 
