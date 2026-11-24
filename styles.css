@@ -60,6 +60,7 @@ canvas {
 }
 
 #settings-btn,
+#wave-leaderboard-btn,
 #leave-btn,
 #admin-mod-btn,
 #admin-panel-btn {
@@ -87,6 +88,7 @@ canvas {
 }
 
 #settings-btn:hover,
+#wave-leaderboard-btn:hover,
 #leave-btn:hover,
 #admin-mod-btn:hover,
 #admin-panel-btn:hover {
@@ -94,6 +96,7 @@ canvas {
 }
 
 #settings-btn:active,
+#wave-leaderboard-btn:active,
 #leave-btn:active,
 #admin-mod-btn:active,
 #admin-panel-btn:active {
@@ -386,13 +389,23 @@ canvas {
     color: #d1ab38;
 }
 
-#game-state-banner {
+#top-center-hud {
     position: absolute;
     top: 20px;
     left: 50%;
     transform: translateX(-50%);
-    min-width: 300px;
     max-width: calc(100% - 420px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    pointer-events: none;
+    z-index: 20;
+}
+
+#game-state-banner {
+    min-width: 300px;
+    max-width: 100%;
     background-color: rgba(0, 0, 0, 0.5);
     border-radius: 4px;
     padding: 10px 24px;
@@ -402,7 +415,74 @@ canvas {
     gap: 8px;
     text-align: center;
     pointer-events: none;
-    z-index: 20;
+}
+
+#boss-health-bar {
+    width: 320px;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    pointer-events: none;
+}
+
+#boss-health-bar.hidden {
+    display: none;
+}
+
+#boss-bar-title {
+    font-size: 16px;
+    line-height: 1.15;
+    color: #f00000;
+    text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+    text-align: center;
+}
+
+#boss-health-bar.ally-boss #boss-bar-title {
+    color: #d84aff;
+}
+
+.boss-bar-track {
+    position: relative;
+    width: 100%;
+    height: 24px;
+    background-color: #333;
+    border: 4px solid #1a1a1a;
+    border-radius: 3px;
+    padding: 2px;
+}
+
+#boss-bar-fill {
+    width: 100%;
+    height: 100%;
+    border-radius: 2px;
+    background-color: #cc3f3f;
+}
+
+#boss-health-bar.ally-boss #boss-bar-fill {
+    background-color: #b833ff;
+}
+
+#boss-bar-value {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    line-height: 1;
+    color: #ffffff;
+    white-space: nowrap;
+    pointer-events: none;
+    text-shadow:
+        -1px -1px 0 #000000,
+         1px -1px 0 #000000,
+        -1px  1px 0 #000000,
+         1px  1px 0 #000000,
+         0px -1px 0 #000000,
+         0px  1px 0 #000000,
+        -1px  0px 0 #000000,
+         1px  0px 0 #000000;
 }
 
 #game-state-title {
@@ -534,6 +614,41 @@ canvas {
     transform: scale(0.92);
 }
 
+#leaderboard-tabs {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-bottom: 5px;
+}
+
+#leaderboard-tabs.hidden {
+    display: none;
+}
+
+.leaderboard-tab-btn {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0 2px 2px 2px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.65);
+    cursor: pointer;
+    text-shadow: 1px 1px 0px rgba(0, 0, 0, 0.85);
+}
+
+.leaderboard-tab-btn.active {
+    color: #21e9ff;
+    border-bottom-color: #21e9ff;
+}
+
+.leaderboard-tab-btn:hover {
+    filter: brightness(0.75);
+}
+
+.leaderboard-tab-btn:active {
+    transform: scale(0.92);
+}
+
 #leaderboard-list {
     display: grid;
     grid-template-columns: auto minmax(36px, auto);
@@ -578,6 +693,14 @@ canvas {
     justify-self: end;
     text-align: right;
     text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.85);
+}
+
+.leaderboard-empty {
+    grid-column: 1 / -1;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.65);
+    text-align: right;
+    text-shadow: 1px 1px 0px rgba(0, 0, 0, 0.85);
 }
 
 #player-name-input,
@@ -1065,7 +1188,8 @@ body.touch-mode #mobile-ability-btn.has-ability {
 #shop-overlay,
 #map-overlay,
 #admin-mod-overlay,
-#admin-panel-overlay {
+#admin-panel-overlay,
+#wave-leaderboard-overlay {
     position: fixed;
     inset: 0;
     background-color: rgba(0, 0, 0, 0.5);
@@ -1082,7 +1206,8 @@ body.touch-mode #mobile-ability-btn.has-ability {
 #shop-overlay.open,
 #map-overlay.open,
 #admin-mod-overlay.open,
-#admin-panel-overlay.open {
+#admin-panel-overlay.open,
+#wave-leaderboard-overlay.open {
     display: flex;
 }
 
@@ -1104,7 +1229,8 @@ body.touch-mode #mobile-ability-btn.has-ability {
 #leave-dialog,
 #shop-dialog,
 #admin-mod-dialog,
-#admin-panel-dialog {
+#admin-panel-dialog,
+#wave-leaderboard-dialog {
     position: relative;
     width: 340px;
     max-width: 100%;
@@ -1123,14 +1249,16 @@ body.touch-mode #mobile-ability-btn.has-ability {
     min-width: 496px;
 }
 
-#admin-mod-dialog {
+#admin-mod-dialog,
+#wave-leaderboard-dialog {
     width: 460px;
 }
 
 #settings-close-btn,
 #shop-close-btn,
 #admin-mod-close-btn,
-#admin-panel-close-btn {
+#admin-panel-close-btn,
+#wave-leaderboard-close-btn {
     position: absolute;
     top: 12px;
     right: 12px;
@@ -1149,14 +1277,16 @@ body.touch-mode #mobile-ability-btn.has-ability {
 #settings-close-btn:hover,
 #shop-close-btn:hover,
 #admin-mod-close-btn:hover,
-#admin-panel-close-btn:hover {
+#admin-panel-close-btn:hover,
+#wave-leaderboard-close-btn:hover {
     filter: brightness(0.5);
 }
 
 #settings-close-btn:active,
 #shop-close-btn:active,
 #admin-mod-close-btn:active,
-#admin-panel-close-btn:active {
+#admin-panel-close-btn:active,
+#wave-leaderboard-close-btn:active {
     transform: scale(0.92);
 }
 
@@ -1164,12 +1294,104 @@ body.touch-mode #mobile-ability-btn.has-ability {
 #leave-title,
 #shop-title,
 #admin-mod-title,
-#admin-panel-title {
+#admin-panel-title,
+#wave-leaderboard-title {
     margin: 0 0 18px 0;
     font-size: 26px;
     color: #eeeeee;
     text-shadow: 2px 2px 0px #1a1a1a;
     letter-spacing: 1px;
+}
+
+#wave-leaderboard-title {
+    margin-bottom: 4px;
+}
+
+#wave-leaderboard-subtitle {
+    font-size: 13px;
+    color: #21e9ff;
+    margin-bottom: 14px;
+    text-shadow: 1px 1px 0px #1a1a1a;
+}
+
+#wave-leaderboard-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wave-lb-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background-color: #333333;
+    border: 3px solid #1a1a1a;
+    border-radius: 4px;
+    padding: 8px 12px;
+}
+
+.wave-lb-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+}
+
+.wave-lb-rank {
+    min-width: 28px;
+    font-size: 16px;
+    color: #bbbbbb;
+    text-shadow: 1px 1px 0px #1a1a1a;
+    flex-shrink: 0;
+}
+
+.wave-lb-rank.rank-1 {
+    color: #ffe100;
+}
+
+.wave-lb-rank.rank-2 {
+    color: #d8d8d8;
+}
+
+.wave-lb-rank.rank-3 {
+    color: #e08e45;
+}
+
+.wave-lb-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.wave-lb-name {
+    font-size: 16px;
+    color: #d84aff;
+    text-shadow: 1px 1px 0px #1a1a1a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wave-lb-meta {
+    font-size: 12px;
+    color: #bbbbbb;
+}
+
+.wave-lb-wave {
+    font-size: 16px;
+    color: #21e9ff;
+    text-shadow: 1px 1px 0px #1a1a1a;
+    flex-shrink: 0;
+}
+
+.wave-lb-empty {
+    font-size: 14px;
+    color: #888888;
+    text-align: center;
+    padding: 18px 8px;
 }
 
 #shop-tabs {
@@ -1780,11 +2002,31 @@ body.touch-mode #mobile-ability-btn.has-ability {
     height: 156px;
 }
 
-#ui-scale-layer.layout-tablet #game-state-banner {
+#ui-scale-layer.layout-tablet #top-center-hud {
     top: 14px;
-    min-width: 240px;
     max-width: calc(100% - 340px);
+    gap: 8px;
+}
+
+#ui-scale-layer.layout-tablet #game-state-banner {
+    min-width: 240px;
     padding: 8px 16px;
+}
+
+#ui-scale-layer.layout-tablet #boss-health-bar {
+    width: 260px;
+}
+
+#ui-scale-layer.layout-tablet #boss-bar-title {
+    font-size: 14px;
+}
+
+#ui-scale-layer.layout-tablet .boss-bar-track {
+    height: 20px;
+}
+
+#ui-scale-layer.layout-tablet #boss-bar-value {
+    font-size: 11px;
 }
 
 #ui-scale-layer.layout-tablet #game-state-title {
@@ -1925,6 +2167,7 @@ body.touch-mode #mobile-ability-btn.has-ability {
 }
 
 #ui-scale-layer.layout-mobile #settings-btn svg,
+#ui-scale-layer.layout-mobile #wave-leaderboard-btn svg,
 #ui-scale-layer.layout-mobile #leave-btn svg,
 #ui-scale-layer.layout-mobile #admin-mod-btn svg,
 #ui-scale-layer.layout-mobile #admin-panel-btn svg {
@@ -1932,10 +2175,14 @@ body.touch-mode #mobile-ability-btn.has-ability {
     height: 28px;
 }
 
-#ui-scale-layer.layout-mobile #game-state-banner {
+#ui-scale-layer.layout-mobile #top-center-hud {
     top: 12px;
-    min-width: 136px;
     max-width: calc(100% - 210px);
+    gap: 6px;
+}
+
+#ui-scale-layer.layout-mobile #game-state-banner {
+    min-width: 136px;
     padding: 6px 10px;
     gap: 5px;
 }
@@ -1974,6 +2221,10 @@ body.touch-mode #mobile-ability-btn.has-ability {
 #ui-scale-layer.layout-mobile #leaderboard-header {
     font-size: 16px;
     margin-bottom: 4px;
+}
+
+#ui-scale-layer.layout-mobile .leaderboard-tab-btn {
+    font-size: 11px;
 }
 
 #ui-scale-layer.layout-mobile .leaderboard-name,
@@ -2235,7 +2486,8 @@ body.touch-mode #mobile-ability-btn.has-ability {
 #ui-scale-layer.layout-tiny #leave-dialog,
 #ui-scale-layer.layout-tiny #shop-dialog,
 #ui-scale-layer.layout-tiny #admin-mod-dialog,
-#ui-scale-layer.layout-tiny #admin-panel-dialog {
+#ui-scale-layer.layout-tiny #admin-panel-dialog,
+#ui-scale-layer.layout-tiny #wave-leaderboard-dialog {
     padding: 16px;
 }
 
@@ -2288,12 +2540,56 @@ body.touch-mode #mobile-ability-btn.has-ability {
     height: 92px;
 }
 
-#ui-scale-layer.layout-short #game-state-banner {
+#ui-scale-layer.layout-mobile #boss-health-bar {
+    width: 220px;
+    gap: 4px;
+}
+
+#ui-scale-layer.layout-mobile #boss-bar-title {
+    font-size: 12px;
+}
+
+#ui-scale-layer.layout-mobile .boss-bar-track {
+    height: 18px;
+    border-width: 3px;
+}
+
+#ui-scale-layer.layout-mobile #boss-bar-value {
+    font-size: 10px;
+}
+
+#ui-scale-layer.layout-tiny #boss-health-bar {
+    width: 180px;
+}
+
+#ui-scale-layer.layout-short #top-center-hud {
     top: 10px;
-    min-width: 180px;
     max-width: calc(100% - 240px);
+    gap: 6px;
+}
+
+#ui-scale-layer.layout-short #game-state-banner {
+    min-width: 180px;
     padding: 6px 14px;
     gap: 5px;
+}
+
+#ui-scale-layer.layout-short #boss-health-bar {
+    width: 210px;
+    gap: 3px;
+}
+
+#ui-scale-layer.layout-short #boss-bar-title {
+    font-size: 12px;
+}
+
+#ui-scale-layer.layout-short .boss-bar-track {
+    height: 16px;
+    border-width: 3px;
+}
+
+#ui-scale-layer.layout-short #boss-bar-value {
+    font-size: 10px;
 }
 
 #ui-scale-layer.layout-short #game-state-title {
