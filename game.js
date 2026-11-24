@@ -87,6 +87,7 @@ const mobileAbilityBtn = document.getElementById('mobile-ability-btn');
 const inventoryLayer = document.getElementById('inventory-layer');
 const inventorySlots = document.querySelectorAll('#inventory-layer .slot');
 const abilitySlot = document.getElementById('ability-slot');
+const armorSlot = document.getElementById('armor-slot');
 const adminModBtn = document.getElementById('admin-mod-btn');
 const adminPanelBtn = document.getElementById('admin-panel-btn');
 const tokenInput = document.getElementById('token-input');
@@ -957,7 +958,7 @@ const ADMIN_SPAWN_OPTIONS = [
         id: 'rarebot',
         title: 'Rarebot',
         kindLabel: 'ENEMY',
-        description: 'Spawns a melee Rarebot at a Rarebot spawn region.',
+        description: 'Basic melee Rarebot. Runs at you and hits up close.',
         bodyType: 'rarebot',
         weapon: 'hands',
         stats: [{ label: 'HP', value: '255' }, { label: 'Team', value: 'Rarebot' }]
@@ -966,7 +967,7 @@ const ADMIN_SPAWN_OPTIONS = [
         id: 'rarebot-pistol',
         title: 'Rarebot (Pistol)',
         kindLabel: 'ENEMY',
-        description: 'Spawns a ranged Rarebot with Rarebot Pistol at a Rarebot spawn region.',
+        description: 'Ranged Rarebot carrying a laser pistol.',
         bodyType: 'rarebot',
         weapon: 'pistol',
         stats: [{ label: 'HP', value: '255' }, { label: 'Weapon', value: 'Rarebot Pistol' }]
@@ -975,16 +976,26 @@ const ADMIN_SPAWN_OPTIONS = [
         id: 'rarebot2',
         title: 'Rarebot 2.0',
         kindLabel: 'ENEMY',
-        description: 'Spawns Rarebot 2.0 wielding Dual Rarebot Pistols with Dropslide.',
+        description: 'Upgraded Rarebot with dual pistols and a fast dropslide dodge.',
         bodyType: 'rarebot',
         weapon: 'dual-pistol',
         stats: [{ label: 'HP', value: '475' }, { label: 'Weapon', value: 'Dual Rarebot Pistol' }]
     },
     {
+        id: 'rarebot3',
+        title: 'Rarebot 3.0',
+        kindLabel: 'ENEMY',
+        description: 'Armored elite Rarebot packing a rapid-fire Rarebot Assault Laser and dropslide.',
+        bodyType: 'rarebot',
+        armor: 'rarebot-armor',
+        weapon: 'rarebot-assault-laser',
+        stats: [{ label: 'HP', value: '600' }, { label: 'Armor', value: 'Rarebot Armor' }, { label: 'Weapon', value: 'Rarebot Assault Laser' }]
+    },
+    {
         id: 'rarebot-healer',
         title: 'Rarebot (Healer)',
         kindLabel: 'ENEMY',
-        description: 'Spawns a Healer Rarebot armed with a Healer Gun that fires green heal bullets at damaged Dropships and Rarebots.',
+        description: 'Medic Rarebot that shoots green heal bolts at hurt Rarebots and Dropships.',
         bodyType: 'rarebot',
         weapon: 'healer-gun',
         stats: [{ label: 'HP', value: '255' }, { label: 'Heal', value: '60 / Shot' }, { label: 'Team', value: 'Rarebot' }]
@@ -993,8 +1004,9 @@ const ADMIN_SPAWN_OPTIONS = [
         id: 'rarebot-dropship',
         title: 'Rarebot Dropship',
         kindLabel: 'ENEMY',
-        description: 'Spawns the slow circling Rarebot Dropship boss that spawns strong Rarebots up to 30 and drops 2200 scraps.',
+        description: 'Big enemy boss ship that orbits the map and keeps dropping tough Rarebots.',
         bodyType: 'dropship',
+        faction: 'rarebot',
         weapon: 'hands',
         stats: [{ label: 'HP', value: '8000' }, { label: 'Reward', value: '2200 Scraps' }, { label: 'Cap', value: '30 Rarebots' }]
     },
@@ -1002,7 +1014,7 @@ const ADMIN_SPAWN_OPTIONS = [
         id: 'goodbot',
         title: 'Goodbot',
         kindLabel: 'ALLY',
-        description: 'Spawns a smart melee AI Goodbot at a Goodbot spawn region.',
+        description: 'Friendly melee Goodbot that fights Rarebots, dodges shots, and grapples.',
         bodyType: 'goodbot',
         weapon: 'hands',
         stats: [{ label: 'HP', value: '1000' }, { label: 'Team', value: 'Goodbot' }]
@@ -1011,16 +1023,26 @@ const ADMIN_SPAWN_OPTIONS = [
         id: 'goodbot-pistol',
         title: 'Goodbot (Pistol)',
         kindLabel: 'ALLY',
-        description: 'Spawns a smart ranged AI Goodbot with Goodbot Pistol at a Goodbot spawn region.',
+        description: 'Friendly Goodbot with a laser pistol.',
         bodyType: 'goodbot',
         weapon: 'goodbot-pistol',
         stats: [{ label: 'HP', value: '1000' }, { label: 'Weapon', value: 'Goodbot Pistol' }]
     },
     {
+        id: 'goodbot-assault-laser',
+        title: 'Goodbot (Assault Laser)',
+        kindLabel: 'ALLY',
+        description: 'Armored Goodbot with Goodbot Armor, an Assault Laser, and a crowd-seeking stun grenade.',
+        bodyType: 'goodbot',
+        armor: 'goodbot-armor',
+        weapon: 'goodbot-assault-laser',
+        stats: [{ label: 'HP', value: '1500' }, { label: 'Armor', value: 'Goodbot Armor' }, { label: 'Weapon', value: 'Goodbot Assault Laser' }, { label: 'Ability', value: 'Grenade (10s CD)' }]
+    },
+    {
         id: 'goodbot-cannon',
         title: 'Goodbot (Cannon)',
         kindLabel: 'ALLY',
-        description: 'Spawns a smart heavy ranged AI Goodbot with Goodbot Cannon at a Goodbot spawn region.',
+        description: 'Heavy Goodbot with a blast cannon that stuns groups of enemies.',
         bodyType: 'goodbot',
         weapon: 'goodbot-cannon',
         stats: [{ label: 'HP', value: '1000' }, { label: 'Weapon', value: 'Goodbot Cannon' }, { label: 'Damage', value: '250 AoE' }, { label: 'Stun', value: '1s' }]
@@ -1029,16 +1051,26 @@ const ADMIN_SPAWN_OPTIONS = [
         id: 'goodbot-beamer',
         title: 'Goodbot (Beamer)',
         kindLabel: 'ALLY',
-        description: 'Spawns a smart ranged AI Goodbot with Goodbot Beamer at a Goodbot spawn region.',
+        description: 'Friendly Goodbot armed with a continuous laser beam.',
         bodyType: 'goodbot',
         weapon: 'goodbot-beamer',
         stats: [{ label: 'HP', value: '1000' }, { label: 'Weapon', value: 'Goodbot Beamer' }, { label: 'Damage', value: '15-21 / Beam' }]
     },
     {
+        id: 'goodbot-dropship',
+        title: 'Goodbot Dropship',
+        kindLabel: 'ALLY',
+        description: 'Friendly gunship that orbits the base and keeps deploying Goodbot squads.',
+        bodyType: 'dropship',
+        faction: 'goodbot',
+        weapon: 'hands',
+        stats: [{ label: 'HP', value: '8000' }, { label: 'Team', value: 'Goodbot' }]
+    },
+    {
         id: 'prototype',
         title: 'Prototype Rarebot',
         kindLabel: 'ENEMY',
-        description: 'Spawns a fast Prototype Rarebot at a Rarebot spawn region.',
+        description: 'Quick little melee Rarebot. Weak alone, nasty in swarms.',
         bodyType: 'prototype',
         weapon: 'hands',
         stats: [{ label: 'HP', value: '120' }, { label: 'Team', value: 'Rarebot' }]
@@ -1053,7 +1085,7 @@ function createEntityPreviewUrl(opt) {
     g.imageSmoothingEnabled = false;
 
     if (opt.bodyType === 'dropship') {
-        drawDropshipSprite(g, 38, 38, 60, 60, 'rarebot', -Math.PI * 0.2);
+        drawDropshipSprite(g, 38, 38, 60, 60, opt.faction || 'rarebot', -Math.PI * 0.2, 0);
         return c.toDataURL();
     }
 
@@ -1071,19 +1103,24 @@ function createEntityPreviewUrl(opt) {
 
     const isDualPistol = opt.weapon === 'dual-pistol';
     const isBeamerPreview = opt.weapon === 'goodbot-beamer';
+    const isAssaultLaserPreview = opt.weapon === 'goodbot-assault-laser' || opt.weapon === 'rarebot-assault-laser';
     const isHealerPreview = opt.weapon === 'healer-gun';
-    const isRangedPreview = opt.weapon === 'pistol' || isDualPistol || opt.weapon === 'goodbot-pistol' || opt.weapon === 'goodbot-cannon' || isBeamerPreview || isHealerPreview;
+    const isRangedPreview = opt.weapon === 'pistol' || isDualPistol || opt.weapon === 'goodbot-pistol' || opt.weapon === 'goodbot-cannon' || isBeamerPreview || isAssaultLaserPreview || isHealerPreview;
     let weaponImg = null;
     let wRect = null;
     let dualSplit = null;
     if (isRangedPreview) {
         weaponImg = isBeamerPreview
             ? goodbotBeamerImg
-            : (isHealerPreview
-                ? rarebotHealerGunImg
-                : (opt.weapon === 'goodbot-cannon'
-                    ? goodbotCannonImg
-                    : ((opt.weapon === 'pistol' || isDualPistol) ? rarebotPistolImg : goodbotPistolImg)));
+            : (opt.weapon === 'goodbot-assault-laser'
+                ? goodbotAssaultLaserImg
+                : (opt.weapon === 'rarebot-assault-laser'
+                    ? rarebotAssaultLaserImg
+                    : (isHealerPreview
+                        ? rarebotHealerGunImg
+                        : (opt.weapon === 'goodbot-cannon'
+                            ? goodbotCannonImg
+                            : ((opt.weapon === 'pistol' || isDualPistol) ? rarebotPistolImg : goodbotPistolImg)))));
         const wNatW = weaponImg ? weaponImg.naturalWidth : 0;
         const wNatH = weaponImg ? weaponImg.naturalHeight : 0;
         if (weaponImg && weaponImg.complete && wNatW > 0) {
@@ -1156,6 +1193,11 @@ function createEntityPreviewUrl(opt) {
     } else {
         g.fillStyle = opt.bodyType === 'goodbot' ? '#b833ff' : '#cc3f3f';
         g.fillRect(-bodySize / 2, -bodySize / 2, bodySize, bodySize);
+    }
+    if ((opt.armor === 'goodbot-armor' || (opt.bodyType === 'goodbot' && opt.weapon === 'goodbot-assault-laser')) && goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
+        g.drawImage(goodbotArmorImg, -bodySize / 2, -bodySize / 2, bodySize, bodySize);
+    } else if ((opt.armor === 'rarebot-armor' || (opt.bodyType === 'rarebot' && opt.weapon === 'rarebot-assault-laser')) && rarebotArmorImg.complete && rarebotArmorImg.naturalWidth > 0) {
+        g.drawImage(rarebotArmorImg, -bodySize / 2, -bodySize / 2, bodySize, bodySize);
     }
     g.restore();
     return c.toDataURL();
@@ -1301,8 +1343,14 @@ function closeLeaveDialog() {
     leaveOverlay.setAttribute('aria-hidden', 'true');
 }
 
-function drawDropshipSprite(targetCtx, x, y, sW, sH, faction, angle) {
+function drawDropshipSprite(targetCtx, x, y, sW, sH, faction, angle, nowMs = performance.now()) {
     const img = faction === 'goodbot' ? goodbotDropshipImg : rarebotDropshipImg;
+    const rotorImg = faction === 'goodbot' ? goodbotDropshipRotorImg : rarebotDropshipRotorImg;
+    const podOffsetX = (154 / 512) * sW;
+    const podOffsetY = (10 / 512) * sH;
+    const rotorSize = sW * (220 / 512);
+    const rotorAngle = (nowMs / 250) * (Math.PI / 2);
+
     targetCtx.save();
     targetCtx.translate(x, y);
     targetCtx.rotate(angle);
@@ -1322,11 +1370,22 @@ function drawDropshipSprite(targetCtx, x, y, sW, sH, faction, angle) {
         targetCtx.arc(0, -sH * 0.12, sW * 0.1, 0, Math.PI * 2);
         targetCtx.fill();
     }
+    if (rotorImg.complete && rotorImg.naturalWidth > 0) {
+        targetCtx.imageSmoothingEnabled = true;
+        for (let side = -1; side <= 1; side += 2) {
+            targetCtx.save();
+            targetCtx.translate(side * podOffsetX, podOffsetY);
+            targetCtx.rotate(rotorAngle);
+            targetCtx.drawImage(rotorImg, -rotorSize / 2, -rotorSize / 2, rotorSize, rotorSize);
+            targetCtx.restore();
+        }
+    }
     targetCtx.restore();
 }
 
 const ITEM_SLOT_IMAGES = {
     'goodbot-pistol': 'assets/Goodbot Pistol Slot.png',
+    'goodbot-assault-laser': 'assets/Goodbot Assault Laser Slot.png',
     'goodbot-cannon': 'assets/Goodbot Cannon Slot.png',
     'goodbot-beamer': 'assets/Goodbot Beamer Slot.png',
     'goodbot-armor': 'assets/Goodbot Armor Slot.png',
@@ -1367,7 +1426,7 @@ const SHOP_ITEMS = [
         id: 'goodbot-pistol',
         title: 'Goodbot Pistol',
         kind: 'weapon',
-        description: 'Lightweight plasma firearm dealing 45-58 damage per shot',
+        description: 'Cheap reliable sidearm that shoots quick purple laser bolts.',
         cost: 15,
         slotImage: 'assets/Goodbot Pistol Slot.png',
         stats: [
@@ -1376,10 +1435,22 @@ const SHOP_ITEMS = [
         ]
     },
     {
+        id: 'goodbot-assault-laser',
+        title: 'Goodbot Assault Laser',
+        kind: 'weapon',
+        description: 'Two-handed rapid-fire laser rifle that sprays fast bolts every 150ms.',
+        cost: 275,
+        slotImage: ITEM_SLOT_IMAGES['goodbot-assault-laser'],
+        stats: [
+            { label: 'Damage', value: '30-36' },
+            { label: 'Cooldown', value: '150ms' }
+        ]
+    },
+    {
         id: 'goodbot-cannon',
         title: 'Goodbot Cannon',
         kind: 'weapon',
-        description: 'Heavy cannon that recoils strongly and fires a spinning cannonball, triggering a purple stun shockwave for 1s and dealing 250 AoE damage divided among affected enemies with knockback.',
+        description: 'Fires a heavy plasma orb that knocks you back, stuns enemies for 1s, and splashes 250 damage.',
         cost: 500,
         slotImage: 'assets/Goodbot Cannon Slot.png',
         stats: [
@@ -1392,7 +1463,7 @@ const SHOP_ITEMS = [
         id: 'goodbot-beamer',
         title: 'Goodbot Beamer',
         kind: 'weapon',
-        description: 'Static plasma emitter that fires a thick straight laser beam until it hits a wall with 0 cooldown.',
+        description: 'Fires an instant, nonstop laser beam straight to the nearest wall.',
         cost: 600,
         slotImage: ITEM_SLOT_IMAGES['goodbot-beamer'],
         stats: [
@@ -1405,7 +1476,7 @@ const SHOP_ITEMS = [
         id: 'goodbot-armor',
         title: 'Goodbot Armor',
         kind: 'armor',
-        description: 'Reinforced dark obsidian plating matched to your chassis. Sets your Max HP to 1500 and grants +500 HP.',
+        description: 'Heavy dark plating that boosts your Max HP to 1500 and heals +500 HP right away.',
         cost: 400,
         slotImage: ITEM_SLOT_IMAGES['goodbot-armor'],
         stats: [
@@ -1417,7 +1488,7 @@ const SHOP_ITEMS = [
         id: 'goodbot-grenade',
         title: 'Goodbot Grenade',
         kind: 'ability',
-        description: 'Ability (Press F or Right Click). Throws a grenade that triggers a 3-tile purple shockwave stunning rarebots for 1s, then explodes for 150-200 damage.',
+        description: 'Press F or Right Click to lob a grenade that stuns Rarebots for 1s, then blows up for 150-200 damage.',
         cost: 250,
         slotImage: 'assets/Goodbot Grenade Slot.png',
         stats: [
@@ -1438,7 +1509,7 @@ const SHOP_UNITS = [
         customTypeLabel: 'UNIT',
         bodyType: 'goodbot',
         weapon: 'hands',
-        description: 'Deploys a smart AI melee Goodbot that guards bases, dodges hits/bullets, and grapples rarebots for 150 dmg + 0.5s stun.',
+        description: 'Melee Goodbot ally. Guards the base, dodges incoming shots, and grapples enemies for a 0.5s stun.',
         cost: 100,
         stats: [
             { label: 'HP', value: '1000' },
@@ -1453,11 +1524,30 @@ const SHOP_UNITS = [
         customTypeLabel: 'UNIT',
         bodyType: 'goodbot',
         weapon: 'goodbot-pistol',
-        description: 'Deploys a smart AI ranged Goodbot with Goodbot Pistol that guards bases and dodges hits/bullets.',
+        description: 'Goodbot ally with a pistol. Keeps distance, dodges fire, and shoots incoming Rarebots.',
         cost: 250,
         stats: [
             { label: 'HP', value: '1000' },
             { label: 'Weapon', value: 'Goodbot Pistol' }
+        ]
+    },
+    {
+        id: 'unit-goodbot-assault-laser',
+        title: 'Goodbot (Assault Laser)',
+        kind: 'unit',
+        customTypeLabel: 'UNIT',
+        bodyType: 'goodbot',
+        armor: 'goodbot-armor',
+        weapon: 'goodbot-assault-laser',
+        description: 'Armored Goodbot ally with 1500 HP, a rapid Assault Laser, and a grenade he saves for crowds or lone stragglers.',
+        cost: 500,
+        stats: [
+            { label: 'HP', value: '1500' },
+            { label: 'Armor', value: 'Goodbot Armor' },
+            { label: 'Weapon', value: 'Goodbot Assault Laser' },
+            { label: 'Damage', value: '30-36' },
+            { label: 'Cooldown', value: '150ms' },
+            { label: 'Ability', value: 'Goodbot Grenade / 10s CD' }
         ]
     },
     {
@@ -1467,7 +1557,7 @@ const SHOP_UNITS = [
         customTypeLabel: 'UNIT',
         bodyType: 'goodbot',
         weapon: 'goodbot-cannon',
-        description: 'Deploys a smart AI heavy ranged Goodbot wielding the Goodbot Cannon that follows you, dodges hits/bullets, and deals 250 AoE damage divided among affected enemies + 1s stun.',
+        description: 'Follows you with a heavy cannon that stuns and blasts crowds of Rarebots.',
         cost: 700,
         stats: [
             { label: 'HP', value: '1000' },
@@ -1483,7 +1573,7 @@ const SHOP_UNITS = [
         customTypeLabel: 'UNIT',
         bodyType: 'goodbot',
         weapon: 'goodbot-beamer',
-        description: 'Deploys a smart AI ranged Goodbot wielding the Goodbot Beamer that follows you, dodges hits/bullets, and fires a continuous purple laser beam dealing 15-21 damage.',
+        description: 'Follows you and sweeps a steady laser beam through Rarebots until it hits a wall.',
         cost: 850,
         stats: [
             { label: 'HP', value: '1000' },
@@ -1500,6 +1590,7 @@ function getMyEquippedWeapon() {
     if (ME.faction !== 'goodbot') return 'hands';
     const itemId = myInventory[activeSlot];
     if (itemId === 'goodbot-pistol') return 'goodbot-pistol';
+    if (itemId === 'goodbot-assault-laser') return 'goodbot-assault-laser';
     if (itemId === 'goodbot-cannon') return 'goodbot-cannon';
     if (itemId === 'goodbot-beamer') return 'goodbot-beamer';
     return 'hands';
@@ -1511,7 +1602,7 @@ function isRangedCrosshairActive() {
     if (document.activeElement === chatInput || (tokenInput && document.activeElement === tokenInput)) return false;
     if (document.body.classList.contains('touch-mode')) return false;
     const wpn = getMyEquippedWeapon();
-    return wpn === 'goodbot-pistol' || wpn === 'goodbot-cannon' || wpn === 'goodbot-beamer';
+    return wpn === 'goodbot-pistol' || wpn === 'goodbot-assault-laser' || wpn === 'goodbot-cannon' || wpn === 'goodbot-beamer';
 }
 
 function syncCanvasCrosshairCursor() {
@@ -1612,6 +1703,20 @@ function renderInventorySlots() {
         abilitySlot.appendChild(cdOverlay);
         lastRenderedAbilityCooldownSec = -1;
         updateAbilitySlotCooldown(performance.now());
+    }
+    if (armorSlot) {
+        armorSlot.textContent = '';
+        const equippedArmor = ME.armor || null;
+        const armorItem = equippedArmor ? ITEM_BY_ID[equippedArmor] : null;
+        const imgSrc = equippedArmor ? (ITEM_SLOT_IMAGES[equippedArmor] || (equippedArmor === 'rarebot-armor' ? 'assets/Rarebot Armor.png' : null)) : null;
+        if (imgSrc) {
+            const img = document.createElement('img');
+            img.className = 'slot-item-img';
+            img.src = imgSrc;
+            img.alt = armorItem ? armorItem.title : equippedArmor;
+            img.draggable = false;
+            armorSlot.appendChild(img);
+        }
     }
     if (mobileAbilityBtn) {
         const canUseAbility = Boolean(myAbility) && ME.faction === 'goodbot';
@@ -2105,10 +2210,15 @@ const rarebotBulletImg = new Image();
 const rarebotHealBulletImg = new Image();
 const goodbotGrenadeImg = new Image();
 const goodbotBeamerImg = new Image();
+const goodbotAssaultLaserImg = new Image();
+const rarebotAssaultLaserImg = new Image();
 const goodbotArmorImg = new Image();
+const rarebotArmorImg = new Image();
 const rarebotHealerGunImg = new Image();
 const rarebotDropshipImg = new Image();
 const goodbotDropshipImg = new Image();
+const rarebotDropshipRotorImg = new Image();
+const goodbotDropshipRotorImg = new Image();
 
 let audioCtx = null;
 let soundBuffersLoaded = false;
@@ -2371,15 +2481,19 @@ function preRenderMap() {
     fullCtx.imageSmoothingEnabled = false;
     fullCtx.clearRect(0, 0, fullW, fullH);
     const fullLayers = ['floor1', 'floor2', 'wall', 'tree'];
+    const fullWallGrid = WORLD.MAP.mapData.wall;
     for (let li = 0; li < fullLayers.length; li++) {
-        const grid = WORLD.MAP.mapData[fullLayers[li]];
+        const fullLayerName = fullLayers[li];
+        const grid = WORLD.MAP.mapData[fullLayerName];
         if (!grid) continue;
         for (let r = 0; r < WORLD.MAP.rows; r++) {
             const rowArr = grid[r];
             if (!rowArr) continue;
+            const wallRow = fullWallGrid ? fullWallGrid[r] : null;
             for (let c = 0; c < WORLD.MAP.columns; c++) {
                 const cell = rowArr[c];
                 if (!cell) continue;
+                if (fullLayerName === 'floor1' && cell.tx === 5 && cell.ty === 48 && wallRow && wallRow[c]) continue;
                 const sInset = 0.5;
                 const ts = WORLD.MAP.tileSize;
                 const sSize = ts - sInset * 2;
@@ -2446,6 +2560,7 @@ function renderChunk(cx, cy) {
     let fMinX = cs, fMinY = cs, fMaxX = 0, fMaxY = 0;
 
     const layerOrder = ['floor1', 'floor2', 'wall', 'tree'];
+    const wallGrid = WORLD.MAP.mapData.wall;
     for (const layerName of layerOrder) {
         const grid = WORLD.MAP.mapData[layerName];
         if (!grid) continue;
@@ -2454,9 +2569,11 @@ function renderChunk(cx, cy) {
         for (let r = startRow; r < endRow; r++) {
             const rowArr = grid[r];
             if (!rowArr) continue;
+            const wallRow = wallGrid ? wallGrid[r] : null;
             for (let c = startCol; c < endCol; c++) {
                 const cell = rowArr[c];
                 if (cell) {
+                    if (layerName === 'floor1' && cell.tx === 5 && cell.ty === 48 && wallRow && wallRow[c]) continue;
                     const dx = (c * tileSize) - (cx * cs);
                     const dy = (r * tileSize) - (cy * cs);
                     if (layerName === 'wall') {
@@ -2519,10 +2636,15 @@ function loadAssets() {
     goodbotCannonImg.onload = refreshIcons;
     rarebotPistolImg.onload = refreshIcons;
     goodbotBeamerImg.onload = refreshIcons;
+    goodbotAssaultLaserImg.onload = refreshIcons;
+    rarebotAssaultLaserImg.onload = refreshIcons;
     goodbotArmorImg.onload = refreshIcons;
+    rarebotArmorImg.onload = refreshIcons;
     rarebotHealerGunImg.onload = refreshIcons;
     rarebotDropshipImg.onload = refreshIcons;
     goodbotDropshipImg.onload = refreshIcons;
+    rarebotDropshipRotorImg.onload = refreshIcons;
+    goodbotDropshipRotorImg.onload = refreshIcons;
     goodbotImg.src = 'assets/Goodbot.png';
     rarebotImg.src = 'assets/Rarebot.png';
     prototypeRarebotImg.src = 'assets/Prototype Rarebot.png';
@@ -2532,7 +2654,10 @@ function loadAssets() {
     goodbotCannonImg.src = 'assets/Goodbot Cannon.png';
     rarebotPistolImg.src = 'assets/Rarebot Pistol.png';
     goodbotBeamerImg.src = 'assets/Goodbot Beamer.png';
+    goodbotAssaultLaserImg.src = 'assets/Goodbot Assault Laser.png';
+    rarebotAssaultLaserImg.src = 'assets/Rarebot Assault Laser.png';
     goodbotArmorImg.src = 'assets/Goodbot Armor.png';
+    rarebotArmorImg.src = 'assets/Rarebot Armor.png';
     rarebotHealerGunImg.src = 'assets/Rarebot Healer Gun.png';
     goodbotBulletImg.src = 'assets/Goodbot Bullet.png';
     goodbotCannonBallImg.src = 'assets/Goodbot Cannon Ball.png';
@@ -2541,6 +2666,8 @@ function loadAssets() {
     goodbotGrenadeImg.src = 'assets/Goodbot Grenade.png';
     rarebotDropshipImg.src = 'assets/Rarebot Dropship.png';
     goodbotDropshipImg.src = 'assets/Goodbot Dropship.png';
+    rarebotDropshipRotorImg.src = 'assets/Rarebot Dropship Rotor.png';
+    goodbotDropshipRotorImg.src = 'assets/Goodbot Dropship Rotor.png';
 }
 
 function updateStatsUI() {
@@ -3768,9 +3895,12 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
     ctx.translate(x, y);
     const isCannon = weapon === 'goodbot-cannon';
     const isBeamer = weapon === 'goodbot-beamer';
+    const isGoodbotAssaultLaser = weapon === 'goodbot-assault-laser';
+    const isRarebotAssaultLaser = weapon === 'rarebot-assault-laser';
+    const isAssaultLaser = isGoodbotAssaultLaser || isRarebotAssaultLaser;
     const isHealer = weapon === 'healer-gun';
     const isDualPistol = weapon === 'dual-pistol';
-    const isRangedWeapon = isCannon || isBeamer || isHealer || isDualPistol || weapon === 'goodbot-pistol' || weapon === 'pistol';
+    const isRangedWeapon = isCannon || isBeamer || isAssaultLaser || isHealer || isDualPistol || weapon === 'goodbot-pistol' || weapon === 'pistol';
     ctx.rotate(angle + (isRangedWeapon ? 0 : swingOffset));
     const refW = goodbotImg.complete && goodbotImg.naturalWidth > 0 ? goodbotImg.naturalWidth : 512;
     const refH = goodbotImg.complete && goodbotImg.naturalHeight > 0 ? goodbotImg.naturalHeight : 512;
@@ -3778,11 +3908,15 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
     if (isRangedWeapon) {
         const weaponImg = isBeamer
             ? goodbotBeamerImg
-            : (isHealer
-                ? rarebotHealerGunImg
-                : (isCannon
-                    ? goodbotCannonImg
-                    : ((weapon === 'pistol' || isDualPistol) ? rarebotPistolImg : goodbotPistolImg)));
+            : (isGoodbotAssaultLaser
+                ? goodbotAssaultLaserImg
+                : (isRarebotAssaultLaser
+                    ? rarebotAssaultLaserImg
+                    : (isHealer
+                        ? rarebotHealerGunImg
+                        : (isCannon
+                            ? goodbotCannonImg
+                            : ((weapon === 'pistol' || isDualPistol) ? rarebotPistolImg : goodbotPistolImg)))));
         const fullW = weaponImg ? weaponImg.naturalWidth : 0;
         const fullH = weaponImg ? weaponImg.naturalHeight : 0;
         if (weaponImg && weaponImg.complete && fullW > 0) {
@@ -3796,7 +3930,7 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
             const baseTopY = -anchorY * pxScaleY;
             const bodyScale = sW / 48;
 
-            if (isCannon || isBeamer) {
+            if (isCannon || isBeamer || isAssaultLaser) {
                 const fullDrawW = fullW * pxScaleX;
                 const fullMip = getScaledSpriteCanvas(
                     `${weapon}_ALL`,
@@ -4034,7 +4168,7 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
     const isSpectator = faction === 'spectator';
 
     if (spriteKind === 'dropship') {
-        drawDropshipSprite(ctx, x, y, sW, sH, faction, angle);
+        drawDropshipSprite(ctx, x, y, sW, sH, faction, angle, nowMs);
         if (label) {
             drawEntityLabel(x, y, sH, label, faction);
         }
@@ -4067,6 +4201,9 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         ctx.drawImage(bodyMip, -sW / 2, -sH / 2, sW, sH);
         if (armor === 'goodbot-armor' && !isSpectator && faction === 'goodbot' && goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
             const armorMip = getScaledSpriteCanvas('armor_goodbot', goodbotArmorImg, 0, 0, goodbotArmorImg.naturalWidth, goodbotArmorImg.naturalHeight, width, height) || goodbotArmorImg;
+            ctx.drawImage(armorMip, -sW / 2, -sH / 2, sW, sH);
+        } else if ((armor === 'rarebot-armor' || spriteKind === 'rarebot3') && !isSpectator && faction === 'rarebot' && rarebotArmorImg.complete && rarebotArmorImg.naturalWidth > 0) {
+            const armorMip = getScaledSpriteCanvas('armor_rarebot', rarebotArmorImg, 0, 0, rarebotArmorImg.naturalWidth, rarebotArmorImg.naturalHeight, width, height) || rarebotArmorImg;
             ctx.drawImage(armorMip, -sW / 2, -sH / 2, sW, sH);
         }
         ctx.restore();
@@ -4551,15 +4688,15 @@ function render() {
             const eInTree = isWorldPointInTree(eWorldCX, eWorldCY);
             const showBars = !eInTree && ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs;
             const eWeapon = e.weapon || 'hands';
-            const eLabel = e.name || (eKind === 'healer' ? 'Healer Rarebot' : (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot')));
-            const defMaxH = eKind === 'prototype' ? 120 : (eKind === 'rarebot2' ? 475 : 255);
+            const eLabel = e.name || (eKind === 'healer' ? 'Healer Rarebot' : (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot3' ? 'Rarebot 3.0' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot'))));
+            const defMaxH = eKind === 'prototype' ? 120 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : 255));
             const bars = showBars ? {
                 health: e.health ?? defMaxH,
                 maxHealth: e.maxHealth ?? defMaxH,
                 energy: e.energy ?? (eKind === 'prototype' ? 100 : 50),
                 maxEnergy: e.maxEnergy ?? (eKind === 'prototype' ? 100 : 50)
             } : null;
-            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, null, 'rarebot', true, getSwingOffset(key, nowMs), bars, eKind, eWeapon, key, nowMs);
+            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, null, 'rarebot', true, getSwingOffset(key, nowMs), bars, eKind, eWeapon, key, nowMs, e.armor || (eKind === 'rarebot3' ? 'rarebot-armor' : null));
             if (!eInTree && eLabel) {
                 pendingEntityLabels.push({ x: eRX, y: eRY, sH: eh * es, label: eLabel, faction: 'rarebot' });
             }
@@ -4589,13 +4726,14 @@ function render() {
                     showBars = clientHasLOS(meCX, meCY, aWorldCX, aWorldCY);
                 }
             }
+            const aDefMaxH = a.weapon === 'goodbot-assault-laser' ? 1500 : 1000;
             const bars = showBars ? {
-                health: a.health ?? 1000,
-                maxHealth: a.maxHealth ?? 1000,
+                health: a.health ?? aDefMaxH,
+                maxHealth: a.maxHealth ?? aDefMaxH,
                 energy: a.energy ?? 255,
                 maxEnergy: a.maxEnergy ?? 255
             } : null;
-            drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, null, 'goodbot', true, getSwingOffset(key, nowMs), bars, aKind, a.weapon || 'hands', key, nowMs);
+            drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, null, 'goodbot', true, getSwingOffset(key, nowMs), bars, aKind, a.weapon || 'hands', key, nowMs, a.armor || (a.weapon === 'goodbot-assault-laser' ? 'goodbot-armor' : null));
             if (!aInTree) {
                 pendingEntityLabels.push({ x: aRX, y: aRY, sH: ah * as, label: a.name || 'Goodbot', faction: 'goodbot' });
             }
@@ -4657,19 +4795,47 @@ function render() {
     ctx.imageSmoothingEnabled = false;
     for (let cy = startCY; cy <= endCY; cy++) {
         const wy0 = cy * cs;
+        const maxLocalH = Math.min(cs, mapH - wy0);
+        if (maxLocalH <= 0) continue;
         for (let cx = startCX; cx <= endCX; cx++) {
-            const bounds = WORLD.MAP.wallChunkBounds[cy] ? WORLD.MAP.wallChunkBounds[cy][cx] : null;
-            if (!bounds) continue;
-            drawClippedChunk(WORLD.MAP.wallChunks[cy][cx], cx * cs, wy0, bounds, camX, camY, visW, visH, vs);
+            if (WORLD.MAP.wallChunkEmpty[cy] && WORLD.MAP.wallChunkEmpty[cy][cx]) continue;
+            const wx0 = cx * cs;
+            const maxLocalW = Math.min(cs, mapW - wx0);
+            if (maxLocalW <= 0) continue;
+            drawClippedChunk(
+                WORLD.MAP.wallChunks[cy][cx],
+                wx0,
+                wy0,
+                { minX: 0, minY: 0, maxX: maxLocalW, maxY: maxLocalH },
+                camX,
+                camY,
+                visW,
+                visH,
+                vs
+            );
         }
     }
 
     for (let cy = startCY; cy <= endCY; cy++) {
         const wy0 = cy * cs;
+        const maxLocalH = Math.min(cs, mapH - wy0);
+        if (maxLocalH <= 0) continue;
         for (let cx = startCX; cx <= endCX; cx++) {
-            const bounds = WORLD.MAP.fgChunkBounds[cy] ? WORLD.MAP.fgChunkBounds[cy][cx] : null;
-            if (!bounds) continue;
-            drawClippedChunk(WORLD.MAP.fgChunks[cy][cx], cx * cs, wy0, bounds, camX, camY, visW, visH, vs);
+            if (WORLD.MAP.fgChunkEmpty[cy] && WORLD.MAP.fgChunkEmpty[cy][cx]) continue;
+            const wx0 = cx * cs;
+            const maxLocalW = Math.min(cs, mapW - wx0);
+            if (maxLocalW <= 0) continue;
+            drawClippedChunk(
+                WORLD.MAP.fgChunks[cy][cx],
+                wx0,
+                wy0,
+                { minX: 0, minY: 0, maxX: maxLocalW, maxY: maxLocalH },
+                camX,
+                camY,
+                visW,
+                visH,
+                vs
+            );
         }
     }
     ctx.restore();
@@ -5512,9 +5678,10 @@ async function connectToServer() {
         }
 
         if (data.type === 'ability_left_swing') {
-            const key = `player:${data.id}`;
+            const kind = data.kind === 'ally' ? 'ally' : 'player';
+            const key = `${kind}:${data.id}`;
             const nowMs = performance.now();
-            if (!(data.id === myId && nowMs - lastLocalAbilityAt < 250)) {
+            if (!(kind === 'player' && data.id === myId && nowMs - lastLocalAbilityAt < 250)) {
                 leftPunchAnims.set(key, nowMs);
                 playSpatialSound('swing', data.x, data.y);
             }
@@ -5927,6 +6094,7 @@ async function connectToServer() {
                     const nextArmor = incoming.armor || null;
                     if (nextArmor !== ME.armor) {
                         ME.armor = nextArmor;
+                        renderInventorySlots();
                         refreshShopAffordability();
                     }
                     ME.scraps = pScraps;
@@ -6003,7 +6171,7 @@ async function connectToServer() {
                 for (const id in data.enemies) {
                     const incoming = data.enemies[id];
                     const eKind = incoming.kind || 'rarebot';
-                    const defMaxH = eKind === 'dropship' ? 8000 : (eKind === 'prototype' ? 120 : (eKind === 'rarebot2' ? 475 : 255));
+                    const defMaxH = eKind === 'dropship' ? 8000 : (eKind === 'prototype' ? 120 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : 255)));
                     const defMaxE = eKind === 'prototype' ? 100 : 50;
                     const defSize = eKind === 'dropship' ? 224 : 48;
                     const existing = serverEnemies[id];
@@ -6022,6 +6190,7 @@ async function connectToServer() {
                         existing.name = incoming.name !== undefined ? incoming.name : existing.name;
                         existing.kind = eKind;
                         existing.weapon = incoming.weapon || 'hands';
+                        existing.armor = incoming.armor || null;
                         existing.health = incoming.health ?? existing.health;
                         existing.maxHealth = incoming.maxHealth ?? defMaxH;
                         existing.energy = incoming.energy ?? existing.energy;
@@ -6042,6 +6211,7 @@ async function connectToServer() {
                             maxHealth: incoming.maxHealth ?? defMaxH,
                             maxEnergy: incoming.maxEnergy ?? defMaxE,
                             weapon: incoming.weapon || 'hands',
+                            armor: incoming.armor || null,
                             width: incoming.width || defSize,
                             height: incoming.height || defSize,
                             renderX: incoming.x,
@@ -6063,7 +6233,7 @@ async function connectToServer() {
                     const incoming = data.allies[id];
                     const aKind = incoming.kind || null;
                     const aDefSize = aKind === 'dropship' ? 224 : 48;
-                    const aDefMaxH = aKind === 'dropship' ? 8000 : 1000;
+                    const aDefMaxH = aKind === 'dropship' ? 8000 : (incoming.weapon === 'goodbot-assault-laser' ? 1500 : 1000);
                     const existing = serverAllies[id];
                     if (existing) {
                         const dx = incoming.x - existing.renderX;
@@ -6080,6 +6250,7 @@ async function connectToServer() {
                         existing.kind = aKind;
                         existing.name = incoming.name || existing.name || (aKind === 'dropship' ? 'Goodbot Dropship' : 'Goodbot');
                         existing.weapon = incoming.weapon || 'hands';
+                        existing.armor = incoming.armor || null;
                         existing.health = incoming.health ?? existing.health;
                         existing.maxHealth = incoming.maxHealth ?? aDefMaxH;
                         existing.energy = incoming.energy ?? existing.energy;
@@ -6101,6 +6272,7 @@ async function connectToServer() {
                             maxHealth: incoming.maxHealth ?? aDefMaxH,
                             maxEnergy: incoming.maxEnergy ?? 255,
                             weapon: incoming.weapon || 'hands',
+                            armor: incoming.armor || null,
                             width: incoming.width || aDefSize,
                             height: incoming.height || aDefSize,
                             renderX: incoming.x,
@@ -6354,6 +6526,7 @@ function triggerAttack(isHoldRepeat = false) {
     const equippedWeapon = getMyEquippedWeapon();
     const isCannon = equippedWeapon === 'goodbot-cannon';
     const isPistol = equippedWeapon === 'goodbot-pistol';
+    const isAssaultLaser = equippedWeapon === 'goodbot-assault-laser';
     const isBeamer = equippedWeapon === 'goodbot-beamer';
     const nowMs = performance.now();
 
@@ -6370,7 +6543,7 @@ function triggerAttack(isHoldRepeat = false) {
         return;
     }
 
-    const cooldown = isCannon ? 2008 : (isPistol ? 408 : (ME.faction === 'rarebot' ? 508 : 428));
+    const cooldown = isCannon ? 2008 : (isAssaultLaser ? 156 : (isPistol ? 408 : (ME.faction === 'rarebot' ? 508 : 428)));
     if (nowMs - lastAttackSentAt < cooldown) return;
     lastAttackSentAt = nowMs;
 
@@ -6378,7 +6551,7 @@ function triggerAttack(isHoldRepeat = false) {
     lastSentAngle = roundedAttackAngle;
     lastInputSendTime = nowMs;
 
-    if (isCannon || isPistol) {
+    if (isCannon || isPistol || isAssaultLaser) {
         lastLocalShotAt = nowMs;
         recoilAnims.set(`player:${myId}`, { at: nowMs, strong: isCannon });
         playSpatialSound(isCannon ? 'laserCannonShot' : 'laserShot', ME.x + ME.width / 2, ME.y + ME.height / 2);
@@ -6957,6 +7130,21 @@ window.addEventListener('DOMContentLoaded', () => {
                 hideShopTooltip();
             }
             triggerAbility(true);
+        });
+    }
+
+    if (armorSlot) {
+        armorSlot.addEventListener('pointerenter', (e) => {
+            if (e.pointerType !== 'mouse' || dragState || isShopOpen) return;
+            const itemDef = ME.armor ? ITEM_BY_ID[ME.armor] : null;
+            if (itemDef) {
+                showShopTooltip(itemDef, armorSlot, false, true);
+            }
+        });
+        armorSlot.addEventListener('pointerleave', () => {
+            if (!isShopOpen) {
+                hideShopTooltip();
+            }
         });
     }
 
