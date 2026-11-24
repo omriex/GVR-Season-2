@@ -1155,11 +1155,11 @@ const SHOP_ITEMS = [
         id: 'goodbot-cannon',
         title: 'Goodbot Cannon',
         kind: 'weapon',
-        description: 'Heavy cannon that recoils strongly and fires a spinning cannonball, triggering a purple stun shockwave for 1s and dealing 250 AoE damage with knockback.',
+        description: 'Heavy cannon that recoils strongly and fires a spinning cannonball, triggering a purple stun shockwave for 1s and dealing 250 AoE damage divided among affected enemies with knockback.',
         cost: 500,
         slotImage: 'assets/Goodbot Cannon Slot.png',
         stats: [
-            { label: 'Damage', value: '250 AoE' },
+            { label: 'Damage', value: '250 Split AoE' },
             { label: 'Cooldown', value: '2s' },
             { label: 'Stun', value: '1s' }
         ]
@@ -1218,12 +1218,12 @@ const SHOP_UNITS = [
         customTypeLabel: 'UNIT',
         bodyType: 'goodbot',
         weapon: 'goodbot-cannon',
-        description: 'Deploys a smart AI heavy ranged Goodbot wielding the Goodbot Cannon that follows you, dodges hits/bullets, and deals 250 AoE damage + 1s stun.',
+        description: 'Deploys a smart AI heavy ranged Goodbot wielding the Goodbot Cannon that follows you, dodges hits/bullets, and deals 250 AoE damage divided among affected enemies + 1s stun.',
         cost: 700,
         stats: [
             { label: 'HP', value: '1000' },
             { label: 'Weapon', value: 'Goodbot Cannon' },
-            { label: 'Damage', value: '250 AoE / 2s CD' },
+            { label: 'Damage', value: '250 Split AoE / 2s CD' },
             { label: 'Stun', value: '1s' }
         ]
     }
