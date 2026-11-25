@@ -198,6 +198,7 @@ let lastAttackSentAt = 0;
 let lastBeamerHoldSentAt = 0;
 let lastLocalShotAt = 0;
 let isAttackHeld = false;
+let isBeamerActive = false;
 let dragState = null;
 let lastEquippedItemKey = null;
 
@@ -2914,6 +2915,9 @@ function selectSlot(idx, notifyServer = true) {
     if (!inventorySlots || inventorySlots.length === 0) return;
     if (idx < 0 || idx >= inventorySlots.length) return;
     const prevSlot = activeSlot;
+    if (prevSlot !== idx) {
+        isBeamerActive = false;
+    }
     activeSlot = idx;
     for (let i = 0; i < inventorySlots.length; i++) {
         if (i === activeSlot) inventorySlots[i].classList.add('active');
@@ -3325,7 +3329,11 @@ function update(dt) {
 
     const nowMs = performance.now();
     updateAbilitySlotCooldown(nowMs);
-    const crosshairClosing = isRangedCrosshairActive() && (isAttackHeld || (nowMs - lastLocalShotAt < 260));
+    const isBeamerEquipped = getMyEquippedWeapon() === 'goodbot-beamer';
+    if (!isBeamerEquipped || ME.faction !== 'goodbot') {
+        isBeamerActive = false;
+    }
+    const crosshairClosing = isRangedCrosshairActive() && (isAttackHeld || isBeamerActive || (nowMs - lastLocalShotAt < 260));
     crosshairGap = crosshairClosing ? 1 : 9;
     syncCanvasCrosshairCursor();
 
@@ -3351,7 +3359,7 @@ function update(dt) {
         }
     }
 
-    if (isAttackHeld && !inMainMenu && myId !== null && !isSettingsOpen && !isWaveLeaderboardOpen && !isLeaveDialogOpen && !isShopOpen && !isModDialogOpen && !isAdminPanelOpen && !isMapExpanded && document.activeElement !== chatInput && (!tokenInput || document.activeElement !== tokenInput)) {
+    if ((isAttackHeld || (isBeamerEquipped && isBeamerActive)) && !inMainMenu && myId !== null && !isSettingsOpen && !isWaveLeaderboardOpen && !isLeaveDialogOpen && !isShopOpen && !isModDialogOpen && !isAdminPanelOpen && !isMapExpanded && document.activeElement !== chatInput && (!tokenInput || document.activeElement !== tokenInput)) {
         triggerAttack(true);
     }
 
@@ -6339,6 +6347,7 @@ if (window.visualViewport) {
 
 function clearHeldInputs() {
     isAttackHeld = false;
+    isBeamerActive = false;
     let changed = false;
     for (const k in WORLD.INPUTS.keys) {
         if (WORLD.INPUTS.keys[k]) {
@@ -6614,6 +6623,14 @@ window.addEventListener('mousedown', (e) => {
         return;
     }
     if (e.button !== 0) return;
+    if (getMyEquippedWeapon() === 'goodbot-beamer') {
+        isAttackHeld = false;
+        isBeamerActive = !isBeamerActive;
+        if (isBeamerActive) {
+            triggerAttack(false);
+        }
+        return;
+    }
     isAttackHeld = true;
     triggerAttack();
 });
@@ -6689,6 +6706,14 @@ window.addEventListener('DOMContentLoaded', () => {
     if (mobileAttackBtn) {
         mobileAttackBtn.addEventListener('touchstart', (e) => {
             e.preventDefault();
+            if (getMyEquippedWeapon() === 'goodbot-beamer') {
+                isAttackHeld = false;
+                isBeamerActive = !isBeamerActive;
+                if (isBeamerActive) {
+                    triggerAttack(false);
+                }
+                return;
+            }
             isAttackHeld = true;
             triggerAttack();
         }, { passive: false });
@@ -6702,6 +6727,14 @@ window.addEventListener('DOMContentLoaded', () => {
         mobileAttackBtn.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
             e.preventDefault();
+            if (getMyEquippedWeapon() === 'goodbot-beamer') {
+                isAttackHeld = false;
+                isBeamerActive = !isBeamerActive;
+                if (isBeamerActive) {
+                    triggerAttack(false);
+                }
+                return;
+            }
             isAttackHeld = true;
             triggerAttack();
         });
