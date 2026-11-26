@@ -155,6 +155,7 @@ const ME = {
     scraps: 0,
     faction: 'goodbot',
     armor: null,
+    sprinting: false,
     chats: []
 };
 
@@ -207,6 +208,11 @@ const recoilAnims = new Map();
 const leftRecoilAnims = new Map();
 const equipAnims = new Map();
 const leftPunchAnims = new Map();
+const sprintAnims = new Map();
+let sprintAnimSeq = 0;
+let meLocalExhausted = false;
+const sprintDustParticles = [];
+const MAX_SPRINT_DUST_PARTICLES = 120;
 const enemyAggroUntil = new Map();
 const enemyAlertBadges = new Map();
 const alertCommWaves = [];
@@ -227,6 +233,7 @@ const MAX_EXPLOSION_PARTICLES = 240;
 const GRENADE_DRAW_SIZE = 17.68;
 const EXPLOSION_COLORS = ['#ff2a00', '#ff7b00', '#ffd000', '#ff4d00'];
 const GRENADE_EXPLOSION_COLORS = ['#d84aff', '#b833ff', '#9400e6', '#f0aaff'];
+const RAREBOT_GRENADE_EXPLOSION_COLORS = ['#ff2a2a', '#ff5238', '#d9001b', '#ff998a'];
 const GOODBOT_BULLET_EXPLOSION_COLORS = ['#d84aff', '#a800ff', '#f0aaff', '#ffffff'];
 const RAREBOT_BULLET_EXPLOSION_COLORS = ['#ff2a00', '#ff5e3a', '#ff9900', '#ffffff'];
 
@@ -420,11 +427,15 @@ function returnToMainMenu() {
     leftRecoilAnims.clear();
     equipAnims.clear();
     leftPunchAnims.clear();
+    sprintAnims.clear();
+    meLocalExhausted = false;
+    ME.sprinting = false;
     enemyAggroUntil.clear();
     enemyAlertBadges.clear();
     alertCommWaves.length = 0;
     dropslideEmitters.length = 0;
     dropslideParticles.length = 0;
+    sprintDustParticles.length = 0;
     serverProjectiles.clear();
     serverGrenades = [];
     grenadeShockwaves.length = 0;
@@ -1002,6 +1013,15 @@ const ADMIN_SPAWN_OPTIONS = [
         stats: [{ label: 'HP', value: '255' }, { label: 'Heal', value: '60 / Shot' }, { label: 'Team', value: 'Rarebot' }]
     },
     {
+        id: 'rarebot-grenadier',
+        title: 'Rarebot Grenadier',
+        kindLabel: 'ENEMY',
+        description: 'Tactical Rarebot that hides behind cover or allies while loading a red grenade, and rarely throws fast ugly punches up close.',
+        bodyType: 'rarebot',
+        weapon: 'rarebot-grenade',
+        stats: [{ label: 'HP', value: '320' }, { label: 'Grenade', value: '150 Split AoE (5s)' }, { label: 'Melee', value: '80 Punch' }]
+    },
+    {
         id: 'rarebot-dropship',
         title: 'Rarebot Dropship',
         kindLabel: 'ENEMY',
@@ -1110,6 +1130,7 @@ function createEntityPreviewUrl(opt) {
     let weaponImg = null;
     let wRect = null;
     let dualSplit = null;
+    let heldGrenadeRect = null;
     if (isRangedPreview) {
         weaponImg = isBeamerPreview
             ? goodbotBeamerImg
@@ -1166,6 +1187,22 @@ function createEntityPreviewUrl(opt) {
             if (wy < minY) minY = wy;
             if (wy + wh > maxY) maxY = wy + wh;
         }
+        if (opt.weapon === 'rarebot-grenade') {
+            const pScale = bodySize / 48;
+            const rgReady = rarebotGrenadeImg.complete && rarebotGrenadeImg.naturalWidth > 0;
+            const rgRatio = rgReady ? (rarebotGrenadeImg.naturalHeight / rarebotGrenadeImg.naturalWidth) : 1.1142857;
+            const baseGW = rgRatio > 1.05 ? GRENADE_DRAW_SIZE : 23;
+            const gScale = Math.max(1, 24 / (baseGW * rgRatio));
+            const gw = baseGW * gScale * pScale;
+            const gh = baseGW * rgRatio * gScale * pScale;
+            const gcx = -19.5 * pScale;
+            const gcy = -25 * pScale;
+            heldGrenadeRect = { cx: gcx, cy: gcy, w: gw, h: gh };
+            if (gcx - gw * 0.5 < minX) minX = gcx - gw * 0.5;
+            if (gcx + gw * 0.5 > maxX) maxX = gcx + gw * 0.5;
+            if (gcy - gh * 0.5 < minY) minY = gcy - gh * 0.5;
+            if (gcy + gh * 0.5 > maxY) maxY = gcy + gh * 0.5;
+        }
     }
 
     const totalW = Math.max(1, maxX - minX);
@@ -1187,6 +1224,21 @@ function createEntityPreviewUrl(opt) {
         g.drawImage(weaponImg, dualSplit.sx, 0, dualSplit.rw, dualSplit.fullH, dualSplit.rightX, dualSplit.wy, dualSplit.rightDrawW, dualSplit.wh);
     } else if (weaponImg && wRect) {
         g.drawImage(weaponImg, wRect.wx, wRect.wy, wRect.ww, wRect.wh);
+    }
+
+    if (heldGrenadeRect) {
+        g.save();
+        g.translate(heldGrenadeRect.cx, heldGrenadeRect.cy);
+        g.rotate(-0.18);
+        if (rarebotGrenadeImg.complete && rarebotGrenadeImg.naturalWidth > 0) {
+            g.drawImage(rarebotGrenadeImg, -heldGrenadeRect.w * 0.5, -heldGrenadeRect.h * 0.5, heldGrenadeRect.w, heldGrenadeRect.h);
+        } else {
+            g.fillStyle = '#e02424';
+            g.beginPath();
+            g.arc(0, 0, heldGrenadeRect.w * 0.42, 0, Math.PI * 2);
+            g.fill();
+        }
+        g.restore();
     }
 
     if (bodyImg.complete && bodyImg.naturalWidth > 0) {
@@ -2210,6 +2262,7 @@ const goodbotCannonBallImg = new Image();
 const rarebotBulletImg = new Image();
 const rarebotHealBulletImg = new Image();
 const goodbotGrenadeImg = new Image();
+const rarebotGrenadeImg = new Image();
 const goodbotBeamerImg = new Image();
 const goodbotAssaultLaserImg = new Image();
 const rarebotAssaultLaserImg = new Image();
@@ -2311,7 +2364,7 @@ const lastSoundAt = {
     dropslide: 0
 };
 
-function playSpatialSound(key, wx, wy) {
+function playSpatialSound(key, wx, wy, options = null) {
     const masterVol = window.GAME_AUDIO_SETTINGS ? Number(window.GAME_AUDIO_SETTINGS.soundVolume) : 1;
     if (!isFinite(masterVol) || masterVol <= 0.005) return;
     const nowMs = performance.now();
@@ -2332,9 +2385,14 @@ function playSpatialSound(key, wx, wy) {
         dist = Math.sqrt(dSq);
     }
     const falloff = Math.max(0, Math.min(1, 1 - Math.max(0, dist - 80) / 1000));
-    const volumeMult = key === 'beamerShot' ? 0.55 : ((key === 'hitReceive' || key === 'hitDeal') ? 0.1 : (key === 'grapple1' ? 2.7 : 1));
+    const optVolMult = (options && typeof options.volumeMult === 'number') ? options.volumeMult : 1;
+    const volumeMult = (key === 'beamerShot' ? 0.55 : ((key === 'hitReceive' || key === 'hitDeal') ? 0.1 : (key === 'grapple1' ? 2.7 : 1))) * optVolMult;
     const gainValue = falloff * falloff * masterVol * volumeMult;
     if (gainValue <= 0.005) return;
+
+    const playbackRate = (options && typeof options.playbackRate === 'number')
+        ? options.playbackRate
+        : (key === 'beamerShot' ? 0.78 : 1);
 
     const bufferKey = key === 'beamerShot' ? 'laserShot' : key;
     if (!soundBuffers[bufferKey]) {
@@ -2348,8 +2406,8 @@ function playSpatialSound(key, wx, wy) {
             try {
                 const source = ctxAudio.createBufferSource();
                 source.buffer = soundBuffers[bufferKey];
-                if (key === 'beamerShot') {
-                    source.playbackRate.value = 0.78;
+                if (playbackRate !== 1) {
+                    source.playbackRate.value = playbackRate;
                 }
                 const gainNode = ctxAudio.createGain();
                 gainNode.gain.value = gainValue;
@@ -2365,8 +2423,8 @@ function playSpatialSound(key, wx, wy) {
     try {
         const source = ctxAudio.createBufferSource();
         source.buffer = soundBuffers[bufferKey];
-        if (key === 'beamerShot') {
-            source.playbackRate.value = 0.78;
+        if (playbackRate !== 1) {
+            source.playbackRate.value = playbackRate;
         }
         const gainNode = ctxAudio.createGain();
         gainNode.gain.value = gainValue;
@@ -2665,6 +2723,7 @@ function loadAssets() {
     rarebotBulletImg.src = 'assets/Rarebot Bullet.png';
     rarebotHealBulletImg.src = 'assets/Rarebot Heal Bullet.png';
     goodbotGrenadeImg.src = 'assets/Goodbot Grenade.png';
+    rarebotGrenadeImg.src = 'assets/Rarebot Grenade.png';
     rarebotDropshipImg.src = 'assets/Rarebot Dropship.png';
     goodbotDropshipImg.src = 'assets/Goodbot Dropship.png';
     rarebotDropshipRotorImg.src = 'assets/Rarebot Dropship Rotor.png';
@@ -3124,6 +3183,107 @@ function update(dt) {
         a.renderAngle += diff * (1 - Math.exp(-dt * 20));
     }
 
+    sprintAnimSeq++;
+    if (!inMainMenu && myId !== null) {
+        if (ME.energy <= 0) meLocalExhausted = true;
+        if (!WORLD.INPUTS.keys.shift || ME.energy >= 15) meLocalExhausted = false;
+        const meMoveInput = WORLD.INPUTS.keys.w || WORLD.INPUTS.keys.s || WORLD.INPUTS.keys.a || WORLD.INPUTS.keys.d ||
+            WORLD.INPUTS.keys.arrowup || WORLD.INPUTS.keys.arrowdown || WORLD.INPUTS.keys.arrowleft || WORLD.INPUTS.keys.arrowright;
+        const meIntentSprint = ME.faction !== 'spectator' && (
+            Boolean(ME.sprinting) ||
+            (WORLD.INPUTS.keys.shift && meMoveInput && ME.energy > 0 && !meLocalExhausted)
+        );
+        let meAnimVx = ME.vx;
+        let meAnimVy = ME.vy;
+        if (meIntentSprint && Math.hypot(meAnimVx, meAnimVy) < 20 && meMoveInput) {
+            const ix = (WORLD.INPUTS.keys.d || WORLD.INPUTS.keys.arrowright ? 1 : 0) - (WORLD.INPUTS.keys.a || WORLD.INPUTS.keys.arrowleft ? 1 : 0);
+            const iy = (WORLD.INPUTS.keys.s || WORLD.INPUTS.keys.arrowdown ? 1 : 0) - (WORLD.INPUTS.keys.w || WORLD.INPUTS.keys.arrowup ? 1 : 0);
+            const ilen = Math.hypot(ix, iy);
+            if (ilen > 0) {
+                meAnimVx = (ix / ilen) * 260;
+                meAnimVy = (iy / ilen) * 260;
+            }
+        }
+        stepEntitySprintAnim(
+            `player:${myId}`,
+            meIntentSprint,
+            meAnimVx,
+            meAnimVy,
+            ME.angle,
+            ME.x + ME.width * 0.5,
+            ME.y + ME.height * 0.5,
+            ME.width * 0.5,
+            dt,
+            sprintAnimSeq,
+            true
+        );
+
+        for (const id in serverPlayers) {
+            const p = serverPlayers[id];
+            if ((p.faction || 'goodbot') === 'spectator') continue;
+            const pw = p.width || 48;
+            const ph = p.height || 48;
+            stepEntitySprintAnim(
+                `player:${id}`,
+                Boolean(p.sprinting),
+                p.vx || 0,
+                p.vy || 0,
+                p.renderAngle ?? p.angle ?? 0,
+                (p.renderX ?? p.x) + pw * 0.5,
+                (p.renderY ?? p.y) + ph * 0.5,
+                pw * 0.5,
+                dt,
+                sprintAnimSeq,
+                false
+            );
+        }
+
+        for (const id in serverEnemies) {
+            const e = serverEnemies[id];
+            if ((e.kind || 'rarebot') === 'dropship') continue;
+            const ew = e.width || 48;
+            const eh = e.height || 48;
+            stepEntitySprintAnim(
+                `enemy:${id}`,
+                Boolean(e.sprinting),
+                e.vx || 0,
+                e.vy || 0,
+                e.renderAngle ?? e.angle ?? 0,
+                (e.renderX ?? e.x) + ew * 0.5,
+                (e.renderY ?? e.y) + eh * 0.5,
+                ew * 0.5,
+                dt,
+                sprintAnimSeq,
+                false
+            );
+        }
+
+        for (const id in serverAllies) {
+            const a = serverAllies[id];
+            if (a.kind === 'dropship') continue;
+            const aw = a.width || 48;
+            const ah = a.height || 48;
+            stepEntitySprintAnim(
+                `ally:${id}`,
+                Boolean(a.sprinting),
+                a.vx || 0,
+                a.vy || 0,
+                a.renderAngle ?? a.angle ?? 0,
+                (a.renderX ?? a.x) + aw * 0.5,
+                (a.renderY ?? a.y) + ah * 0.5,
+                aw * 0.5,
+                dt,
+                sprintAnimSeq,
+                false
+            );
+        }
+    }
+    for (const [key, anim] of sprintAnims) {
+        if (anim.seq !== sprintAnimSeq) {
+            sprintAnims.delete(key);
+        }
+    }
+
     for (const [id, proj] of serverProjectiles) {
         proj.x += proj.vx * dt;
         proj.y += proj.vy * dt;
@@ -3193,6 +3353,23 @@ function update(dt) {
             pt.y += pt.vy * dt;
             pt.vx *= drag;
             pt.vy *= drag;
+        }
+    }
+
+    if (sprintDustParticles.length > 0) {
+        const dustDrag = Math.pow(0.08, dt);
+        for (let i = sprintDustParticles.length - 1; i >= 0; i--) {
+            const pt = sprintDustParticles[i];
+            pt.age += dt;
+            if (pt.age >= pt.life) {
+                sprintDustParticles[i] = sprintDustParticles[sprintDustParticles.length - 1];
+                sprintDustParticles.pop();
+                continue;
+            }
+            pt.x += pt.vx * dt;
+            pt.y += pt.vy * dt;
+            pt.vx *= dustDrag;
+            pt.vy *= dustDrag;
         }
     }
 
@@ -3399,31 +3576,34 @@ function spawnExplosionParticles(wx, wy) {
     }
 }
 
-function spawnGrenadeExplosionParticles(wx, wy, radius = 192) {
+function spawnGrenadeExplosionParticles(wx, wy, radius = 192, variant = 'goodbot') {
+    const isRarebot = variant === 'rarebot';
+    const palette = isRarebot ? RAREBOT_GRENADE_EXPLOSION_COLORS : GRENADE_EXPLOSION_COLORS;
     grenadeShockwaves.push({
         x: wx,
         y: wy,
         radius,
         age: 0,
-        life: 0.44,
-        isExplosionFlash: true
+        life: isRarebot ? 0.5 : 0.44,
+        isExplosionFlash: true,
+        variant: isRarebot ? 'rarebot' : 'goodbot'
     });
-    const count = 44;
+    const count = isRarebot ? 54 : 44;
     for (let i = 0; i < count; i++) {
         if (explosions.length >= MAX_EXPLOSION_PARTICLES) {
             explosions.shift();
         }
         const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.45;
-        const speed = 150 + Math.random() * 340;
+        const speed = (isRarebot ? 180 : 150) + Math.random() * (isRarebot ? 390 : 340);
         explosions.push({
             x: wx + (Math.random() - 0.5) * 18,
             y: wy + (Math.random() - 0.5) * 18,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
-            radius: 9 + Math.random() * 14,
+            radius: (isRarebot ? 10.5 : 9) + Math.random() * 14,
             life: 0.45 + Math.random() * 0.4,
             age: 0,
-            color: GRENADE_EXPLOSION_COLORS[Math.floor(Math.random() * GRENADE_EXPLOSION_COLORS.length)]
+            color: palette[Math.floor(Math.random() * palette.length)]
         });
     }
 }
@@ -3519,16 +3699,126 @@ function spawnDropslideWhiteParticles(wx, wy, dx = 0, dy = 0, count = 5) {
     }
 }
 
+function spawnSprintDustPuff(wx, wy, dirX, dirY, sideSign, radius) {
+    if (sprintDustParticles.length >= MAX_SPRINT_DUST_PARTICLES) {
+        sprintDustParticles.shift();
+    }
+    const rightX = -dirY;
+    const rightY = dirX;
+    const footX = wx - dirX * (radius * 0.45) + rightX * (sideSign * radius * 0.42);
+    const footY = wy - dirY * (radius * 0.45) + rightY * (sideSign * radius * 0.42);
+    const backSpread = (Math.random() - 0.5) * 0.7;
+    const backAng = Math.atan2(-dirY, -dirX) + backSpread;
+    const kickSpeed = 16 + Math.random() * 28;
+    sprintDustParticles.push({
+        x: footX + (Math.random() - 0.5) * 4,
+        y: footY + (Math.random() - 0.5) * 4,
+        vx: Math.cos(backAng) * kickSpeed,
+        vy: Math.sin(backAng) * kickSpeed,
+        radius: 2.3 + Math.random() * 1.5,
+        life: 0.22 + Math.random() * 0.10,
+        age: 0,
+        color: Math.random() < 0.5 ? '#d8d4ca' : '#c6c1b6'
+    });
+}
+
+function stepEntitySprintAnim(entityKey, isSprinting, vx, vy, aimAngle, worldCX, worldCY, radius, dt, seq, isLocalPlayer) {
+    let anim = sprintAnims.get(entityKey);
+    const speed = Math.hypot(vx, vy);
+    const hasMotion = speed > 14 || isLocalPlayer;
+    const targetBlend = (isSprinting && hasMotion) ? 1 : 0;
+
+    if (!anim) {
+        if (targetBlend === 0) return;
+        const fx = speed > 10 ? vx / speed : Math.sin(aimAngle);
+        const fy = speed > 10 ? vy / speed : -Math.cos(aimAngle);
+        anim = {
+            phase: Math.random() * Math.PI * 2,
+            blend: 0,
+            dirX: fx,
+            dirY: fy,
+            moveAngle: Math.atan2(fx, -fy),
+            lastStepIdx: -1,
+            seq
+        };
+        sprintAnims.set(entityKey, anim);
+    }
+    anim.seq = seq;
+
+    const blendAlpha = 1 - Math.exp(-dt * (targetBlend > anim.blend ? 14 : 11));
+    anim.blend += (targetBlend - anim.blend) * blendAlpha;
+    if (targetBlend === 0 && anim.blend < 0.005) {
+        sprintAnims.delete(entityKey);
+        return;
+    }
+
+    let tDirX = anim.dirX;
+    let tDirY = anim.dirY;
+    if (speed > 14) {
+        tDirX = vx / speed;
+        tDirY = vy / speed;
+    } else if (isSprinting) {
+        tDirX = Math.sin(aimAngle);
+        tDirY = -Math.cos(aimAngle);
+    }
+    const dirLerp = 1 - Math.exp(-dt * 16);
+    anim.dirX += (tDirX - anim.dirX) * dirLerp;
+    anim.dirY += (tDirY - anim.dirY) * dirLerp;
+    const dLen = Math.hypot(anim.dirX, anim.dirY);
+    if (dLen > 0.001) {
+        anim.dirX /= dLen;
+        anim.dirY /= dLen;
+    }
+    anim.moveAngle = Math.atan2(anim.dirX, -anim.dirY);
+
+    const speedFactor = isLocalPlayer && speed < 14
+        ? 0.9
+        : Math.max(0.28, Math.min(1.22, speed / 245));
+    anim.phase += dt * (11.2 + speedFactor * 3.1) * (0.35 + 0.65 * anim.blend);
+
+    const stepIdx = Math.floor(anim.phase / Math.PI);
+    if (anim.blend > 0.45 && stepIdx !== anim.lastStepIdx) {
+        if (anim.lastStepIdx !== -1) {
+            const camX = WORLD.CAMERA.x || 0;
+            const camY = WORLD.CAMERA.y || 0;
+            const camW = WORLD.CAMERA.width || LOGICAL_WIDTH;
+            const camH = WORLD.CAMERA.height || LOGICAL_HEIGHT;
+            const sx = worldCX - camX;
+            const sy = worldCY - camY;
+            if (sx >= -64 && sx <= camW + 64 && sy >= -64 && sy <= camH + 64) {
+                spawnSprintDustPuff(worldCX, worldCY, anim.dirX, anim.dirY, (stepIdx & 1) ? 1 : -1, radius);
+            }
+        }
+        anim.lastStepIdx = stepIdx;
+    } else if (anim.blend <= 0.25) {
+        anim.lastStepIdx = -1;
+    }
+}
+
 function getSwingOffset(entityKey, nowMs) {
-    const startedAt = swingAnims.get(entityKey);
-    if (!startedAt) return 0;
-    const duration = 260;
+    const entry = swingAnims.get(entityKey);
+    if (!entry) return 0;
+    const startedAt = typeof entry === 'number' ? entry : entry.at;
+    const isUgly = typeof entry === 'object' && entry !== null && Boolean(entry.ugly);
+    const duration = isUgly ? 175 : 260;
     const elapsed = nowMs - startedAt;
     if (elapsed >= duration || elapsed < 0) {
         swingAnims.delete(entityKey);
         return 0;
     }
     const p = elapsed / duration;
+    if (isUgly) {
+        const jitter = Math.sin(p * Math.PI * 6) * 0.16 * (1 - p);
+        if (p < 0.22) {
+            return -0.42 * (p / 0.22) + jitter;
+        }
+        if (p < 0.56) {
+            const t = (p - 0.22) / 0.34;
+            return -0.42 + 1.48 * t + jitter;
+        }
+        const t = (p - 0.56) / 0.44;
+        return 1.06 * (1 - t) + jitter * 0.6;
+    }
     if (p < 0.32) {
         const t = p / 0.32;
         const easeOut = 1 - (1 - t) * (1 - t);
@@ -3909,7 +4199,13 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
     const isHealer = weapon === 'healer-gun';
     const isDualPistol = weapon === 'dual-pistol';
     const isRangedWeapon = isCannon || isBeamer || isAssaultLaser || isHealer || isDualPistol || weapon === 'goodbot-pistol' || weapon === 'pistol';
-    ctx.rotate(angle + (isRangedWeapon ? 0 : swingOffset));
+    const sprintAnim = entityKey ? sprintAnims.get(entityKey) : null;
+    const sprintBlend = sprintAnim ? sprintAnim.blend : 0;
+    const sprintPhase = sprintAnim ? sprintAnim.phase : 0;
+    const sprintSin = sprintBlend > 0.01 ? Math.sin(sprintPhase) : 0;
+    const sprintCos2 = sprintBlend > 0.01 ? Math.cos(sprintPhase * 2) : 0;
+    const bodyTwist = sprintBlend > 0.01 ? sprintSin * 0.045 * sprintBlend : 0;
+    ctx.rotate(angle + (isRangedWeapon ? 0 : (swingOffset + bodyTwist * (Math.abs(swingOffset) > 0.02 ? 0.2 : 1))));
     const refW = goodbotImg.complete && goodbotImg.naturalWidth > 0 ? goodbotImg.naturalWidth : 512;
     const refH = goodbotImg.complete && goodbotImg.naturalHeight > 0 ? goodbotImg.naturalHeight : 512;
 
@@ -3937,6 +4233,7 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
             const baseLeftX = -anchorX * pxScaleX;
             const baseTopY = -anchorY * pxScaleY;
             const bodyScale = sW / 48;
+            const isLocalBeamerFiring = isBeamer && entityKey === `player:${myId}` && isBeamerActive;
 
             if (isCannon || isBeamer || isAssaultLaser) {
                 const fullDrawW = fullW * pxScaleX;
@@ -3952,9 +4249,14 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
                 ) || weaponImg;
                 const equip = getEquipTransform(entityKey, nowMs);
                 const recoil = getRecoilTransform(entityKey, nowMs);
-                const cDx = equip ? equip.dx * bodyScale : 0;
-                const cDy = (equip ? equip.dy * bodyScale : 0) + (recoil ? recoil.dy * bodyScale : 0);
-                const cRot = (equip ? equip.rot : 0) + (recoil ? recoil.rot : 0);
+                const fireAtten = (recoil || isLocalBeamerFiring) ? 0.15 : 1;
+                const carry = sprintBlend * fireAtten;
+                const carryDx = carry > 0.01 ? (-2.1 * carry) * bodyScale : 0;
+                const carryDy = carry > 0.01 ? (2.3 + sprintCos2 * 0.95) * carry * bodyScale : 0;
+                const carryRot = carry > 0.01 ? (-0.20 + sprintSin * 0.045) * carry : 0;
+                const cDx = (equip ? equip.dx * bodyScale : 0) + carryDx;
+                const cDy = (equip ? equip.dy * bodyScale : 0) + (recoil ? recoil.dy * bodyScale : 0) + carryDy;
+                const cRot = (equip ? equip.rot : 0) + (recoil ? recoil.rot : 0) + carryRot;
                 if (cDx !== 0 || cDy !== 0) {
                     ctx.translate(cDx, cDy);
                 }
@@ -3990,11 +4292,16 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
                 ) || weaponImg;
                 const rightX = (leftW - anchorX) * pxScaleX;
                 const leftRecoil = getLeftRecoilTransform(entityKey, nowMs);
+                const leftCarry = sprintBlend * ((leftRecoil || leftPunch) ? 0.15 : 1);
 
                 ctx.save();
                 if (leftPunch) {
                     ctx.translate(0, leftPunch.dy * bodyScale);
                     ctx.rotate(leftPunch.rot);
+                }
+                if (leftCarry > 0.01) {
+                    ctx.translate(1.1 * leftCarry * bodyScale, (1.1 - sprintSin * 2.1) * leftCarry * bodyScale);
+                    ctx.rotate((0.14 - sprintSin * 0.04) * leftCarry);
                 }
                 ctx.scale(-1, 1);
                 if (leftRecoil) {
@@ -4018,10 +4325,14 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
                     (leftW / refW) * (48 / metrics.resScale) * HANDS_SCALE,
                     (fullH / refH) * (48 / metrics.resScale) * HANDS_SCALE
                 ) || weaponImg;
-                if (leftPunch) {
+                const leftPumpBlend = sprintBlend * (leftPunch ? 0 : 1);
+                const leftPumpDy = leftPumpBlend > 0.01 ? -sprintSin * 4.4 * leftPumpBlend * bodyScale : 0;
+                const leftPumpDx = leftPumpBlend > 0.01 ? 0.6 * leftPumpBlend * bodyScale : 0;
+                const leftPumpRot = leftPumpBlend > 0.01 ? (0.07 + sprintSin * 0.07) * leftPumpBlend : 0;
+                if (leftPunch || leftPumpBlend > 0.01) {
                     ctx.save();
-                    ctx.translate(0, leftPunch.dy * bodyScale);
-                    ctx.rotate(leftPunch.rot);
+                    ctx.translate(leftPumpDx, (leftPunch ? leftPunch.dy * bodyScale : 0) + leftPumpDy);
+                    ctx.rotate((leftPunch ? leftPunch.rot : 0) + leftPumpRot);
                     if (leftMip !== weaponImg) {
                         ctx.drawImage(leftMip, baseLeftX, baseTopY, leftDrawW, pH);
                     } else {
@@ -4050,9 +4361,13 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
                 ) || weaponImg;
                 const equip = getEquipTransform(entityKey, nowMs);
                 const recoil = getRecoilTransform(entityKey, nowMs);
-                const rDx = equip ? equip.dx * bodyScale : 0;
-                const rDy = (equip ? equip.dy * bodyScale : 0) + (recoil ? recoil.dy * bodyScale : 0);
-                const rRot = (equip ? equip.rot : 0) + (recoil ? recoil.rot : 0);
+                const rightCarry = sprintBlend * (recoil ? 0.15 : 1);
+                const rightCarryDx = rightCarry > 0.01 ? -1.4 * rightCarry * bodyScale : 0;
+                const rightCarryDy = rightCarry > 0.01 ? (1.4 + sprintSin * (isDualPistol ? 2.1 : 1.5)) * rightCarry * bodyScale : 0;
+                const rightCarryRot = rightCarry > 0.01 ? (-0.15 + sprintSin * 0.04) * rightCarry : 0;
+                const rDx = (equip ? equip.dx * bodyScale : 0) + rightCarryDx;
+                const rDy = (equip ? equip.dy * bodyScale : 0) + (recoil ? recoil.dy * bodyScale : 0) + rightCarryDy;
+                const rRot = (equip ? equip.rot : 0) + (recoil ? recoil.rot : 0) + rightCarryRot;
                 const needRightXform = rDx !== 0 || rDy !== 0 || rRot !== 0;
                 const rightX = (leftW - anchorX) * pxScaleX;
                 if (needRightXform) {
@@ -4081,6 +4396,16 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
     const handsImg = spriteKind === 'prototype' ? prototypeRarebotHandsImg : botHandsImg;
     const bodyScale = sW / 48;
     const leftPunch = getLeftPunchOffset(entityKey, nowMs);
+    const swingAtten = Math.abs(swingOffset) > 0.03 ? 0.2 : 1;
+    const unarmedSprint = sprintBlend * swingAtten;
+    const leftSprintPump = unarmedSprint * (leftPunch ? 0 : 1);
+    const leftPumpDx = leftSprintPump > 0.01 ? 0.7 * leftSprintPump * bodyScale : 0;
+    const leftPumpDy = leftSprintPump > 0.01 ? -sprintSin * 5.0 * leftSprintPump * bodyScale : 0;
+    const leftPumpRot = leftSprintPump > 0.01 ? (0.08 + sprintSin * 0.08) * leftSprintPump : 0;
+    const rightPumpDx = unarmedSprint > 0.01 ? -0.7 * unarmedSprint * bodyScale : 0;
+    const rightPumpDy = unarmedSprint > 0.01 ? sprintSin * 5.0 * unarmedSprint * bodyScale : 0;
+    const rightPumpRot = unarmedSprint > 0.01 ? (-0.08 - sprintSin * 0.08) * unarmedSprint : 0;
+
     if (handsImg.complete && handsImg.naturalWidth > 0) {
         const hW = sW * (handsImg.naturalWidth / refW) * HANDS_SCALE;
         const hH = sH * (handsImg.naturalHeight / refH) * HANDS_SCALE;
@@ -4099,14 +4424,34 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
             (splitX / refW) * 48 * HANDS_SCALE,
             (handsImg.naturalHeight / refH) * 48 * HANDS_SCALE
         ) || handsImg;
-        if (leftPunch) {
+        if (leftPunch || leftSprintPump > 0.01) {
             ctx.save();
-            ctx.translate(0, leftPunch.dy * bodyScale);
-            ctx.rotate(leftPunch.rot);
+            ctx.translate(leftPumpDx, (leftPunch ? leftPunch.dy * bodyScale : 0) + leftPumpDy);
+            ctx.rotate((leftPunch ? leftPunch.rot : 0) + leftPumpRot);
             if (leftMip !== handsImg) {
                 ctx.drawImage(leftMip, -hW / 2, -hH / 2, leftDrawW, hH);
             } else {
                 ctx.drawImage(handsImg, 0, 0, splitX, handsImg.naturalHeight, -hW / 2, -hH / 2, leftDrawW, hH);
+            }
+            if (weapon === 'rarebot-grenade') {
+                const rgReady = rarebotGrenadeImg.complete && rarebotGrenadeImg.naturalWidth > 0;
+                const rgRatio = rgReady ? (rarebotGrenadeImg.naturalHeight / rarebotGrenadeImg.naturalWidth) : 1.1142857;
+                const baseGW = rgRatio > 1.05 ? GRENADE_DRAW_SIZE : 23;
+                const gScale = Math.max(1, 24 / (baseGW * rgRatio));
+                const gDrawW = baseGW * gScale * bodyScale;
+                const gDrawH = baseGW * rgRatio * gScale * bodyScale;
+                ctx.save();
+                ctx.translate(-19.5 * bodyScale, -25 * bodyScale);
+                ctx.rotate(-0.18);
+                if (rgReady) {
+                    ctx.drawImage(rarebotGrenadeImg, -gDrawW * 0.5, -gDrawH * 0.5, gDrawW, gDrawH);
+                } else {
+                    ctx.fillStyle = '#e02424';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, gDrawW * 0.42, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
             }
             ctx.restore();
         } else {
@@ -4114,6 +4459,26 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
                 ctx.drawImage(leftMip, -hW / 2, -hH / 2, leftDrawW, hH);
             } else {
                 ctx.drawImage(handsImg, 0, 0, splitX, handsImg.naturalHeight, -hW / 2, -hH / 2, leftDrawW, hH);
+            }
+            if (weapon === 'rarebot-grenade') {
+                const rgReady = rarebotGrenadeImg.complete && rarebotGrenadeImg.naturalWidth > 0;
+                const rgRatio = rgReady ? (rarebotGrenadeImg.naturalHeight / rarebotGrenadeImg.naturalWidth) : 1.1142857;
+                const baseGW = rgRatio > 1.05 ? GRENADE_DRAW_SIZE : 23;
+                const gScale = Math.max(1, 24 / (baseGW * rgRatio));
+                const gDrawW = baseGW * gScale * bodyScale;
+                const gDrawH = baseGW * rgRatio * gScale * bodyScale;
+                ctx.save();
+                ctx.translate(-19.5 * bodyScale, -25 * bodyScale);
+                ctx.rotate(-0.18);
+                if (rgReady) {
+                    ctx.drawImage(rarebotGrenadeImg, -gDrawW * 0.5, -gDrawH * 0.5, gDrawW, gDrawH);
+                } else {
+                    ctx.fillStyle = '#e02424';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, gDrawW * 0.42, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
             }
         }
         if (rightW > 0) {
@@ -4127,10 +4492,18 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
                 (rightW / refW) * 48 * HANDS_SCALE,
                 (handsImg.naturalHeight / refH) * 48 * HANDS_SCALE
             ) || handsImg;
+            if (unarmedSprint > 0.01) {
+                ctx.save();
+                ctx.translate(rightPumpDx, rightPumpDy);
+                ctx.rotate(rightPumpRot);
+            }
             if (rightMip !== handsImg) {
                 ctx.drawImage(rightMip, -hW / 2 + leftDrawW, -hH / 2, rightDrawW, hH);
             } else {
                 ctx.drawImage(handsImg, splitX, 0, rightW, handsImg.naturalHeight, -hW / 2 + leftDrawW, -hH / 2, rightDrawW, hH);
+            }
+            if (unarmedSprint > 0.01) {
+                ctx.restore();
             }
         }
     } else {
@@ -4140,22 +4513,30 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
         ctx.fillStyle = '#2d2d30';
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = Math.max(1.5, sW * 0.045);
-        if (leftPunch) {
+        if (leftPunch || leftSprintPump > 0.01) {
             ctx.save();
-            ctx.translate(0, leftPunch.dy * bodyScale);
-            ctx.rotate(leftPunch.rot);
+            ctx.translate(leftPumpDx, (leftPunch ? leftPunch.dy * bodyScale : 0) + leftPumpDy);
+            ctx.rotate((leftPunch ? leftPunch.rot : 0) + leftPumpRot);
         }
         ctx.beginPath();
         ctx.arc(-hx, hy, r, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-        if (leftPunch) {
+        if (leftPunch || leftSprintPump > 0.01) {
             ctx.restore();
+        }
+        if (unarmedSprint > 0.01) {
+            ctx.save();
+            ctx.translate(rightPumpDx, rightPumpDy);
+            ctx.rotate(rightPumpRot);
         }
         ctx.beginPath();
         ctx.arc(hx, hy, r, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
+        if (unarmedSprint > 0.01) {
+            ctx.restore();
+        }
     }
     ctx.restore();
 }
@@ -4196,16 +4577,29 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         bodyKey = 'body_rarebot';
     }
 
+    const sprintAnim = (!isSpectator && entityKey) ? sprintAnims.get(entityKey) : null;
+    const sprintBlend = sprintAnim ? sprintAnim.blend : 0;
+    let bodyX = x;
+    let bodyY = y;
+    let strideSin = 0;
+    if (sprintBlend > 0.01) {
+        strideSin = Math.sin(sprintAnim.phase);
+        const stepLift = Math.abs(strideSin) * 1.15 * sprintBlend * (sH / 48);
+        const lean = 1.9 * sprintBlend * (sW / 48);
+        bodyX += sprintAnim.dirX * lean;
+        bodyY += sprintAnim.dirY * lean - stepLift;
+    }
+
     if (showHands && !isSpectator) {
-        drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, entityKey, nowMs);
+        drawBotHands(bodyX, bodyY, sW, sH, angle, swingOffset, spriteKind, weapon, entityKey, nowMs);
     }
 
     if (spriteImg.complete && spriteImg.naturalWidth > 0) {
         const bodyMip = getScaledSpriteCanvas(bodyKey, spriteImg, 0, 0, spriteImg.naturalWidth, spriteImg.naturalHeight, width, height) || spriteImg;
         ctx.save();
         if (isSpectator) ctx.globalAlpha = 0.5;
-        ctx.translate(x, y);
-        ctx.rotate(angle);
+        ctx.translate(bodyX, bodyY);
+        ctx.rotate(sprintBlend > 0.01 ? (angle + strideSin * 0.055 * sprintBlend) : angle);
         ctx.drawImage(bodyMip, -sW / 2, -sH / 2, sW, sH);
         if (armor === 'goodbot-armor' && !isSpectator && faction === 'goodbot' && goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
             const armorMip = getScaledSpriteCanvas('armor_goodbot', goodbotArmorImg, 0, 0, goodbotArmorImg.naturalWidth, goodbotArmorImg.naturalHeight, width, height) || goodbotArmorImg;
@@ -4590,25 +4984,34 @@ function render() {
                 const sy = w.y - camY;
                 if (sx + w.radius < -40 || sx - w.radius > camW + 40 || sy + w.radius < -40 || sy - w.radius > camH + 40) continue;
                 const p = Math.max(0, Math.min(1, w.age / w.life));
+                const isRed = w.variant === 'rarebot';
                 if (w.isExplosionFlash) {
                     const r = w.radius * (0.25 + 0.75 * Math.min(1, p * 2.2));
                     const alpha = Math.max(0, 1 - p);
-                    ctx.fillStyle = `rgba(184, 51, 255, ${(0.42 * alpha).toFixed(3)})`;
+                    ctx.fillStyle = isRed
+                        ? `rgba(255, 42, 42, ${(0.42 * alpha).toFixed(3)})`
+                        : `rgba(184, 51, 255, ${(0.42 * alpha).toFixed(3)})`;
                     ctx.beginPath();
                     ctx.arc(sx, sy, r, 0, Math.PI * 2);
                     ctx.fill();
-                    ctx.strokeStyle = `rgba(216, 74, 255, ${(0.85 * alpha).toFixed(3)})`;
+                    ctx.strokeStyle = isRed
+                        ? `rgba(255, 110, 90, ${(0.85 * alpha).toFixed(3)})`
+                        : `rgba(216, 74, 255, ${(0.85 * alpha).toFixed(3)})`;
                     ctx.lineWidth = 4;
                     ctx.stroke();
                 } else {
                     const grow = Math.min(1, p / 0.22);
                     const r = w.radius * (0.2 + 0.8 * grow);
                     const fade = p < 0.7 ? 1 : Math.max(0, (1 - p) / 0.3);
-                    ctx.fillStyle = `rgba(184, 51, 255, ${(0.5 * fade).toFixed(3)})`;
+                    ctx.fillStyle = isRed
+                        ? `rgba(220, 28, 36, ${(0.5 * fade).toFixed(3)})`
+                        : `rgba(184, 51, 255, ${(0.5 * fade).toFixed(3)})`;
                     ctx.beginPath();
                     ctx.arc(sx, sy, r, 0, Math.PI * 2);
                     ctx.fill();
-                    ctx.strokeStyle = `rgba(240, 170, 255, ${(0.75 * fade).toFixed(3)})`;
+                    ctx.strokeStyle = isRed
+                        ? `rgba(255, 140, 130, ${(0.75 * fade).toFixed(3)})`
+                        : `rgba(240, 170, 255, ${(0.75 * fade).toFixed(3)})`;
                     ctx.lineWidth = 3;
                     ctx.stroke();
                 }
@@ -4618,20 +5021,26 @@ function render() {
 
         if (serverGrenades.length > 0) {
             const gReady = goodbotGrenadeImg.complete && goodbotGrenadeImg.naturalWidth > 0;
-            const gRatio = gReady ? (goodbotGrenadeImg.naturalHeight / goodbotGrenadeImg.naturalWidth) : 1.35;
-            const baseGW = gRatio > 1.05 ? GRENADE_DRAW_SIZE : 23;
-            const gScale = Math.max(1, 24 / (baseGW * gRatio));
-            const gDrawW = baseGW * gScale;
-            const gDrawH = baseGW * gRatio * gScale;
+            const rgReady = rarebotGrenadeImg.complete && rarebotGrenadeImg.naturalWidth > 0;
             for (let i = 0; i < serverGrenades.length; i++) {
                 const g = serverGrenades[i];
                 const gx = g.x - camX;
                 const gy = g.y - camY;
                 if (gx < -48 || gx > camW + 48 || gy < -48 || gy > camH + 48) continue;
+                const isRarebot = g.variant === 'rarebot';
+                const img = isRarebot ? rarebotGrenadeImg : goodbotGrenadeImg;
+                const imgReady = isRarebot ? rgReady : gReady;
+                const gRatio = imgReady ? (img.naturalHeight / img.naturalWidth) : 1.1142857;
+                const baseGW = gRatio > 1.05 ? GRENADE_DRAW_SIZE : 23;
+                const gScale = Math.max(1, 24 / (baseGW * gRatio));
+                const gDrawW = baseGW * gScale;
+                const gDrawH = baseGW * gRatio * gScale;
                 if (g.phase === 'armed' || g.phase === 'shockwaved') {
                     const pulse = 0.5 + 0.5 * Math.sin(nowMs * 0.018);
                     ctx.save();
-                    ctx.strokeStyle = `rgba(216, 74, 255, ${(0.35 + 0.45 * pulse).toFixed(3)})`;
+                    ctx.strokeStyle = isRarebot
+                        ? `rgba(255, 58, 58, ${(0.35 + 0.45 * pulse).toFixed(3)})`
+                        : `rgba(216, 74, 255, ${(0.35 + 0.45 * pulse).toFixed(3)})`;
                     ctx.lineWidth = 2;
                     ctx.beginPath();
                     ctx.arc(gx, gy, Math.max(gDrawW, gDrawH) * (0.52 + 0.12 * pulse), 0, Math.PI * 2);
@@ -4641,9 +5050,9 @@ function render() {
                 ctx.save();
                 ctx.translate(gx, gy);
                 ctx.rotate(g.angle || 0);
-                if (gReady) {
+                if (imgReady) {
                     ctx.imageSmoothingEnabled = true;
-                    ctx.drawImage(goodbotGrenadeImg, -gDrawW / 2, -gDrawH / 2, gDrawW, gDrawH);
+                    ctx.drawImage(img, -gDrawW / 2, -gDrawH / 2, gDrawW, gDrawH);
                 } else {
                     const gr = 10;
                     ctx.fillStyle = '#1b1b22';
@@ -4653,13 +5062,29 @@ function render() {
                     ctx.ellipse(0, 0, gr * 0.85, gr * 1.15, 0, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.stroke();
-                    ctx.fillStyle = '#b833ff';
+                    ctx.fillStyle = isRarebot ? '#e02424' : '#b833ff';
                     ctx.beginPath();
                     ctx.arc(0, 1, gr * 0.48, 0, Math.PI * 2);
                     ctx.fill();
                 }
                 ctx.restore();
             }
+        }
+
+        if (sprintDustParticles.length > 0) {
+            for (let i = 0; i < sprintDustParticles.length; i++) {
+                const pt = sprintDustParticles[i];
+                const px = pt.x - camX;
+                const py = pt.y - camY;
+                if (px < -16 || px > camW + 16 || py < -16 || py > camH + 16) continue;
+                const alpha = Math.max(0, 1 - pt.age / pt.life);
+                ctx.globalAlpha = alpha * 0.28;
+                ctx.fillStyle = pt.color;
+                ctx.beginPath();
+                ctx.arc(px, py, pt.radius * (0.75 + 0.45 * (1 - alpha)), 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
         }
 
         if (dropslideParticles.length > 0) {
@@ -4696,8 +5121,8 @@ function render() {
             const eInTree = isWorldPointInTree(eWorldCX, eWorldCY);
             const showBars = !eInTree && ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs;
             const eWeapon = e.weapon || 'hands';
-            const eLabel = e.name || (eKind === 'healer' ? 'Healer Rarebot' : (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot3' ? 'Rarebot 3.0' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot'))));
-            const defMaxH = eKind === 'prototype' ? 120 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : 255));
+            const eLabel = e.name || (eKind === 'grenadier' ? 'Rarebot Grenadier' : (eKind === 'healer' ? 'Healer Rarebot' : (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot3' ? 'Rarebot 3.0' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot')))));
+            const defMaxH = eKind === 'prototype' ? 120 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255)));
             const bars = showBars ? {
                 health: e.health ?? defMaxH,
                 maxHealth: e.maxHealth ?? defMaxH,
@@ -5514,6 +5939,10 @@ async function connectToServer() {
             ME.vx = 0;
             ME.vy = 0;
             ME.scale = 1;
+            ME.sprinting = false;
+            meLocalExhausted = false;
+            sprintAnims.clear();
+            sprintDustParticles.length = 0;
             ME.faction = data.faction || 'goodbot';
             refreshAdminReviveButton();
             ME.maxHealth = Math.max(1, Number(data.maxHealth) || 1000);
@@ -5627,8 +6056,10 @@ async function connectToServer() {
         if (data.type === 'entity_swing') {
             const key = `${data.kind}:${data.id}`;
             const nowMs = performance.now();
-            if (!(data.kind === 'player' && data.id === myId && swingAnims.has(key) && nowMs - swingAnims.get(key) < 160)) {
-                swingAnims.set(key, nowMs);
+            const prevEntry = swingAnims.get(key);
+            const prevAt = typeof prevEntry === 'number' ? prevEntry : (prevEntry ? prevEntry.at : 0);
+            if (!(data.kind === 'player' && data.id === myId && prevAt && nowMs - prevAt < 160)) {
+                swingAnims.set(key, data.ugly ? { at: nowMs, ugly: true } : nowMs);
                 playSpatialSound('swing', data.x, data.y);
             }
             if (ME.faction === 'goodbot' && data.kind === 'enemy') {
@@ -5686,7 +6117,7 @@ async function connectToServer() {
         }
 
         if (data.type === 'ability_left_swing') {
-            const kind = data.kind === 'ally' ? 'ally' : 'player';
+            const kind = data.kind === 'enemy' ? 'enemy' : (data.kind === 'ally' ? 'ally' : 'player');
             const key = `${kind}:${data.id}`;
             const nowMs = performance.now();
             if (!(kind === 'player' && data.id === myId && nowMs - lastLocalAbilityAt < 250)) {
@@ -5705,7 +6136,8 @@ async function connectToServer() {
                 radius: Number(data.radius) || 192,
                 age: 0,
                 life: 0.72,
-                isExplosionFlash: false
+                isExplosionFlash: false,
+                variant: data.variant === 'rarebot' ? 'rarebot' : 'goodbot'
             });
             addCameraShake(0.24, sx, sy);
             return;
@@ -5715,9 +6147,16 @@ async function connectToServer() {
             const gx = Number(data.x) || 0;
             const gy = Number(data.y) || 0;
             const grad = Number(data.radius) || 192;
-            playSpatialSound('explosion', gx, gy);
-            spawnGrenadeExplosionParticles(gx, gy, grad);
-            addCameraShake(0.68, gx, gy);
+            const gVariant = data.variant === 'rarebot' ? 'rarebot' : 'goodbot';
+            if (gVariant === 'rarebot') {
+                playSpatialSound('explosion', gx, gy, { playbackRate: 0.62, volumeMult: 1.12 });
+                spawnGrenadeExplosionParticles(gx, gy, grad, gVariant);
+                addCameraShake(1.15, gx, gy);
+            } else {
+                playSpatialSound('explosion', gx, gy);
+                spawnGrenadeExplosionParticles(gx, gy, grad, gVariant);
+                addCameraShake(0.68, gx, gy);
+            }
             return;
         }
 
@@ -6083,6 +6522,7 @@ async function connectToServer() {
                     ME.vx = incoming.vx || 0;
                     ME.vy = incoming.vy || 0;
                     ME.scale = incoming.scale ?? 1;
+                    ME.sprinting = Boolean(incoming.sprinting);
                     if (pFaction !== ME.faction) {
                         ME.faction = pFaction;
                         ME.maxHealth = incoming.maxHealth !== undefined ? Math.max(1, incoming.maxHealth) : 1000;
@@ -6121,6 +6561,7 @@ async function connectToServer() {
                     existing.vy = incoming.vy || 0;
                     existing.angle = incoming.angle || 0;
                     existing.scale = incoming.scale ?? 1;
+                    existing.sprinting = Boolean(incoming.sprinting);
                     existing.width = incoming.width || existing.width || 48;
                     existing.height = incoming.height || existing.height || 48;
                     if (incoming.name !== undefined) existing.name = incoming.name;
@@ -6153,6 +6594,7 @@ async function connectToServer() {
                         vy: incoming.vy || 0,
                         angle: incoming.angle || 0,
                         scale: incoming.scale ?? 1,
+                        sprinting: Boolean(incoming.sprinting),
                         maxHealth: incoming.maxHealth ?? 1000,
                         maxEnergy: incoming.maxEnergy ?? (pFaction === 'rarebot' ? 50 : 255),
                         scraps: pScraps,
@@ -6179,7 +6621,7 @@ async function connectToServer() {
                 for (const id in data.enemies) {
                     const incoming = data.enemies[id];
                     const eKind = incoming.kind || 'rarebot';
-                    const defMaxH = eKind === 'dropship' ? 8000 : (eKind === 'prototype' ? 120 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : 255)));
+                    const defMaxH = eKind === 'dropship' ? 8000 : (eKind === 'prototype' ? 120 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255))));
                     const defMaxE = eKind === 'prototype' ? 100 : 50;
                     const defSize = eKind === 'dropship' ? 224 : 48;
                     const existing = serverEnemies[id];
@@ -6193,6 +6635,7 @@ async function connectToServer() {
                         existing.vy = incoming.vy || 0;
                         existing.angle = incoming.angle || 0;
                         existing.scale = incoming.scale ?? 1;
+                        existing.sprinting = Boolean(incoming.sprinting);
                         existing.width = incoming.width || existing.width || defSize;
                         existing.height = incoming.height || existing.height || defSize;
                         existing.name = incoming.name !== undefined ? incoming.name : existing.name;
@@ -6216,6 +6659,7 @@ async function connectToServer() {
                             vy: incoming.vy || 0,
                             angle: incoming.angle || 0,
                             scale: incoming.scale ?? 1,
+                            sprinting: Boolean(incoming.sprinting),
                             maxHealth: incoming.maxHealth ?? defMaxH,
                             maxEnergy: incoming.maxEnergy ?? defMaxE,
                             weapon: incoming.weapon || 'hands',
@@ -6253,6 +6697,7 @@ async function connectToServer() {
                         existing.vy = incoming.vy || 0;
                         existing.angle = incoming.angle || 0;
                         existing.scale = incoming.scale ?? 1;
+                        existing.sprinting = Boolean(incoming.sprinting);
                         existing.width = incoming.width || existing.width || aDefSize;
                         existing.height = incoming.height || existing.height || aDefSize;
                         existing.kind = aKind;
@@ -6277,6 +6722,7 @@ async function connectToServer() {
                             vy: incoming.vy || 0,
                             angle: incoming.angle || 0,
                             scale: incoming.scale ?? 1,
+                            sprinting: Boolean(incoming.sprinting),
                             maxHealth: incoming.maxHealth ?? aDefMaxH,
                             maxEnergy: incoming.maxEnergy ?? 255,
                             weapon: incoming.weapon || 'hands',
@@ -6304,6 +6750,7 @@ async function connectToServer() {
         if (data.type === 'player_left') {
             delete serverPlayers[data.id];
             enemyAggroUntil.delete(`player:${data.id}`);
+            sprintAnims.delete(`player:${data.id}`);
         }
     };
 
