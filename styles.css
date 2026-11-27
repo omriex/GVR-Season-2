@@ -462,7 +462,7 @@ canvas {
 }
 
 .boss-health-bar.mapbot-boss .boss-bar-title {
-    color: #2ee6ff;
+    color: #e040ff;
 }
 
 .boss-bar-track {
@@ -487,7 +487,7 @@ canvas {
 }
 
 .boss-health-bar.mapbot-boss .boss-bar-fill {
-    background-color: #18b8e6;
+    background-color: #a824ff;
 }
 
 .boss-bar-value {
@@ -1938,7 +1938,7 @@ body.touch-mode #mobile-ability-btn.has-ability {
 }
 
 .admin-spawn-faction-btn.mapbot {
-    background-color: #18b8e6;
+    background-color: #8c1eff;
 }
 
 .admin-spawn-faction-btn:hover {
