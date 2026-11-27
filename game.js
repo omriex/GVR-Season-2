@@ -52,6 +52,7 @@ const fpsCounter = document.getElementById('fps-counter');
 const pingCounter = document.getElementById('ping-counter');
 const settingsBtn = document.getElementById('settings-btn');
 const leaveBtn = document.getElementById('leave-btn');
+const spectateBtn = document.getElementById('spectate-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
 const settingsCloseBtn = document.getElementById('settings-close-btn');
 const settingShowPing = document.getElementById('setting-show-ping');
@@ -67,6 +68,9 @@ const soundVolumeValue = document.getElementById('sound-volume-value');
 const leaveOverlay = document.getElementById('leave-overlay');
 const leaveYesBtn = document.getElementById('leave-yes-btn');
 const leaveNoBtn = document.getElementById('leave-no-btn');
+const spectateOverlay = document.getElementById('spectate-overlay');
+const spectateYesBtn = document.getElementById('spectate-yes-btn');
+const spectateNoBtn = document.getElementById('spectate-no-btn');
 const shopOverlay = document.getElementById('shop-overlay');
 const shopCloseBtn = document.getElementById('shop-close-btn');
 const shopTabItemsBtn = document.getElementById('shop-tab-items');
@@ -100,6 +104,9 @@ const adminModBanList = document.getElementById('admin-mod-ban-list');
 const adminPanelOverlay = document.getElementById('admin-panel-overlay');
 const adminPanelCloseBtn = document.getElementById('admin-panel-close-btn');
 const adminSpawnGrid = document.getElementById('admin-spawn-grid');
+const adminSpawnFactionMenu = document.getElementById('admin-spawn-faction-menu');
+const adminSpawnFactionTitle = document.getElementById('admin-spawn-faction-title');
+const adminSpawnFactionButtons = document.querySelectorAll('#admin-spawn-faction-menu .admin-spawn-faction-btn');
 const adminReviveBtn = document.getElementById('admin-revive-btn');
 const adminSkipWaveBtn = document.getElementById('admin-skip-wave-btn');
 const adminRestartGameBtn = document.getElementById('admin-restart-game-btn');
@@ -274,9 +281,11 @@ let lastInputSendTime = 0;
 let isSettingsOpen = false;
 let isWaveLeaderboardOpen = false;
 let isLeaveDialogOpen = false;
+let isSpectateDialogOpen = false;
 let isShopOpen = false;
 let isModDialogOpen = false;
 let isAdminPanelOpen = false;
+let adminSpawnFactionTarget = null;
 let isChatMinimized = false;
 let isMinimapMinimized = false;
 let isMapExpanded = false;
@@ -401,8 +410,15 @@ function setMenuError(message) {
     }
 }
 
+function syncSpectateButtonVisibility() {
+    if (spectateBtn) {
+        spectateBtn.classList.toggle('visible', !inMainMenu && ME.faction !== 'spectator');
+    }
+}
+
 function enterGameUI() {
     if (leaveBtn) leaveBtn.classList.add('visible');
+    syncSpectateButtonVisibility();
     if (adminModBtn) adminModBtn.classList.toggle('visible', isAdmin);
     if (adminPanelBtn) adminPanelBtn.classList.toggle('visible', isAdmin);
     if (mainMenu) mainMenu.classList.add('slide-up');
@@ -493,8 +509,10 @@ function returnToMainMenu() {
     closeChat();
     closeWaveLeaderboard();
     closeLeaveDialog();
+    closeSpectateDialog();
     closeShop();
     closeModDialog();
+    closeAdminSpawnFactionMenu();
     closeAdminPanel();
     setMapExpanded(false);
     applyGameStateUI({
@@ -510,6 +528,7 @@ function returnToMainMenu() {
         hasVoted: false
     });
     if (leaveBtn) leaveBtn.classList.remove('visible');
+    syncSpectateButtonVisibility();
     if (chatLog) chatLog.textContent = '';
     if (leaderboardList) leaderboardList.textContent = '';
     if (gameUI) {
@@ -625,6 +644,7 @@ function openWaveLeaderboard() {
     if (!waveLeaderboardOverlay) return;
     if (isSettingsOpen) closeSettings();
     if (isLeaveDialogOpen) closeLeaveDialog();
+    if (isSpectateDialogOpen) closeSpectateDialog();
     if (isShopOpen) closeShop();
     if (isModDialogOpen) closeModDialog();
     if (isAdminPanelOpen) closeAdminPanel();
@@ -944,6 +964,7 @@ function openModDialog() {
     if (isSettingsOpen) closeSettings();
     if (isWaveLeaderboardOpen) closeWaveLeaderboard();
     if (isLeaveDialogOpen) closeLeaveDialog();
+    if (isSpectateDialogOpen) closeSpectateDialog();
     if (isShopOpen) closeShop();
     if (isAdminPanelOpen) closeAdminPanel();
     if (isMapExpanded) setMapExpanded(false);
@@ -1356,6 +1377,39 @@ function createEntityPreviewUrl(opt) {
     return c.toDataURL();
 }
 
+function positionAdminSpawnFactionMenu(clientX, clientY) {
+    if (!adminSpawnFactionMenu) return;
+    const scale = currentUiScale > 0 ? currentUiScale : 1;
+    const effW = window.innerWidth / scale;
+    const effH = window.innerHeight / scale;
+    const menuW = adminSpawnFactionMenu.offsetWidth || 184;
+    const menuH = adminSpawnFactionMenu.offsetHeight || 150;
+    let left = clientX / scale + 6;
+    let top = clientY / scale + 6;
+    if (left + menuW > effW - 8) left = Math.max(8, clientX / scale - menuW - 6);
+    if (top + menuH > effH - 8) top = Math.max(8, effH - menuH - 8);
+    adminSpawnFactionMenu.style.left = `${Math.round(left)}px`;
+    adminSpawnFactionMenu.style.top = `${Math.round(top)}px`;
+}
+
+function openAdminSpawnFactionMenu(opt, clientX, clientY) {
+    if (!adminSpawnFactionMenu || !opt) return;
+    adminSpawnFactionTarget = opt;
+    if (adminSpawnFactionTitle) {
+        adminSpawnFactionTitle.textContent = opt.title;
+    }
+    adminSpawnFactionMenu.classList.add('visible');
+    adminSpawnFactionMenu.setAttribute('aria-hidden', 'false');
+    positionAdminSpawnFactionMenu(clientX, clientY);
+}
+
+function closeAdminSpawnFactionMenu() {
+    if (!adminSpawnFactionMenu) return;
+    adminSpawnFactionTarget = null;
+    adminSpawnFactionMenu.classList.remove('visible');
+    adminSpawnFactionMenu.setAttribute('aria-hidden', 'true');
+}
+
 function renderAdminSpawnGrid() {
     if (!adminSpawnGrid) return;
     adminSpawnGrid.textContent = '';
@@ -1384,12 +1438,14 @@ function renderAdminSpawnGrid() {
         };
 
         slot.addEventListener('pointerenter', () => {
+            if (adminSpawnFactionMenu && adminSpawnFactionMenu.classList.contains('visible')) return;
             showShopTooltip(tipDef, slot, false, false);
         });
         slot.addEventListener('pointerleave', () => {
             hideShopTooltip();
         });
         slot.addEventListener('focus', () => {
+            if (adminSpawnFactionMenu && adminSpawnFactionMenu.classList.contains('visible')) return;
             showShopTooltip(tipDef, slot, false, false);
         });
         slot.addEventListener('blur', () => {
@@ -1399,6 +1455,12 @@ function renderAdminSpawnGrid() {
             if (ws && ws.readyState === WebSocket.OPEN && isAdmin) {
                 ws.send(JSON.stringify({ type: 'admin_spawn_entity', entityType: opt.id }));
             }
+        });
+        slot.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            hideShopTooltip();
+            openAdminSpawnFactionMenu(opt, e.clientX, e.clientY);
         });
 
         adminSpawnGrid.appendChild(slot);
@@ -1423,6 +1485,7 @@ function openAdminPanel() {
     if (isSettingsOpen) closeSettings();
     if (isWaveLeaderboardOpen) closeWaveLeaderboard();
     if (isLeaveDialogOpen) closeLeaveDialog();
+    if (isSpectateDialogOpen) closeSpectateDialog();
     if (isShopOpen) closeShop();
     if (isModDialogOpen) closeModDialog();
     if (isMapExpanded) setMapExpanded(false);
@@ -1442,6 +1505,7 @@ function openAdminPanel() {
 function closeAdminPanel() {
     if (!adminPanelOverlay) return;
     isAdminPanelOpen = false;
+    closeAdminSpawnFactionMenu();
     hideShopTooltip();
     adminPanelOverlay.classList.remove('open');
     adminPanelOverlay.setAttribute('aria-hidden', 'true');
@@ -1452,6 +1516,7 @@ function openSettings() {
     if (!settingsOverlay) return;
     if (isWaveLeaderboardOpen) closeWaveLeaderboard();
     if (isLeaveDialogOpen) closeLeaveDialog();
+    if (isSpectateDialogOpen) closeSpectateDialog();
     if (isShopOpen) closeShop();
     if (isModDialogOpen) closeModDialog();
     if (isAdminPanelOpen) closeAdminPanel();
@@ -1476,6 +1541,7 @@ function openLeaveDialog() {
     if (!leaveOverlay || inMainMenu) return;
     if (isSettingsOpen) closeSettings();
     if (isWaveLeaderboardOpen) closeWaveLeaderboard();
+    if (isSpectateDialogOpen) closeSpectateDialog();
     if (isShopOpen) closeShop();
     if (isModDialogOpen) closeModDialog();
     if (isAdminPanelOpen) closeAdminPanel();
@@ -1494,6 +1560,33 @@ function closeLeaveDialog() {
     isLeaveDialogOpen = false;
     leaveOverlay.classList.remove('open');
     leaveOverlay.setAttribute('aria-hidden', 'true');
+}
+
+function openSpectateDialog() {
+    if (!spectateOverlay || inMainMenu || ME.faction === 'spectator') return;
+    if (isSettingsOpen) closeSettings();
+    if (isWaveLeaderboardOpen) closeWaveLeaderboard();
+    if (isLeaveDialogOpen) closeLeaveDialog();
+    if (isShopOpen) closeShop();
+    if (isModDialogOpen) closeModDialog();
+    if (isAdminPanelOpen) closeAdminPanel();
+    if (isMapExpanded) setMapExpanded(false);
+    isSpectateDialogOpen = true;
+    clearHeldInputs();
+    if (document.activeElement === chatInput) {
+        closeChat();
+    }
+    spectateOverlay.classList.add('open');
+    spectateOverlay.setAttribute('aria-hidden', 'false');
+    syncCanvasCrosshairCursor();
+}
+
+function closeSpectateDialog() {
+    if (!spectateOverlay) return;
+    isSpectateDialogOpen = false;
+    spectateOverlay.classList.remove('open');
+    spectateOverlay.setAttribute('aria-hidden', 'true');
+    syncCanvasCrosshairCursor();
 }
 
 function drawDropshipSprite(targetCtx, x, y, sW, sH, faction, angle, nowMs = performance.now()) {
@@ -1783,7 +1876,7 @@ function getMyEquippedWeapon() {
 
 function isRangedCrosshairActive() {
     if (inMainMenu || myId === null) return false;
-    if (isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return false;
+    if (isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isSpectateDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return false;
     if (document.activeElement === chatInput || (tokenInput && document.activeElement === tokenInput)) return false;
     if (document.body.classList.contains('touch-mode')) return false;
     const wpn = getMyEquippedWeapon();
@@ -2171,6 +2264,7 @@ function openShop() {
     if (isSettingsOpen) closeSettings();
     if (isWaveLeaderboardOpen) closeWaveLeaderboard();
     if (isLeaveDialogOpen) closeLeaveDialog();
+    if (isSpectateDialogOpen) closeSpectateDialog();
     if (isModDialogOpen) closeModDialog();
     if (isAdminPanelOpen) closeAdminPanel();
     if (isMapExpanded) setMapExpanded(false);
@@ -2317,6 +2411,7 @@ function setMapExpanded(expanded) {
         if (isSettingsOpen) closeSettings();
         if (isWaveLeaderboardOpen) closeWaveLeaderboard();
         if (isLeaveDialogOpen) closeLeaveDialog();
+        if (isSpectateDialogOpen) closeSpectateDialog();
         if (isShopOpen) closeShop();
         if (isModDialogOpen) closeModDialog();
         if (isAdminPanelOpen) closeAdminPanel();
@@ -3156,9 +3251,10 @@ function updateBossHealthBar() {
         bossHealthBar.classList.remove('ally-boss', 'mapbot-boss');
         return;
     }
+    const bossFaction = boss.faction || (isMapbotBoss ? 'mapbot' : (isAllyBoss ? 'goodbot' : 'rarebot'));
     bossHealthBar.classList.remove('hidden');
-    bossHealthBar.classList.toggle('ally-boss', isAllyBoss);
-    bossHealthBar.classList.toggle('mapbot-boss', isMapbotBoss);
+    bossHealthBar.classList.toggle('ally-boss', bossFaction === 'goodbot');
+    bossHealthBar.classList.toggle('mapbot-boss', bossFaction === 'mapbot');
     bossBarTitle.textContent = boss.name || (isMapbotBoss ? 'Mapbot' : (isAllyBoss ? 'Goodbot Dropship' : 'Rarebot Dropship'));
     const maxHp = Math.max(1, Math.round(boss.maxHealth || (isMapbotBoss ? 100000 : 8000)));
     const hp = Math.max(0, Math.min(maxHp, Math.round(boss.health || 0)));
@@ -5035,8 +5131,9 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
     const sH = height * scale;
     const isSpectator = faction === 'spectator';
 
-    if (spriteKind === 'dropship') {
-        drawDropshipSprite(ctx, x, y, sW, sH, faction, angle, nowMs);
+    if (spriteKind === 'dropship' || spriteKind === 'dropship-rarebot' || spriteKind === 'dropship-goodbot') {
+        const shipFaction = spriteKind === 'dropship-goodbot' ? 'goodbot' : (spriteKind === 'dropship-rarebot' ? 'rarebot' : faction);
+        drawDropshipSprite(ctx, x, y, sW, sH, shipFaction, angle, nowMs);
         if (label) {
             drawEntityLabel(x, y, sH, label, faction);
         }
@@ -5133,7 +5230,7 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
     } else if (spriteKind === 'scout') {
         spriteImg = scoutRarebotImg;
         bodyKey = 'body_scout';
-    } else if (faction === 'rarebot') {
+    } else if (spriteKind === 'rarebot' || spriteKind === 'rarebot2' || spriteKind === 'rarebot3' || spriteKind === 'healer' || spriteKind === 'grenadier' || faction === 'rarebot') {
         spriteImg = rarebotImg;
         bodyKey = 'body_rarebot';
     }
@@ -5169,7 +5266,7 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         ctx.translate(bodyX, bodyY);
         ctx.rotate(sprintBlend > 0.01 ? (angle + strideSin * 0.055 * sprintBlend) : angle);
         ctx.drawImage(bodyMip, -drawW / 2, -sH / 2, drawW, drawH);
-        if ((armor === 'goodbot-armor' || armor === 'goodbot-armor-2' || armor === 'goodbot-armor-3') && !isSpectator && faction === 'goodbot') {
+        if ((armor === 'goodbot-armor' || armor === 'goodbot-armor-2' || armor === 'goodbot-armor-3') && !isSpectator) {
             if (goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
                 const armorMip = getScaledSpriteCanvas('armor_goodbot', goodbotArmorImg, 0, 0, goodbotArmorImg.naturalWidth, goodbotArmorImg.naturalHeight, width, height) || goodbotArmorImg;
                 ctx.drawImage(armorMip, -sW / 2, -sH / 2, sW, sH);
@@ -5192,7 +5289,7 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
                     ctx.stroke();
                 }
             }
-        } else if ((armor === 'rarebot-armor' || spriteKind === 'rarebot3') && !isSpectator && faction === 'rarebot' && rarebotArmorImg.complete && rarebotArmorImg.naturalWidth > 0) {
+        } else if ((armor === 'rarebot-armor' || spriteKind === 'rarebot3') && !isSpectator && rarebotArmorImg.complete && rarebotArmorImg.naturalWidth > 0) {
             const armorMip = getScaledSpriteCanvas('armor_rarebot', rarebotArmorImg, 0, 0, rarebotArmorImg.naturalWidth, rarebotArmorImg.naturalHeight, width, height) || rarebotArmorImg;
             ctx.drawImage(armorMip, -sW / 2, -sH / 2, sW, sH);
         }
@@ -5782,7 +5879,18 @@ function render() {
             const es = Math.min(2, Math.max(0.3, e.scale || 1));
             const key = `enemy:${id}`;
             const eInTree = isWorldPointInTree(eWorldCX, eWorldCY);
-            const showBars = !eInTree && ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs;
+            let showBars = false;
+            if (!eInTree && ME.faction !== 'spectator') {
+                if (eFaction === ME.faction) {
+                    const edx = eWorldCX - meCX;
+                    const edy = eWorldCY - meCY;
+                    showBars = (edx * edx + edy * edy) <= 260 * 260;
+                } else if (ME.faction === 'goodbot') {
+                    showBars = (enemyAggroUntil.get(key) || 0) > nowMs;
+                } else {
+                    showBars = clientHasLOS(meCX, meCY, eWorldCX, eWorldCY);
+                }
+            }
             const eWeapon = e.weapon || 'hands';
             const eLabel = e.name || (eKind === 'grenadier' ? 'Rarebot Grenadier' : (eKind === 'sacrifice' ? 'Sacrifice Rarebot' : (eKind === 'scout' ? 'Scout Rarebot' : (eKind === 'healer' ? 'Healer Rarebot' : (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot3' ? 'Rarebot 3.0' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot')))))));
             const defMaxH = eKind === 'prototype' ? 120 : (eKind === 'sacrifice' ? 100 : (eKind === 'scout' ? 300 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255)))));
@@ -5803,6 +5911,7 @@ function render() {
             const a = serverAllies[id];
             const aKind = a.kind || null;
             if (aKind === 'dropship') continue;
+            const aFaction = a.faction || 'goodbot';
             const aw = a.width || 48;
             const ah = a.height || 48;
             const aWorldCX = (a.renderX ?? a.x) + aw / 2;
@@ -5814,12 +5923,14 @@ function render() {
             const key = `ally:${id}`;
             const aInTree = isWorldPointInTree(aWorldCX, aWorldCY);
             let showBars = false;
-            if (!aInTree) {
-                if (ME.faction === 'goodbot') {
+            if (!aInTree && ME.faction !== 'spectator') {
+                if (aFaction === ME.faction) {
                     const adx = aWorldCX - meCX;
                     const ady = aWorldCY - meCY;
                     showBars = (adx * adx + ady * ady) <= 260 * 260;
-                } else if (ME.faction === 'rarebot') {
+                } else if (ME.faction === 'goodbot') {
+                    showBars = (enemyAggroUntil.get(key) || 0) > nowMs;
+                } else {
                     showBars = clientHasLOS(meCX, meCY, aWorldCX, aWorldCY);
                 }
             }
@@ -5830,9 +5941,9 @@ function render() {
                 energy: a.energy ?? 255,
                 maxEnergy: a.maxEnergy ?? 255
             } : null;
-            drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, null, 'goodbot', true, getSwingOffset(key, nowMs), bars, aKind, a.weapon || 'hands', key, nowMs, a.armor || (a.weapon === 'goodbot-assault-laser' ? 'goodbot-armor' : null));
+            drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, null, aFaction, true, getSwingOffset(key, nowMs), bars, aKind, a.weapon || 'hands', key, nowMs, a.armor || (a.weapon === 'goodbot-assault-laser' ? 'goodbot-armor' : null));
             if (!aInTree) {
-                pendingEntityLabels.push({ x: aRX, y: aRY, sH: ah * as, label: a.name || 'Goodbot', faction: 'goodbot' });
+                pendingEntityLabels.push({ x: aRX, y: aRY, sH: ah * as, label: a.name || 'Goodbot', faction: aFaction });
             }
         }
 
@@ -5851,14 +5962,14 @@ function render() {
             const key = `player:${id}`;
             const pInTree = isWorldPointInTree(pWorldCX, pWorldCY);
             let showBars = false;
-            if (!pInTree) {
-                if (ME.faction === 'goodbot' && pFaction === 'rarebot') {
-                    showBars = (enemyAggroUntil.get(key) || 0) > nowMs;
-                } else if (ME.faction === 'goodbot' && pFaction === 'goodbot') {
+            if (!pInTree && ME.faction !== 'spectator') {
+                if (pFaction === ME.faction) {
                     const adx = pWorldCX - meCX;
                     const ady = pWorldCY - meCY;
                     showBars = (adx * adx + ady * ady) <= 260 * 260;
-                } else if (ME.faction === 'rarebot' && pFaction === 'goodbot') {
+                } else if (ME.faction === 'goodbot') {
+                    showBars = (enemyAggroUntil.get(key) || 0) > nowMs;
+                } else {
                     showBars = clientHasLOS(meCX, meCY, pWorldCX, pWorldCY);
                 }
             }
@@ -6002,7 +6113,7 @@ function render() {
             if (eRX < -cullPad || eRX > camW + cullPad || eRY < -cullPad || eRY > camH + cullPad) continue;
             const es = Math.min(2, Math.max(0.3, e.scale || 1));
             const key = `enemy:${id}`;
-            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, e.name || 'Rarebot Dropship', 'rarebot', false, 0, null, 'dropship', 'none', key, nowMs);
+            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, e.name || 'Rarebot Dropship', e.faction || 'rarebot', false, 0, null, 'dropship-rarebot', 'none', key, nowMs);
         }
 
         for (const id in serverAllies) {
@@ -6015,7 +6126,7 @@ function render() {
             if (aRX < -cullPad || aRX > camW + cullPad || aRY < -cullPad || aRY > camH + cullPad) continue;
             const as = Math.min(2, Math.max(0.3, a.scale || 1));
             const key = `ally:${id}`;
-            drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, a.name || 'Goodbot Dropship', 'goodbot', false, 0, null, 'dropship', 'none', key, nowMs);
+            drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, a.name || 'Goodbot Dropship', a.faction || 'goodbot', false, 0, null, 'dropship-goodbot', 'none', key, nowMs);
         }
 
         for (const id in serverEnemies) {
@@ -6422,12 +6533,13 @@ function renderMapView(targetCanvas, baseRadius) {
     for (const id in serverEnemies) {
         const e = serverEnemies[id];
         if (e.kind === 'dropship') continue;
-        const isMapbot = e.kind === 'mapbot';
+        const ef = e.faction || (e.kind === 'mapbot' ? 'mapbot' : 'rarebot');
+        const isMapbot = ef === 'mapbot' || e.kind === 'mapbot';
         const cx = (((e.renderX ?? e.x) + (e.width || 48) * 0.5) / mapW) * pw;
         const cy = (((e.renderY ?? e.y) + (e.height || 48) * 0.5) / mapH) * ph;
         mctx.beginPath();
         mctx.arc(cx, cy, r, 0, Math.PI * 2);
-        mctx.fillStyle = isMapbot ? '#d84aff' : '#ff2a2a';
+        mctx.fillStyle = ef === 'mapbot' ? '#d84aff' : (ef === 'goodbot' ? '#b833ff' : '#ff2a2a');
         mctx.fill();
         mctx.strokeStyle = isMapbot ? '#ffffff' : 'rgba(0, 0, 0, 0.85)';
         mctx.stroke();
@@ -6436,13 +6548,14 @@ function renderMapView(targetCanvas, baseRadius) {
     for (const id in serverAllies) {
         const a = serverAllies[id];
         if (a.kind === 'dropship') continue;
+        const af = a.faction || 'goodbot';
         const cx = (((a.renderX ?? a.x) + (a.width || 48) * 0.5) / mapW) * pw;
         const cy = (((a.renderY ?? a.y) + (a.height || 48) * 0.5) / mapH) * ph;
         mctx.beginPath();
         mctx.arc(cx, cy, r, 0, Math.PI * 2);
-        mctx.fillStyle = '#b833ff';
+        mctx.fillStyle = af === 'mapbot' ? '#d84aff' : (af === 'rarebot' ? '#ff2a2a' : '#b833ff');
         mctx.fill();
-        mctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+        mctx.strokeStyle = af === 'mapbot' ? '#ffffff' : 'rgba(0, 0, 0, 0.85)';
         mctx.stroke();
     }
 
@@ -6474,11 +6587,12 @@ function renderMapView(targetCanvas, baseRadius) {
     for (const id in serverEnemies) {
         const e = serverEnemies[id];
         if (e.kind !== 'dropship') continue;
+        const ef = e.faction || 'rarebot';
         const cx = (((e.renderX ?? e.x) + (e.width || 224) * 0.5) / mapW) * pw;
         const cy = (((e.renderY ?? e.y) + (e.height || 224) * 0.5) / mapH) * ph;
         mctx.beginPath();
         mctx.arc(cx, cy, r * 2.1, 0, Math.PI * 2);
-        mctx.fillStyle = '#ff2a2a';
+        mctx.fillStyle = ef === 'mapbot' ? '#d84aff' : (ef === 'goodbot' ? '#b833ff' : '#ff2a2a');
         mctx.fill();
         mctx.strokeStyle = '#ffffff';
         mctx.stroke();
@@ -6487,11 +6601,12 @@ function renderMapView(targetCanvas, baseRadius) {
     for (const id in serverAllies) {
         const a = serverAllies[id];
         if (a.kind !== 'dropship') continue;
+        const af = a.faction || 'goodbot';
         const cx = (((a.renderX ?? a.x) + (a.width || 224) * 0.5) / mapW) * pw;
         const cy = (((a.renderY ?? a.y) + (a.height || 224) * 0.5) / mapH) * ph;
         mctx.beginPath();
         mctx.arc(cx, cy, r * 2.1, 0, Math.PI * 2);
-        mctx.fillStyle = '#b833ff';
+        mctx.fillStyle = af === 'mapbot' ? '#d84aff' : (af === 'rarebot' ? '#ff2a2a' : '#b833ff');
         mctx.fill();
         mctx.strokeStyle = '#ffffff';
         mctx.stroke();
@@ -6676,6 +6791,7 @@ async function connectToServer() {
             sprintAnims.clear();
             sprintDustParticles.length = 0;
             ME.faction = data.faction || 'goodbot';
+            syncSpectateButtonVisibility();
             refreshAdminReviveButton();
             ME.maxHealth = Math.max(1, Number(data.maxHealth) || 1000);
             ME.maxEnergy = Math.max(1, Number(data.maxEnergy) || 255);
@@ -6795,11 +6911,24 @@ async function connectToServer() {
                 playSpatialSound('swing', data.x, data.y);
             }
             if (ME.faction === 'goodbot' && data.kind === 'enemy') {
-                if (data.targetId === myId) {
-                    enemyAggroUntil.set(key, nowMs + 8000);
-                } else if (typeof data.x === 'number' && typeof data.y === 'number') {
-                    const dist = Math.hypot(data.x - (ME.x + ME.width / 2), data.y - (ME.y + ME.height / 2));
-                    if (dist <= 135) enemyAggroUntil.set(key, nowMs + 8000);
+                const swungEnemy = serverEnemies[data.id];
+                if (!swungEnemy || (swungEnemy.faction || 'rarebot') !== ME.faction) {
+                    if (data.targetId === myId) {
+                        enemyAggroUntil.set(key, nowMs + 8000);
+                    } else if (typeof data.x === 'number' && typeof data.y === 'number') {
+                        const dist = Math.hypot(data.x - (ME.x + ME.width / 2), data.y - (ME.y + ME.height / 2));
+                        if (dist <= 135) enemyAggroUntil.set(key, nowMs + 8000);
+                    }
+                }
+            } else if (ME.faction === 'goodbot' && data.kind === 'ally') {
+                const swungAlly = serverAllies[data.id];
+                if (swungAlly && (swungAlly.faction || 'goodbot') !== ME.faction) {
+                    if (data.targetId === myId) {
+                        enemyAggroUntil.set(key, nowMs + 8000);
+                    } else if (typeof data.x === 'number' && typeof data.y === 'number') {
+                        const dist = Math.hypot(data.x - (ME.x + ME.width / 2), data.y - (ME.y + ME.height / 2));
+                        if (dist <= 135) enemyAggroUntil.set(key, nowMs + 8000);
+                    }
                 }
             } else if (ME.faction === 'goodbot' && data.kind === 'player' && data.id !== myId) {
                 const attacker = serverPlayers[data.id];
@@ -6817,11 +6946,14 @@ async function connectToServer() {
             leftPunchAnims.set(key, nowMs);
             playSpatialSound('swing', data.x, data.y);
             if (ME.faction === 'goodbot' && data.kind === 'enemy') {
-                if (data.targetId === myId) {
-                    enemyAggroUntil.set(key, nowMs + 8000);
-                } else if (typeof data.x === 'number' && typeof data.y === 'number') {
-                    const dist = Math.hypot(data.x - (ME.x + ME.width / 2), data.y - (ME.y + ME.height / 2));
-                    if (dist <= 135) enemyAggroUntil.set(key, nowMs + 8000);
+                const punchedEnemy = serverEnemies[data.id];
+                if (!punchedEnemy || (punchedEnemy.faction || 'rarebot') !== ME.faction) {
+                    if (data.targetId === myId) {
+                        enemyAggroUntil.set(key, nowMs + 8000);
+                    } else if (typeof data.x === 'number' && typeof data.y === 'number') {
+                        const dist = Math.hypot(data.x - (ME.x + ME.width / 2), data.y - (ME.y + ME.height / 2));
+                        if (dist <= 135) enemyAggroUntil.set(key, nowMs + 8000);
+                    }
                 }
             }
             return;
@@ -7381,6 +7513,10 @@ async function connectToServer() {
                         ME.maxHealth = incoming.maxHealth !== undefined ? Math.max(1, incoming.maxHealth) : 1000;
                         ME.maxEnergy = incoming.maxEnergy !== undefined ? Math.max(1, incoming.maxEnergy) : (pFaction === 'rarebot' ? 50 : 255);
                         enemyAggroUntil.clear();
+                        syncSpectateButtonVisibility();
+                        if (pFaction === 'spectator' && isSpectateDialogOpen) {
+                            closeSpectateDialog();
+                        }
                         refreshAdminReviveButton();
                         renderInventorySlots();
                         if (lastGameStateData) {
@@ -7547,6 +7683,7 @@ async function connectToServer() {
                 for (const id in data.allies) {
                     const incoming = data.allies[id];
                     const aKind = incoming.kind || null;
+                    const aFaction = incoming.faction || 'goodbot';
                     const aDefSize = aKind === 'dropship' ? 224 : 48;
                     const aDefMaxH = aKind === 'dropship' ? 8000 : (incoming.weapon === 'goodbot-assault-laser' ? 1500 : 1000);
                     const existing = serverAllies[id];
@@ -7564,6 +7701,7 @@ async function connectToServer() {
                         existing.width = incoming.width || existing.width || aDefSize;
                         existing.height = incoming.height || existing.height || aDefSize;
                         existing.kind = aKind;
+                        existing.faction = aFaction;
                         existing.name = incoming.name || existing.name || (aKind === 'dropship' ? 'Goodbot Dropship' : 'Goodbot');
                         existing.weapon = incoming.weapon || 'hands';
                         existing.armor = incoming.armor || null;
@@ -7580,6 +7718,7 @@ async function connectToServer() {
                         serverAllies[id] = {
                             ...incoming,
                             kind: aKind,
+                            faction: aFaction,
                             name: incoming.name || (aKind === 'dropship' ? 'Goodbot Dropship' : 'Goodbot'),
                             vx: incoming.vx || 0,
                             vy: incoming.vy || 0,
@@ -7733,6 +7872,13 @@ window.addEventListener('keydown', e => {
         }
         return;
     }
+    if (isSpectateDialogOpen) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeSpectateDialog();
+        }
+        return;
+    }
     if (isSettingsOpen) {
         if (e.key === 'Escape') {
             e.preventDefault();
@@ -7757,6 +7903,10 @@ window.addEventListener('keydown', e => {
     if (isAdminPanelOpen) {
         if (e.key === 'Escape') {
             e.preventDefault();
+            if (adminSpawnFactionMenu && adminSpawnFactionMenu.classList.contains('visible')) {
+                closeAdminSpawnFactionMenu();
+                return;
+            }
             closeAdminPanel();
         }
         return;
@@ -7872,7 +8022,7 @@ window.addEventListener('blur', () => {
 
 function triggerAttack(isHoldRepeat = false) {
     ensureAudioContext();
-    if (inMainMenu || myId === null || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
+    if (inMainMenu || myId === null || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isSpectateDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
     if (ME.faction === 'spectator') return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
@@ -7921,7 +8071,7 @@ function triggerAttack(isHoldRepeat = false) {
 
 function triggerAbility(useAimAngleOnly = false) {
     ensureAudioContext();
-    if (inMainMenu || myId === null || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
+    if (inMainMenu || myId === null || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isSpectateDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
     if (ME.faction !== 'goodbot') return;
     if (myAbility !== 'goodbot-grenade') return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -7958,8 +8108,13 @@ function triggerAbility(useAimAngleOnly = false) {
 }
 
 window.addEventListener('mousedown', (e) => {
+    if (adminSpawnFactionMenu && adminSpawnFactionMenu.classList.contains('visible')) {
+        if (!e.target.closest('#admin-spawn-faction-menu') && !(e.button === 2 && e.target.closest('#admin-spawn-grid .shop-item-slot'))) {
+            closeAdminSpawnFactionMenu();
+        }
+    }
     ensureAudioContext();
-    if (inMainMenu || myId === null || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
+    if (inMainMenu || myId === null || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isSpectateDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
     if (document.activeElement === chatInput || (tokenInput && document.activeElement === tokenInput)) return;
     if (e.target !== canvas) return;
     if (e.button === 2) {
@@ -8013,7 +8168,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (mobileJoystick) {
         mobileJoystick.addEventListener('touchstart', (e) => {
-            if (inMainMenu || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isModDialogOpen || isAdminPanelOpen) return;
+            if (inMainMenu || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isSpectateDialogOpen || isModDialogOpen || isAdminPanelOpen) return;
             e.preventDefault();
             if (joystickTouchId !== null) return;
             const touch = e.changedTouches[0];
@@ -8111,7 +8266,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     canvas.addEventListener('touchstart', (e) => {
-        if (inMainMenu || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isModDialogOpen || isAdminPanelOpen) return;
+        if (inMainMenu || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isSpectateDialogOpen || isModDialogOpen || isAdminPanelOpen) return;
         if (aimTouchId === null && e.changedTouches[0]) {
             aimTouchId = e.changedTouches[0].identifier;
             WORLD.INPUTS.mouseX = e.changedTouches[0].clientX;
@@ -8212,6 +8367,31 @@ window.addEventListener('DOMContentLoaded', () => {
     renderAdminSpawnGrid();
     refreshAdminReviveButton();
 
+    if (adminSpawnFactionMenu) {
+        adminSpawnFactionMenu.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+        });
+        adminSpawnFactionMenu.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+    }
+
+    for (let i = 0; i < adminSpawnFactionButtons.length; i++) {
+        const btn = adminSpawnFactionButtons[i];
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (adminSpawnFactionTarget && ws && ws.readyState === WebSocket.OPEN && isAdmin) {
+                ws.send(JSON.stringify({
+                    type: 'admin_spawn_entity',
+                    entityType: adminSpawnFactionTarget.id,
+                    faction: btn.dataset.spawnFaction
+                }));
+            }
+        });
+    }
+
     if (tokenInput) {
         tokenInput.addEventListener('focus', () => {
             clearHeldInputs();
@@ -8276,6 +8456,35 @@ window.addEventListener('DOMContentLoaded', () => {
         leaveOverlay.addEventListener('click', (e) => {
             if (e.target === leaveOverlay) {
                 closeLeaveDialog();
+            }
+        });
+    }
+
+    if (spectateBtn) {
+        spectateBtn.addEventListener('click', () => {
+            openSpectateDialog();
+        });
+    }
+
+    if (spectateNoBtn) {
+        spectateNoBtn.addEventListener('click', () => {
+            closeSpectateDialog();
+        });
+    }
+
+    if (spectateYesBtn) {
+        spectateYesBtn.addEventListener('click', () => {
+            if (ws && ws.readyState === WebSocket.OPEN && myId !== null) {
+                ws.send(JSON.stringify({ type: 'spectate' }));
+            }
+            closeSpectateDialog();
+        });
+    }
+
+    if (spectateOverlay) {
+        spectateOverlay.addEventListener('click', (e) => {
+            if (e.target === spectateOverlay) {
+                closeSpectateDialog();
             }
         });
     }
