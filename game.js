@@ -1022,6 +1022,24 @@ const ADMIN_SPAWN_OPTIONS = [
         stats: [{ label: 'HP', value: '320' }, { label: 'Grenade', value: '150 Split AoE (5s)' }, { label: 'Melee', value: '80 Punch' }]
     },
     {
+        id: 'rarebot-scout',
+        title: 'Scout Rarebot',
+        kindLabel: 'ENEMY',
+        description: 'Fast melee Rarebot equipped with a dropslide dodge and quick melee strikes.',
+        bodyType: 'scout',
+        weapon: 'hands',
+        stats: [{ label: 'HP', value: '300' }, { label: 'Melee', value: '55 Damage' }, { label: 'Ability', value: 'Dropslide' }]
+    },
+    {
+        id: 'rarebot-sacrifice',
+        title: 'Sacrifice Rarebot',
+        kindLabel: 'ENEMY',
+        description: 'Very fast, dodging Rarebot strapped with explosives that detonates on contact with Goodbots. Cannot be healed.',
+        bodyType: 'sacrifice',
+        weapon: 'none',
+        stats: [{ label: 'HP', value: '100' }, { label: 'Explosion', value: '150 Split AoE' }, { label: 'Reward', value: '25 Scraps' }]
+    },
+    {
         id: 'rarebot-dropship',
         title: 'Rarebot Dropship',
         kindLabel: 'ENEMY',
@@ -1112,15 +1130,28 @@ function createEntityPreviewUrl(opt) {
 
     const bodyImg = opt.bodyType === 'prototype'
         ? prototypeRarebotImg
-        : (opt.bodyType === 'rarebot' ? rarebotImg : goodbotImg);
+        : (opt.bodyType === 'sacrifice'
+            ? sacrificeRarebotImg
+            : (opt.bodyType === 'scout'
+                ? scoutRarebotImg
+                : (opt.bodyType === 'rarebot' ? rarebotImg : goodbotImg)));
     const bodySize = 36;
     const refW = (goodbotImg.complete && goodbotImg.naturalWidth > 0) ? goodbotImg.naturalWidth : 512;
     const refH = (goodbotImg.complete && goodbotImg.naturalHeight > 0) ? goodbotImg.naturalHeight : 512;
 
-    let minX = -bodySize / 2;
-    let maxX = bodySize / 2;
-    let minY = -bodySize / 2;
-    let maxY = bodySize / 2;
+    const bodyDrawW = ((opt.bodyType === 'scout' || opt.bodyType === 'sacrifice') && bodyImg.complete && bodyImg.naturalWidth > 0)
+        ? bodySize * (bodyImg.naturalWidth / refW)
+        : bodySize;
+    const bodyDrawH = ((opt.bodyType === 'scout' || opt.bodyType === 'sacrifice') && bodyImg.complete && bodyImg.naturalHeight > 0)
+        ? bodySize * (bodyImg.naturalHeight / refH)
+        : bodySize;
+    const bodyDrawX = -bodyDrawW / 2;
+    const bodyDrawY = -bodySize / 2;
+
+    let minX = bodyDrawX;
+    let maxX = bodyDrawX + bodyDrawW;
+    let minY = bodyDrawY;
+    let maxY = bodyDrawY + bodyDrawH;
 
     const isDualPistol = opt.weapon === 'dual-pistol';
     const isBeamerPreview = opt.weapon === 'goodbot-beamer';
@@ -1173,7 +1204,7 @@ function createEntityPreviewUrl(opt) {
                 if (wy + wh > maxY) maxY = wy + wh;
             }
         }
-    } else {
+    } else if (opt.weapon !== 'none') {
         const handsImg = opt.bodyType === 'prototype' ? prototypeRarebotHandsImg : botHandsImg;
         if (handsImg.complete && handsImg.naturalWidth > 0) {
             const ww = bodySize * (handsImg.naturalWidth / refW) * HANDS_SCALE;
@@ -1242,7 +1273,7 @@ function createEntityPreviewUrl(opt) {
     }
 
     if (bodyImg.complete && bodyImg.naturalWidth > 0) {
-        g.drawImage(bodyImg, -bodySize / 2, -bodySize / 2, bodySize, bodySize);
+        g.drawImage(bodyImg, bodyDrawX, bodyDrawY, bodyDrawW, bodyDrawH);
     } else {
         g.fillStyle = opt.bodyType === 'goodbot' ? '#b833ff' : '#cc3f3f';
         g.fillRect(-bodySize / 2, -bodySize / 2, bodySize, bodySize);
@@ -2252,6 +2283,8 @@ const tilesheetImg = new Image();
 const goodbotImg = new Image();
 const rarebotImg = new Image();
 const prototypeRarebotImg = new Image();
+const sacrificeRarebotImg = new Image();
+const scoutRarebotImg = new Image();
 const botHandsImg = new Image();
 const prototypeRarebotHandsImg = new Image();
 const goodbotPistolImg = new Image();
@@ -2689,6 +2722,8 @@ function loadAssets() {
     goodbotImg.onload = refreshIcons;
     rarebotImg.onload = refreshIcons;
     prototypeRarebotImg.onload = refreshIcons;
+    sacrificeRarebotImg.onload = refreshIcons;
+    scoutRarebotImg.onload = refreshIcons;
     botHandsImg.onload = refreshIcons;
     prototypeRarebotHandsImg.onload = refreshIcons;
     goodbotPistolImg.onload = refreshIcons;
@@ -2707,6 +2742,8 @@ function loadAssets() {
     goodbotImg.src = 'assets/Goodbot.png';
     rarebotImg.src = 'assets/Rarebot.png';
     prototypeRarebotImg.src = 'assets/Prototype Rarebot.png';
+    sacrificeRarebotImg.src = 'assets/Sacrifice Rarebot.png?v=3';
+    scoutRarebotImg.src = 'assets/Scout Rarebot.png?v=3';
     botHandsImg.src = 'assets/Bot Hands.png';
     prototypeRarebotHandsImg.src = 'assets/Prototype Rarebot Hands.png';
     goodbotPistolImg.src = 'assets/Goodbot Pistol.png';
@@ -3610,7 +3647,7 @@ function spawnGrenadeExplosionParticles(wx, wy, radius = 192, variant = 'goodbot
 
 function spawnBulletWallParticles(wx, wy, variant) {
     const palette = variant === 'rarebot' ? RAREBOT_BULLET_EXPLOSION_COLORS : GOODBOT_BULLET_EXPLOSION_COLORS;
-    const count = 12;
+    const count = variant === 'goodbot-beamer' ? 4 : 12;
     for (let i = 0; i < count; i++) {
         if (explosions.length >= MAX_EXPLOSION_PARTICLES) {
             explosions.shift();
@@ -4189,6 +4226,7 @@ function getScaledSpriteCanvas(key, img, sx, sy, sw, sh, logicalW, logicalH) {
 }
 
 function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, entityKey, nowMs) {
+    if (weapon === 'none') return;
     ctx.save();
     ctx.translate(x, y);
     const isCannon = weapon === 'goodbot-cannon';
@@ -4541,6 +4579,52 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
     ctx.restore();
 }
 
+let beamerBeamAssetsCache = null;
+
+function getBeamerBeamAssets() {
+    if (beamerBeamAssetsCache) return beamerBeamAssetsCache;
+
+    const strip = document.createElement('canvas');
+    strip.width = 36;
+    strip.height = 64;
+    const sCtx = strip.getContext('2d');
+    sCtx.fillStyle = 'rgba(184, 51, 255, 0.32)';
+    sCtx.fillRect(4, 0, 28, 64);
+    sCtx.fillStyle = 'rgba(216, 74, 255, 0.85)';
+    sCtx.fillRect(11, 0, 14, 64);
+    sCtx.fillStyle = '#ffffff';
+    sCtx.fillRect(15.25, 0, 5.5, 64);
+
+    const startGlow = document.createElement('canvas');
+    startGlow.width = 28;
+    startGlow.height = 28;
+    const sgCtx = startGlow.getContext('2d');
+    sgCtx.fillStyle = '#f0aaff';
+    sgCtx.beginPath();
+    sgCtx.arc(14, 14, 10.5, 0, Math.PI * 2);
+    sgCtx.fill();
+    sgCtx.fillStyle = '#ffffff';
+    sgCtx.beginPath();
+    sgCtx.arc(14, 14, 5, 0, Math.PI * 2);
+    sgCtx.fill();
+
+    const endGlow = document.createElement('canvas');
+    endGlow.width = 44;
+    endGlow.height = 44;
+    const egCtx = endGlow.getContext('2d');
+    egCtx.fillStyle = 'rgba(216, 74, 255, 0.6)';
+    egCtx.beginPath();
+    egCtx.arc(22, 22, 16.5, 0, Math.PI * 2);
+    egCtx.fill();
+    egCtx.fillStyle = '#ffffff';
+    egCtx.beginPath();
+    egCtx.arc(22, 22, 7.5, 0, Math.PI * 2);
+    egCtx.fill();
+
+    beamerBeamAssetsCache = { strip, startGlow, endGlow };
+    return beamerBeamAssetsCache;
+}
+
 const pendingEntityLabels = [];
 
 function drawEntityLabel(x, y, sH, label, faction) {
@@ -4572,6 +4656,12 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
     if (spriteKind === 'prototype') {
         spriteImg = prototypeRarebotImg;
         bodyKey = 'body_proto';
+    } else if (spriteKind === 'sacrifice') {
+        spriteImg = sacrificeRarebotImg;
+        bodyKey = 'body_sacrifice';
+    } else if (spriteKind === 'scout') {
+        spriteImg = scoutRarebotImg;
+        bodyKey = 'body_scout';
     } else if (faction === 'rarebot') {
         spriteImg = rarebotImg;
         bodyKey = 'body_rarebot';
@@ -4590,17 +4680,24 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         bodyY += sprintAnim.dirY * lean - stepLift;
     }
 
-    if (showHands && !isSpectator) {
+    if (showHands && !isSpectator && weapon !== 'none') {
         drawBotHands(bodyX, bodyY, sW, sH, angle, swingOffset, spriteKind, weapon, entityKey, nowMs);
     }
 
     if (spriteImg.complete && spriteImg.naturalWidth > 0) {
-        const bodyMip = getScaledSpriteCanvas(bodyKey, spriteImg, 0, 0, spriteImg.naturalWidth, spriteImg.naturalHeight, width, height) || spriteImg;
+        const refW = (goodbotImg.complete && goodbotImg.naturalWidth > 0) ? goodbotImg.naturalWidth : 512;
+        const refH = (goodbotImg.complete && goodbotImg.naturalHeight > 0) ? goodbotImg.naturalHeight : 512;
+        const isExtendedSprite = spriteKind === 'scout' || spriteKind === 'sacrifice';
+        const mipW = isExtendedSprite ? width * (spriteImg.naturalWidth / refW) : width;
+        const mipH = isExtendedSprite ? height * (spriteImg.naturalHeight / refH) : height;
+        const drawW = isExtendedSprite ? sW * (spriteImg.naturalWidth / refW) : sW;
+        const drawH = isExtendedSprite ? sH * (spriteImg.naturalHeight / refH) : sH;
+        const bodyMip = getScaledSpriteCanvas(bodyKey, spriteImg, 0, 0, spriteImg.naturalWidth, spriteImg.naturalHeight, mipW, mipH) || spriteImg;
         ctx.save();
         if (isSpectator) ctx.globalAlpha = 0.5;
         ctx.translate(bodyX, bodyY);
         ctx.rotate(sprintBlend > 0.01 ? (angle + strideSin * 0.055 * sprintBlend) : angle);
-        ctx.drawImage(bodyMip, -sW / 2, -sH / 2, sW, sH);
+        ctx.drawImage(bodyMip, -drawW / 2, -sH / 2, drawW, drawH);
         if (armor === 'goodbot-armor' && !isSpectator && faction === 'goodbot' && goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
             const armorMip = getScaledSpriteCanvas('armor_goodbot', goodbotArmorImg, 0, 0, goodbotArmorImg.naturalWidth, goodbotArmorImg.naturalHeight, width, height) || goodbotArmorImg;
             ctx.drawImage(armorMip, -sW / 2, -sH / 2, sW, sH);
@@ -4793,8 +4890,18 @@ function render() {
         if (raycastBeams.length > 0) {
             const bulletScale = (48 / 512) * HANDS_SCALE * 1.35;
             const beamWidth = Math.max(4, 24 * bulletScale * 1.5);
+            const beamerAssets = getBeamerBeamAssets();
             for (let i = 0; i < raycastBeams.length; i++) {
                 const b = raycastBeams[i];
+                const sx1 = b.x1 - camX;
+                const sy1 = b.y1 - camY;
+                const sx2 = b.x2 - camX;
+                const sy2 = b.y2 - camY;
+                const minX = sx1 < sx2 ? sx1 : sx2;
+                const maxX = sx1 > sx2 ? sx1 : sx2;
+                const minY = sy1 < sy2 ? sy1 : sy2;
+                const maxY = sy1 > sy2 ? sy1 : sy2;
+                if (maxX < -42 || minX > camW + 42 || maxY < -42 || minY > camH + 42) continue;
                 const dx = b.x2 - b.x1;
                 const dy = b.y2 - b.y1;
                 const beamLen = Math.hypot(dx, dy);
@@ -4804,38 +4911,22 @@ function render() {
                     const alpha = Math.min(1, Math.max(0, (1 - b.age / b.life) * 1.4));
                     const seed = b.seed || 0;
                     const pulse = Math.sin(nowMs * 0.032 + seed);
+                    const pulseScale = (28 + pulse * 4) / 28;
+                    const stripHalfW = 18 * pulseScale;
+                    const startSize = 28 * ((10 + pulse * 1.5) / 10.5);
+                    const endSize = 44 * ((16 + pulse * 2.5) / 16.5);
                     ctx.save();
                     ctx.globalAlpha = alpha;
-                    ctx.translate(b.x1 - camX, b.y1 - camY);
+                    ctx.translate(sx1, sy1);
                     ctx.rotate(beamAngle);
-
-                    ctx.lineCap = 'round';
-                    ctx.strokeStyle = 'rgba(184, 51, 255, 0.32)';
-                    ctx.lineWidth = 28 + pulse * 4;
-                    ctx.beginPath();
-                    ctx.moveTo(0, 0);
-                    ctx.lineTo(0, -beamLen);
-                    ctx.stroke();
-
-                    ctx.strokeStyle = 'rgba(216, 74, 255, 0.85)';
-                    ctx.lineWidth = 14 + pulse * 2;
-                    ctx.beginPath();
-                    ctx.moveTo(0, 0);
-                    ctx.lineTo(0, -beamLen);
-                    ctx.stroke();
-
-                    ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 5.5 + pulse * 0.8;
-                    ctx.beginPath();
-                    ctx.moveTo(0, 0);
-                    ctx.lineTo(0, -beamLen);
-                    ctx.stroke();
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.drawImage(beamerAssets.strip, 0, 0, 36, 64, -stripHalfW, -beamLen, stripHalfW * 2, beamLen);
 
                     ctx.strokeStyle = '#f5c2ff';
                     ctx.lineWidth = 2;
                     ctx.beginPath();
                     ctx.moveTo(0, 0);
-                    const segStep = 26;
+                    const segStep = 56;
                     const segCount = Math.max(2, Math.ceil(beamLen / segStep));
                     for (let s = 1; s < segCount; s++) {
                         const sy = -(beamLen * s) / segCount;
@@ -4845,24 +4936,8 @@ function render() {
                     ctx.lineTo(0, -beamLen);
                     ctx.stroke();
 
-                    ctx.fillStyle = '#f0aaff';
-                    ctx.beginPath();
-                    ctx.arc(0, 0, 10 + pulse * 1.5, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.fillStyle = '#ffffff';
-                    ctx.beginPath();
-                    ctx.arc(0, 0, 5, 0, Math.PI * 2);
-                    ctx.fill();
-
-                    ctx.fillStyle = 'rgba(216, 74, 255, 0.6)';
-                    ctx.beginPath();
-                    ctx.arc(0, -beamLen, 16 + pulse * 2.5, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.fillStyle = '#ffffff';
-                    ctx.beginPath();
-                    ctx.arc(0, -beamLen, 7 + pulse, 0, Math.PI * 2);
-                    ctx.fill();
-
+                    ctx.drawImage(beamerAssets.startGlow, -startSize * 0.5, -startSize * 0.5, startSize, startSize);
+                    ctx.drawImage(beamerAssets.endGlow, -endSize * 0.5, -beamLen - endSize * 0.5, endSize, endSize);
                     ctx.restore();
                     continue;
                 }
@@ -4870,7 +4945,7 @@ function render() {
                 const bulletImg = b.variant === 'rarebot' ? rarebotBulletImg : goodbotBulletImg;
                 ctx.save();
                 ctx.globalAlpha = alpha;
-                ctx.translate(b.x1 - camX, b.y1 - camY);
+                ctx.translate(sx1, sy1);
                 ctx.rotate(beamAngle);
                 if (bulletImg.complete && bulletImg.naturalWidth > 0) {
                     ctx.imageSmoothingEnabled = true;
@@ -5121,15 +5196,15 @@ function render() {
             const eInTree = isWorldPointInTree(eWorldCX, eWorldCY);
             const showBars = !eInTree && ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs;
             const eWeapon = e.weapon || 'hands';
-            const eLabel = e.name || (eKind === 'grenadier' ? 'Rarebot Grenadier' : (eKind === 'healer' ? 'Healer Rarebot' : (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot3' ? 'Rarebot 3.0' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot')))));
-            const defMaxH = eKind === 'prototype' ? 120 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255)));
+            const eLabel = e.name || (eKind === 'grenadier' ? 'Rarebot Grenadier' : (eKind === 'sacrifice' ? 'Sacrifice Rarebot' : (eKind === 'scout' ? 'Scout Rarebot' : (eKind === 'healer' ? 'Healer Rarebot' : (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot3' ? 'Rarebot 3.0' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot')))))));
+            const defMaxH = eKind === 'prototype' ? 120 : (eKind === 'sacrifice' ? 100 : (eKind === 'scout' ? 300 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255)))));
             const bars = showBars ? {
                 health: e.health ?? defMaxH,
                 maxHealth: e.maxHealth ?? defMaxH,
                 energy: e.energy ?? (eKind === 'prototype' ? 100 : 50),
                 maxEnergy: e.maxEnergy ?? (eKind === 'prototype' ? 100 : 50)
             } : null;
-            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, null, 'rarebot', true, getSwingOffset(key, nowMs), bars, eKind, eWeapon, key, nowMs, e.armor || (eKind === 'rarebot3' ? 'rarebot-armor' : null));
+            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, null, 'rarebot', eKind !== 'sacrifice', getSwingOffset(key, nowMs), bars, eKind, eWeapon, key, nowMs, e.armor || (eKind === 'rarebot3' ? 'rarebot-armor' : null));
             if (!eInTree && eLabel) {
                 pendingEntityLabels.push({ x: eRX, y: eRY, sH: eh * es, label: eLabel, faction: 'rarebot' });
             }
@@ -6240,16 +6315,48 @@ async function connectToServer() {
             const isCannonShot = data.variant === 'goodbot-cannon' || data.projKind === 'cannonball';
             const isBeamerShot = data.variant === 'goodbot-beamer';
             if (typeof data.endX === 'number' && typeof data.endY === 'number') {
-                raycastBeams.push({
-                    variant: data.variant || 'goodbot',
-                    x1: Number(data.projX) || 0,
-                    y1: Number(data.projY) || 0,
-                    x2: data.endX,
-                    y2: data.endY,
-                    age: 0,
-                    life: isBeamerShot ? 0.13 : 0.14,
-                    seed: isBeamerShot ? Math.random() * 100 : 0
-                });
+                const bx1 = Number(data.projX) || 0;
+                const by1 = Number(data.projY) || 0;
+                if (isBeamerShot) {
+                    const shooterKey = `${data.kind}:${data.id}`;
+                    let found = null;
+                    for (let i = 0; i < raycastBeams.length; i++) {
+                        if (raycastBeams[i].variant === 'goodbot-beamer' && raycastBeams[i].shooterKey === shooterKey) {
+                            found = raycastBeams[i];
+                            break;
+                        }
+                    }
+                    if (found) {
+                        found.x1 = bx1;
+                        found.y1 = by1;
+                        found.x2 = data.endX;
+                        found.y2 = data.endY;
+                        found.age = 0;
+                    } else {
+                        raycastBeams.push({
+                            variant: 'goodbot-beamer',
+                            shooterKey,
+                            x1: bx1,
+                            y1: by1,
+                            x2: data.endX,
+                            y2: data.endY,
+                            age: 0,
+                            life: 0.13,
+                            seed: Math.random() * 100
+                        });
+                    }
+                } else {
+                    raycastBeams.push({
+                        variant: data.variant || 'goodbot',
+                        x1: bx1,
+                        y1: by1,
+                        x2: data.endX,
+                        y2: data.endY,
+                        age: 0,
+                        life: 0.14,
+                        seed: 0
+                    });
+                }
             } else if (typeof data.projId === 'number') {
                 serverProjectiles.set(data.projId, {
                     id: data.projId,
@@ -6621,7 +6728,7 @@ async function connectToServer() {
                 for (const id in data.enemies) {
                     const incoming = data.enemies[id];
                     const eKind = incoming.kind || 'rarebot';
-                    const defMaxH = eKind === 'dropship' ? 8000 : (eKind === 'prototype' ? 120 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255))));
+                    const defMaxH = eKind === 'dropship' ? 8000 : (eKind === 'prototype' ? 120 : (eKind === 'sacrifice' ? 100 : (eKind === 'scout' ? 300 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255))))));
                     const defMaxE = eKind === 'prototype' ? 100 : 50;
                     const defSize = eKind === 'dropship' ? 224 : 48;
                     const existing = serverEnemies[id];
