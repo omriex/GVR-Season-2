@@ -8457,9 +8457,12 @@ function triggerShove() {
 
     const nowMs = performance.now();
     if (nowMs < shoveReadyAt) return;
+    if ((ME.energy || 0) < 30) return;
 
     lastLocalShoveAt = nowMs;
-    shoveReadyAt = nowMs + 4000;
+    shoveReadyAt = nowMs + 1000;
+    ME.energy = Math.max(0, (ME.energy || 0) - 30);
+    updateStatsUI();
     leftPunchAnims.set(`player:${myId}`, { at: nowMs, shove: true });
     playSpatialSound('swing', ME.x + ME.width / 2, ME.y + ME.height / 2);
     updateShoveSlotCooldown(nowMs);
