@@ -221,6 +221,7 @@ let lastEquippedItemKey = null;
 
 const swingAnims = new Map();
 const clawBlockAnims = new Map();
+const mapbotGloryKills = new Map();
 const recoilAnims = new Map();
 const leftRecoilAnims = new Map();
 const equipAnims = new Map();
@@ -463,6 +464,7 @@ function returnToMainMenu() {
     serverAllies = {};
     swingAnims.clear();
     clawBlockAnims.clear();
+    mapbotGloryKills.clear();
     if (targetEliminatedTimer) {
         clearTimeout(targetEliminatedTimer);
         targetEliminatedTimer = null;
@@ -2648,7 +2650,8 @@ const SOUND_FILES = {
     bulletImpact3: 'sounds/bullet impact 3.mp3',
     bulletWallImpact: 'sounds/bullet wall impact.mp3',
     grapple1: 'sounds/grapple 1.mp3',
-    dropslide: 'sounds/dropslide.mp3?v=2'
+    dropslide: 'sounds/dropslide.mp3?v=2',
+    gloryKill: 'sounds/glory kill.mp3'
 };
 const soundBuffers = {
     swing: null,
@@ -2667,7 +2670,8 @@ const soundBuffers = {
     bulletImpact3: null,
     bulletWallImpact: null,
     grapple1: null,
-    dropslide: null
+    dropslide: null,
+    gloryKill: null
 };
 
 function loadSoundBuffer(key, ctxAudio) {
@@ -2726,7 +2730,8 @@ const lastSoundAt = {
     bulletWallImpact: 0,
     grapple1: 0,
     dropslide: 0,
-    mapbotCoreBlast: 0
+    mapbotCoreBlast: 0,
+    gloryKill: 0
 };
 
 function showTargetEliminatedBanner() {
@@ -2785,7 +2790,7 @@ function playSpatialSound(key, wx, wy, options = null) {
     const masterVol = window.GAME_AUDIO_SETTINGS ? Number(window.GAME_AUDIO_SETTINGS.soundVolume) : 1;
     if (!isFinite(masterVol) || masterVol <= 0.005) return;
     const nowMs = performance.now();
-    const minGap = key === 'mapbotCoreBlast' ? 140 : (key === 'beamerShot' ? 110 : (key === 'bulletWallImpact' ? 70 : (key === 'explosion' ? 60 : ((key === 'swing' || key === 'hit') ? 45 : (key === 'dropslide' ? 40 : 15)))));
+    const minGap = key === 'mapbotCoreBlast' ? 140 : (key === 'beamerShot' ? 110 : (key === 'gloryKill' ? 100 : (key === 'bulletWallImpact' ? 70 : (key === 'explosion' ? 60 : ((key === 'swing' || key === 'hit') ? 45 : (key === 'dropslide' ? 40 : 15))))));
     if (nowMs - (lastSoundAt[key] || 0) < minGap) return;
 
     const ctxAudio = ensureAudioContext();
@@ -2793,7 +2798,7 @@ function playSpatialSound(key, wx, wy, options = null) {
 
     const lx = myId !== null ? (ME.x + ME.width / 2) : ((WORLD.CAMERA.x || 0) + WORLD.CAMERA.width / 2);
     const ly = myId !== null ? (ME.y + ME.height / 2) : ((WORLD.CAMERA.y || 0) + WORLD.CAMERA.height / 2);
-    const maxHearDist = key === 'mapbotCoreBlast' ? 1500 : 1080;
+    const maxHearDist = (key === 'mapbotCoreBlast' || key === 'gloryKill') ? 1550 : 1080;
     let dist = 0;
     if (typeof wx === 'number' && typeof wy === 'number') {
         const dx = wx - lx;
@@ -2806,15 +2811,17 @@ function playSpatialSound(key, wx, wy, options = null) {
     const optVolMult = (options && typeof options.volumeMult === 'number') ? options.volumeMult : 1;
     const baseKeyVol = key === 'mapbotCoreBlast'
         ? 2.0
-        : (key === 'beamerShot'
-            ? 0.55
-            : ((key === 'hitReceive' || key === 'hitDeal')
-                ? 0.1
-                : (key === 'grapple1'
-                    ? 2.7
-                    : (key === 'parry'
-                        ? 1.35
-                        : (key === 'block' ? 1.25 : (key === 'blade' ? 1.18 : 1))))));
+        : (key === 'gloryKill'
+            ? 1.7
+            : (key === 'beamerShot'
+                ? 0.55
+                : ((key === 'hitReceive' || key === 'hitDeal')
+                    ? 0.1
+                    : (key === 'grapple1'
+                        ? 2.7
+                        : (key === 'parry'
+                            ? 1.35
+                            : (key === 'block' ? 1.25 : (key === 'blade' ? 1.18 : 1)))))));
     const volSpread = (key === 'parry' || key === 'block') ? 0.14 : 0.11;
     const volJitter = 1 + (Math.random() * 2 - 1) * volSpread;
     const gainValue = falloff * falloff * masterVol * baseKeyVol * optVolMult * volJitter;
@@ -3736,12 +3743,95 @@ function update(dt) {
         ME.y += rdyMe * meLerp;
     }
 
-    const smX = WORLD.INPUTS.mouseX / WORLD.SYSTEM.viewScale;
-    const smY = WORLD.INPUTS.mouseY / WORLD.SYSTEM.viewScale;
-    const psX = ME.x - (WORLD.CAMERA.x || 0) + ME.width / 2;
-    const psY = ME.y - (WORLD.CAMERA.y || 0) + ME.height / 2;
-    const mouseAngle = Math.atan2(smY - psY, smX - psX);
-    ME.angle = mouseAngle + (Math.PI / 2);
+    const gkNowMs = performance.now();
+    let meLockedByGloryKill = false;
+    for (const [gKey, gk] of mapbotGloryKills) {
+        const elapsed = gkNowMs - gk.at;
+        if (elapsed >= gk.durationMs + 250) {
+            mapbotGloryKills.delete(gKey);
+            continue;
+        }
+        if (!gk.jawHitDone && elapsed >= 70 && elapsed < gk.hitMs) {
+            gk.jawHitDone = true;
+            let tx = gk.targetX || 0;
+            let ty = gk.targetY || 0;
+            if (gk.targetKind === 'player') {
+                if (gk.targetId === myId) {
+                    tx = ME.x + ME.width * 0.5;
+                    ty = ME.y + ME.height * 0.5;
+                } else if (serverPlayers[gk.targetId]) {
+                    const tp = serverPlayers[gk.targetId];
+                    tx = (tp.renderX ?? tp.x) + (tp.width || 48) * 0.5;
+                    ty = (tp.renderY ?? tp.y) + (tp.height || 48) * 0.5;
+                }
+            } else if (gk.targetKind === 'ally' && serverAllies[gk.targetId]) {
+                const ta = serverAllies[gk.targetId];
+                tx = (ta.renderX ?? ta.x) + (ta.width || 48) * 0.5;
+                ty = (ta.renderY ?? ta.y) + (ta.height || 48) * 0.5;
+            } else if (gk.targetKind === 'enemy' && serverEnemies[gk.targetId]) {
+                const te = serverEnemies[gk.targetId];
+                tx = (te.renderX ?? te.x) + (te.width || 48) * 0.5;
+                ty = (te.renderY ?? te.y) + (te.height || 48) * 0.5;
+            }
+            playSpatialSound('hit', tx, ty, { volumeMult: 1.05, playbackRate: 0.92 });
+            addCameraShake(0.42, tx, ty);
+            for (let i = 0; i < 8; i++) {
+                if (explosions.length >= MAX_EXPLOSION_PARTICLES) {
+                    explosions.shift();
+                }
+                const ang = Math.random() * Math.PI * 2;
+                const spd = 70 + Math.random() * 150;
+                explosions.push({
+                    x: tx + (Math.random() - 0.5) * 8,
+                    y: ty + (Math.random() - 0.5) * 8,
+                    vx: Math.cos(ang) * spd,
+                    vy: Math.sin(ang) * spd,
+                    radius: 3 + Math.random() * 3.5,
+                    life: 0.16 + Math.random() * 0.14,
+                    age: 0,
+                    color: i % 2 === 0 ? '#e060ff' : '#ffd26a'
+                });
+            }
+        }
+        if (!meLockedByGloryKill && myId !== null && gk.targetKind === 'player' && gk.targetId === myId && elapsed < gk.hitMs) {
+            const enemyId = gKey.startsWith('enemy:') ? gKey.slice(6) : null;
+            const mb = enemyId ? serverEnemies[enemyId] : null;
+            if (mb) {
+                const mbCx = (mb.renderX ?? mb.x) + (mb.width || 48) * 0.5;
+                const mbCy = (mb.renderY ?? mb.y) + (mb.height || 48) * 0.5;
+                const meCx = ME.x + ME.width * 0.5;
+                const meCy = ME.y + ME.height * 0.5;
+                const faceMapbotAng = Math.atan2(mbCy - meCy, mbCx - meCx) + Math.PI * 0.5;
+                const jawDir = gk.turnDir || 1;
+                let victimHeadOffset = 0;
+                if (elapsed >= 75 && elapsed < 250) {
+                    const jt = (elapsed - 75) / 175;
+                    const jEase = 1 - (1 - jt) * (1 - jt);
+                    victimHeadOffset = -jawDir * 1.08 * jEase;
+                } else if (elapsed >= 250 && elapsed < 530) {
+                    const jt = (elapsed - 250) / 280;
+                    const jSmooth = jt * jt * (3 - 2 * jt);
+                    victimHeadOffset = jawDir * (-1.08 + 1.96 * jSmooth);
+                } else if (elapsed >= 530 && elapsed < 780) {
+                    const jt = (elapsed - 530) / 250;
+                    const jSmooth = jt * jt * (3 - 2 * jt);
+                    victimHeadOffset = jawDir * 0.88 * (1 - jSmooth);
+                } else if (elapsed >= 780) {
+                    victimHeadOffset = Math.sin(elapsed * 0.036) * 0.11;
+                }
+                ME.angle = faceMapbotAng + victimHeadOffset;
+                meLockedByGloryKill = true;
+            }
+        }
+    }
+    if (!meLockedByGloryKill) {
+        const smX = WORLD.INPUTS.mouseX / WORLD.SYSTEM.viewScale;
+        const smY = WORLD.INPUTS.mouseY / WORLD.SYSTEM.viewScale;
+        const psX = ME.x - (WORLD.CAMERA.x || 0) + ME.width / 2;
+        const psY = ME.y - (WORLD.CAMERA.y || 0) + ME.height / 2;
+        const mouseAngle = Math.atan2(smY - psY, smX - psX);
+        ME.angle = mouseAngle + (Math.PI / 2);
+    }
 
     const targetCamX = ME.x + ME.width / 2 - WORLD.CAMERA.width / 2;
     const targetCamY = ME.y + ME.height / 2 - WORLD.CAMERA.height / 2;
@@ -3780,7 +3870,8 @@ function update(dt) {
         let diff = (p.angle || 0) - p.renderAngle;
         while (diff < -Math.PI) diff += Math.PI * 2;
         while (diff > Math.PI) diff -= Math.PI * 2;
-        p.renderAngle += diff * (1 - Math.exp(-dt * 20));
+        const pAngRate = findVictimGloryKill(`player:${id}`, gkNowMs) ? 34 : 20;
+        p.renderAngle += diff * (1 - Math.exp(-dt * pAngRate));
     }
 
     const worldW = WORLD.MAP.columns * WORLD.MAP.tileSize;
@@ -3817,7 +3908,8 @@ function update(dt) {
         let diff = (e.angle || 0) - e.renderAngle;
         while (diff < -Math.PI) diff += Math.PI * 2;
         while (diff > Math.PI) diff -= Math.PI * 2;
-        e.renderAngle += diff * (1 - Math.exp(-dt * 20));
+        const angleRate = (mapbotGloryKills.has(`enemy:${id}`) || findVictimGloryKill(`enemy:${id}`, gkNowMs)) ? 34 : 20;
+        e.renderAngle += diff * (1 - Math.exp(-dt * angleRate));
     }
 
     for (const id in serverAllies) {
@@ -3848,7 +3940,8 @@ function update(dt) {
         let diff = (a.angle || 0) - a.renderAngle;
         while (diff < -Math.PI) diff += Math.PI * 2;
         while (diff > Math.PI) diff -= Math.PI * 2;
-        a.renderAngle += diff * (1 - Math.exp(-dt * 20));
+        const aAngRate = findVictimGloryKill(`ally:${id}`, gkNowMs) ? 34 : 20;
+        a.renderAngle += diff * (1 - Math.exp(-dt * aAngRate));
     }
 
     sprintAnimSeq++;
@@ -5397,6 +5490,32 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         ctx.rotate(sprintBlend > 0.01 ? (angle + strideSin * 0.04 * sprintBlend) : angle);
         ctx.imageSmoothingEnabled = true;
 
+        const enemyEntity = entityKey && entityKey.startsWith('enemy:') ? serverEnemies[entityKey.slice(6)] : null;
+        const gloryKillAnim = entityKey ? mapbotGloryKills.get(entityKey) : null;
+        const gkElapsed = gloryKillAnim ? Math.max(0, nowMs - gloryKillAnim.at) : -1;
+        const gkActive = Boolean(gloryKillAnim && gkElapsed >= 0 && gkElapsed <= gloryKillAnim.durationMs);
+
+        if (enemyEntity && (enemyEntity.invincible || enemyEntity.speedBoost)) {
+            ctx.save();
+            if (enemyEntity.invincible) {
+                const pulse = 0.55 + 0.35 * Math.sin(nowMs * 0.025);
+                ctx.strokeStyle = `rgba(255, 224, 112, ${pulse.toFixed(3)})`;
+                ctx.lineWidth = Math.max(2.2, B * 0.075);
+                ctx.beginPath();
+                ctx.arc(0, 0, B * 0.66, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            if (enemyEntity.speedBoost) {
+                const spPulse = 0.42 + 0.25 * Math.sin(nowMs * 0.03);
+                ctx.strokeStyle = `rgba(216, 92, 255, ${spPulse.toFixed(3)})`;
+                ctx.lineWidth = Math.max(1.8, B * 0.05);
+                ctx.beginPath();
+                ctx.arc(0, 0, B * 0.76, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
         if (mapbotBlasterSide1Img.complete && mapbotBlasterSide1Img.naturalWidth > 0) {
             const bw = 0.5078 * B;
             const bh = 0.3867 * B;
@@ -5434,7 +5553,84 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         if (mapbotClawsImg.complete && mapbotClawsImg.naturalWidth > 0) {
             const clw = 1.2305 * B;
             const clh = 0.3125 * B;
-            if (blockBlend > 0.01) {
+            if (gkActive) {
+                const hitMs = gloryKillAnim.hitMs || 1700;
+                const durMs = gloryKillAnim.durationMs || 2100;
+                const jawDir = gloryKillAnim.turnDir || 1;
+                let clawLiftScale = 1;
+                let clawXOffset = 0;
+                let clawYOffset = 0.3457 * B;
+                let clawRot = 0;
+                let chargeGlow = 0;
+                if (gkElapsed < 240) {
+                    if (gkElapsed < 85) {
+                        const jp = gkElapsed / 85;
+                        const jEase = 1 - Math.pow(1 - jp, 2.4);
+                        clawLiftScale = 1 + 0.14 * jEase;
+                        clawYOffset = (0.3457 - 0.92 * jEase) * B;
+                        clawXOffset = jawDir * 0.24 * jEase * B;
+                        clawRot = -jawDir * 0.34 * jEase;
+                        chargeGlow = 0.5 * jEase;
+                    } else {
+                        const rp = (gkElapsed - 85) / 155;
+                        const rSmooth = rp * rp * (3 - 2 * rp);
+                        clawLiftScale = 1.14 - 0.10 * rSmooth;
+                        clawYOffset = (-0.5743 + 0.96 * rSmooth) * B;
+                        clawXOffset = jawDir * 0.24 * (1 - rSmooth) * B;
+                        clawRot = -jawDir * 0.34 * (1 - rSmooth);
+                        chargeGlow = 0.5 * (1 - rSmooth);
+                    }
+                } else if (gkElapsed < hitMs) {
+                    const liftT = Math.max(0, Math.min(1, (gkElapsed - 240) / 1210));
+                    const smoothLift = 1 - Math.pow(1 - liftT, 2.2);
+                    clawLiftScale = 1.04 + 0.40 * smoothLift;
+                    clawYOffset = (0.3857 + 0.22 * smoothLift) * B;
+                    chargeGlow = smoothLift;
+                    if (gkElapsed >= 1600) {
+                        const cockT = (gkElapsed - 1600) / 100;
+                        clawLiftScale += 0.08 * cockT;
+                        clawYOffset += 0.08 * B * cockT;
+                    }
+                } else {
+                    const slamDur = Math.max(1, durMs - hitMs);
+                    const slamP = Math.max(0, Math.min(1, (gkElapsed - hitMs) / slamDur));
+                    if (slamP < 0.28) {
+                        const s = slamP / 0.28;
+                        const ease = 1 - Math.pow(1 - s, 3);
+                        clawLiftScale = 1.52 - 0.52 * ease;
+                        clawYOffset = (0.6857 - 1.40 * ease) * B;
+                        chargeGlow = 1;
+                    } else {
+                        const r = (slamP - 0.28) / 0.72;
+                        const easeOut = 1 - r * r;
+                        clawLiftScale = 1.0;
+                        clawYOffset = (-0.7143 + 1.06 * (1 - easeOut)) * B;
+                        chargeGlow = (1 - r) * 0.6;
+                    }
+                }
+                ctx.save();
+                ctx.translate(clawXOffset, clawYOffset);
+                if (clawRot !== 0) ctx.rotate(clawRot);
+                ctx.scale(clawLiftScale, clawLiftScale);
+                if (chargeGlow > 0.05) {
+                    ctx.shadowColor = 'rgba(220, 72, 255, 0.9)';
+                    ctx.shadowBlur = 14 * chargeGlow * scale;
+                }
+                ctx.drawImage(mapbotClawsImg, -clw * 0.5, -clh * 0.5, clw, clh);
+                ctx.restore();
+
+                if (gkElapsed >= hitMs && gkElapsed < hitMs + 220) {
+                    const sp = (gkElapsed - hitMs) / 220;
+                    const sa = 1 - sp;
+                    ctx.save();
+                    ctx.strokeStyle = `rgba(240, 128, 255, ${(0.95 * sa).toFixed(3)})`;
+                    ctx.lineWidth = Math.max(2.5, B * 0.11 * (1 - sp * 0.5));
+                    ctx.beginPath();
+                    ctx.arc(0, -0.32 * B, B * (0.48 + sp * 0.55), -Math.PI * 0.92, -Math.PI * 0.08);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            } else if (blockBlend > 0.01) {
                 const natW = mapbotClawsImg.naturalWidth;
                 const natH = mapbotClawsImg.naturalHeight;
                 const halfNatW = natW * 0.5;
@@ -5522,9 +5718,17 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         bodyY += sprintAnim.dirY * lean - stepLift;
     }
 
-    if (showHands && !isSpectator && weapon !== 'none') {
+    const victimGk = (!isSpectator && entityKey) ? findVictimGloryKill(entityKey, nowMs) : null;
+
+    if (showHands && !isSpectator && weapon !== 'none' && !victimGk) {
         drawBotHands(bodyX, bodyY, sW, sH, angle, swingOffset, spriteKind, weapon, entityKey, nowMs);
     }
+
+    const bodyAngle = sprintBlend > 0.01 ? (angle + strideSin * 0.055 * sprintBlend) : angle;
+    const agonyJitterX = victimGk && victimGk.elapsed >= 75 ? Math.sin(victimGk.elapsed * 0.052) * 1.4 * (sW / 48) : 0;
+    const agonyJitterY = victimGk && victimGk.elapsed >= 75 ? Math.cos(victimGk.elapsed * 0.045) * 1.2 * (sH / 48) : 0;
+    const renderBodyX = bodyX + agonyJitterX;
+    const renderBodyY = bodyY + agonyJitterY;
 
     if (spriteImg.complete && spriteImg.naturalWidth > 0) {
         const refW = (goodbotImg.complete && goodbotImg.naturalWidth > 0) ? goodbotImg.naturalWidth : 512;
@@ -5537,8 +5741,8 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         const bodyMip = getScaledSpriteCanvas(bodyKey, spriteImg, 0, 0, spriteImg.naturalWidth, spriteImg.naturalHeight, mipW, mipH) || spriteImg;
         ctx.save();
         if (isSpectator) ctx.globalAlpha = 0.5;
-        ctx.translate(bodyX, bodyY);
-        ctx.rotate(sprintBlend > 0.01 ? (angle + strideSin * 0.055 * sprintBlend) : angle);
+        ctx.translate(renderBodyX, renderBodyY);
+        ctx.rotate(bodyAngle);
         ctx.drawImage(bodyMip, -drawW / 2, -sH / 2, drawW, drawH);
         if ((armor === 'goodbot-armor' || armor === 'goodbot-armor-2' || armor === 'goodbot-armor-3') && !isSpectator) {
             if (goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
@@ -5570,6 +5774,10 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         ctx.restore();
     }
 
+    if (victimGk && !isSpectator) {
+        drawAgonyHeadHands(renderBodyX, renderBodyY, sW, sH, bodyAngle, spriteKind, victimGk.elapsed);
+    }
+
     if (label) {
         drawEntityLabel(x, y, sH, label, faction);
     }
@@ -5577,6 +5785,107 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
     if (bars) {
         drawSubtleBars(x, y + sH / 2 + 6, bars.health, bars.maxHealth, bars.energy, bars.maxEnergy);
     }
+}
+
+function findVictimGloryKill(entityKey, nowMs) {
+    if (!entityKey || mapbotGloryKills.size === 0) return null;
+    for (const [, gk] of mapbotGloryKills) {
+        if (`${gk.targetKind}:${gk.targetId}` !== entityKey) continue;
+        const elapsed = nowMs - gk.at;
+        if (elapsed >= 0 && elapsed < gk.hitMs) {
+            return { gk, elapsed };
+        }
+    }
+    return null;
+}
+
+function drawAgonyHeadHands(x, y, sW, sH, angle, spriteKind, elapsed) {
+    const bodyScale = sW / 48;
+    const p = Math.max(0, Math.min(1, (elapsed - 65) / 145));
+    const ease = 1 - Math.pow(1 - p, 2);
+    const tremX = Math.sin(elapsed * 0.042) * 2.1 * bodyScale * ease;
+    const tremY = Math.cos(elapsed * 0.035) * 2.2 * bodyScale * ease;
+    const clutchPulse = Math.sin(elapsed * 0.028) * 1.6 * bodyScale * ease;
+    const handsImg = spriteKind === 'prototype' ? prototypeRarebotHandsImg : botHandsImg;
+    const refW = goodbotImg.complete && goodbotImg.naturalWidth > 0 ? goodbotImg.naturalWidth : 512;
+    const refH = goodbotImg.complete && goodbotImg.naturalHeight > 0 ? goodbotImg.naturalHeight : 512;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    if (handsImg.complete && handsImg.naturalWidth > 0) {
+        const hW = sW * (handsImg.naturalWidth / refW) * HANDS_SCALE;
+        const hH = sH * (handsImg.naturalHeight / refH) * HANDS_SCALE;
+        const splitX = Math.floor(handsImg.naturalWidth / 2);
+        const rightW = handsImg.naturalWidth - splitX;
+        const leftDrawW = (splitX / handsImg.naturalWidth) * hW;
+        const rightDrawW = (rightW / handsImg.naturalWidth) * hW;
+        const handsKey = spriteKind === 'prototype' ? 'proto_hands' : 'bot_hands';
+        const leftMip = getScaledSpriteCanvas(
+            `${handsKey}_L`,
+            handsImg,
+            0,
+            0,
+            splitX,
+            handsImg.naturalHeight,
+            (splitX / refW) * 48 * HANDS_SCALE,
+            (handsImg.naturalHeight / refH) * 48 * HANDS_SCALE
+        ) || handsImg;
+        const rightMip = rightW > 0 ? (getScaledSpriteCanvas(
+            `${handsKey}_R`,
+            handsImg,
+            splitX,
+            0,
+            rightW,
+            handsImg.naturalHeight,
+            (rightW / refW) * 48 * HANDS_SCALE,
+            (handsImg.naturalHeight / refH) * 48 * HANDS_SCALE
+        ) || handsImg) : null;
+
+        const pullBackY = sH * 0.25 * ease;
+        const pullInX = sW * 0.165 * ease;
+        const tiltIn = 0.62 * ease + Math.sin(elapsed * 0.032) * 0.14 * ease;
+
+        ctx.save();
+        ctx.translate(pullInX + clutchPulse + tremX, pullBackY + tremY);
+        ctx.rotate(tiltIn);
+        ctx.scale(1.06, 1.06);
+        if (leftMip !== handsImg) {
+            ctx.drawImage(leftMip, -hW / 2, -hH / 2, leftDrawW, hH);
+        } else {
+            ctx.drawImage(handsImg, 0, 0, splitX, handsImg.naturalHeight, -hW / 2, -hH / 2, leftDrawW, hH);
+        }
+        ctx.restore();
+
+        if (rightMip) {
+            ctx.save();
+            ctx.translate(-pullInX - clutchPulse - tremX * 0.85, pullBackY - tremY * 0.85);
+            ctx.rotate(-tiltIn);
+            ctx.scale(1.06, 1.06);
+            if (rightMip !== handsImg) {
+                ctx.drawImage(rightMip, -hW / 2 + leftDrawW, -hH / 2, rightDrawW, hH);
+            } else {
+                ctx.drawImage(handsImg, splitX, 0, rightW, handsImg.naturalHeight, -hW / 2 + leftDrawW, -hH / 2, rightDrawW, hH);
+            }
+            ctx.restore();
+        }
+    } else {
+        const r = sW * 0.14 * HANDS_SCALE;
+        const hx = sW * (0.46 - 0.28 * ease) * HANDS_SCALE;
+        const hy = -sH * (0.48 - 0.34 * ease) * HANDS_SCALE;
+        ctx.fillStyle = '#2d2d30';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = Math.max(1.5, sW * 0.045);
+        ctx.beginPath();
+        ctx.arc(-hx + clutchPulse + tremX, hy + tremY, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(hx - clutchPulse - tremX, hy - tremY, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+    }
+    ctx.restore();
 }
 
 function wrapChatLines(text) {
@@ -7181,8 +7490,11 @@ async function connectToServer() {
             const prevEntry = swingAnims.get(key);
             const prevAt = typeof prevEntry === 'number' ? prevEntry : (prevEntry ? prevEntry.at : 0);
             if (!(data.kind === 'player' && data.id === myId && prevAt && nowMs - prevAt < 160)) {
-                swingAnims.set(key, data.variant === 'mapbot-claws' ? { at: nowMs, claws: true } : (data.ugly ? { at: nowMs, ugly: true } : nowMs));
-                playSpatialSound('swing', data.x, data.y);
+                const isClawVariant = data.variant === 'mapbot-claws' || data.variant === 'mapbot-claws-glory';
+                swingAnims.set(key, isClawVariant ? { at: nowMs, claws: true } : (data.ugly ? { at: nowMs, ugly: true } : nowMs));
+                if (data.variant !== 'mapbot-claws-glory') {
+                    playSpatialSound('swing', data.x, data.y);
+                }
             }
             if (ME.faction === 'goodbot' && data.kind === 'enemy') {
                 const swungEnemy = serverEnemies[data.id];
@@ -7577,7 +7889,65 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'mapbot_glory_kill') {
+            const gkKey = `enemy:${data.id}`;
+            mapbotGloryKills.set(gkKey, {
+                at: performance.now(),
+                targetKind: data.targetKind || 'player',
+                targetId: data.targetId ?? null,
+                targetX: Number(data.targetX) || 0,
+                targetY: Number(data.targetY) || 0,
+                turnDir: Number(data.turnDir) || 1,
+                baseAngle: Number(data.baseAngle) || 0,
+                lookMs: Number(data.lookMs) || 1600,
+                hitMs: Number(data.hitMs) || 1700,
+                durationMs: Number(data.durationMs) || 2100,
+                jawHitDone: false
+            });
+            playSpatialSound('gloryKill', Number(data.x) || 0, Number(data.y) || 0);
+            return;
+        }
+
+        if (data.type === 'mapbot_glory_kill_hit') {
+            const hx = Number(data.x) || 0;
+            const hy = Number(data.y) || 0;
+            const dirX = Number(data.dirX) || 1;
+            const dirY = Number(data.dirY) || 0;
+            playSpatialSound('blade', hx, hy, { volumeMult: 1.35, playbackRate: 0.78 });
+            playSpatialSound('hit', hx, hy, { volumeMult: 1.25, playbackRate: 0.72 });
+            addCameraShake(1.15, hx, hy);
+            grenadeShockwaves.push({
+                x: hx,
+                y: hy,
+                radius: 108,
+                variant: 'goodbot',
+                isExplosionFlash: true,
+                age: 0,
+                life: 0.34
+            });
+            const baseAng = Math.atan2(dirY, dirX);
+            for (let i = 0; i < 18; i++) {
+                if (explosions.length >= MAX_EXPLOSION_PARTICLES) {
+                    explosions.shift();
+                }
+                const ang = baseAng + (Math.random() - 0.5) * 1.1;
+                const spd = 140 + Math.random() * 280;
+                explosions.push({
+                    x: hx + (Math.random() - 0.5) * 10,
+                    y: hy + (Math.random() - 0.5) * 10,
+                    vx: Math.cos(ang) * spd,
+                    vy: Math.sin(ang) * spd,
+                    radius: 4 + Math.random() * 6,
+                    life: 0.25 + Math.random() * 0.22,
+                    age: 0,
+                    color: i % 2 === 0 ? '#e060ff' : '#ff4058'
+                });
+            }
+            return;
+        }
+
         if (data.type === 'mapbot_death') {
+            mapbotGloryKills.delete(`enemy:${data.id}`);
             const dx = Number(data.x) || 0;
             const dy = Number(data.y) || 0;
             const dRad = Number(data.radius) || 260;
@@ -7966,6 +8336,8 @@ async function connectToServer() {
                         existing.airborne = isAirborne;
                         existing.jumpHeight = Number(incoming.jumpHeight) || 0;
                         existing.blocking = Boolean(incoming.blocking);
+                        existing.invincible = Boolean(incoming.invincible);
+                        existing.speedBoost = Boolean(incoming.speedBoost);
                         existing.width = incoming.width || existing.width || defSize;
                         existing.height = incoming.height || existing.height || defSize;
                         existing.name = incoming.name !== undefined ? incoming.name : existing.name;
@@ -7994,6 +8366,8 @@ async function connectToServer() {
                             sprinting: Boolean(incoming.sprinting),
                             airborne: Boolean(incoming.airborne),
                             blocking: Boolean(incoming.blocking),
+                            invincible: Boolean(incoming.invincible),
+                            speedBoost: Boolean(incoming.speedBoost),
                             jumpHeight: Number(incoming.jumpHeight) || 0,
                             renderJumpHeight: Number(incoming.jumpHeight) || 0,
                             maxHealth: incoming.maxHealth ?? defMaxH,
