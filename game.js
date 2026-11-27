@@ -222,7 +222,6 @@ const serverProjectiles = new Map();
 let serverGrenades = [];
 const serverRockets = new Map();
 const mapbotExplosions = [];
-const mapbotCorePulses = [];
 const grenadeShockwaves = [];
 const raycastBeams = [];
 const explosions = [];
@@ -443,7 +442,6 @@ function returnToMainMenu() {
     serverGrenades = [];
     serverRockets.clear();
     mapbotExplosions.length = 0;
-    mapbotCorePulses.length = 0;
     grenadeShockwaves.length = 0;
     raycastBeams.length = 0;
     myInventory = [null, null, null, null, null];
@@ -1059,14 +1057,14 @@ const ADMIN_SPAWN_OPTIONS = [
         id: 'mapbot',
         title: 'Mapbot',
         kindLabel: 'BOSS',
-        description: 'Supreme boss faction hostile to both Goodbots and Rarebots. Fires dual blasters, core blasts, homing rockets, and crushing claws.',
+        description: 'Supreme boss faction hostile to both Goodbots and Rarebots. Immune to stun and knockback; uses dual blasters, core ball blasts, homing rockets, dropslides, Knuckleboom Augmentation leaps, and crushing claws.',
         bodyType: 'mapbot',
         weapon: 'mapbot-claws',
         stats: [
             { label: 'HP', value: '100,000' },
             { label: 'Armor', value: '50% DR' },
             { label: 'Claws / Blasters', value: '650 / 500' },
-            { label: 'Core / Rockets', value: '250 DPS / 500' }
+            { label: 'Core / Rockets / Leap', value: '800 / 500 / 500' }
         ]
     },
     {
@@ -1177,10 +1175,18 @@ function createEntityPreviewUrl(opt) {
             g.arc(0, 0, B * 0.5, 0, Math.PI * 2);
             g.fill();
         }
+        const cw = 0.5 * B;
+        const ch = 0.1719 * B;
         if (mapbotCoreImg.complete && mapbotCoreImg.naturalWidth > 0) {
-            const cw = 0.5 * B;
-            const ch = 0.1719 * B;
             g.drawImage(mapbotCoreImg, -cw * 0.5, -0.5098 * B - ch * 0.5, cw, ch);
+        } else {
+            g.fillStyle = '#d84aff';
+            g.strokeStyle = '#0e0e14';
+            g.lineWidth = Math.max(1.2, B * 0.04);
+            g.beginPath();
+            g.roundRect(-cw * 0.36, -0.5098 * B - ch * 0.35, cw * 0.72, ch * 0.7, ch * 0.35);
+            g.fill();
+            g.stroke();
         }
         if (mapbotClawsImg.complete && mapbotClawsImg.naturalWidth > 0) {
             const clw = 1.2305 * B;
@@ -2378,7 +2384,6 @@ const mapbotCoreImg = new Image();
 const mapbotChargingLaserImg = new Image();
 const mapbotRocketImg = new Image();
 const mapbotBlastImg = new Image();
-const mapbotAuraImg = new Image();
 const mapbotExplosionImg = new Image();
 
 let audioCtx = null;
@@ -2468,14 +2473,15 @@ const lastSoundAt = {
     bulletImpact3: 0,
     bulletWallImpact: 0,
     grapple1: 0,
-    dropslide: 0
+    dropslide: 0,
+    mapbotCoreBlast: 0
 };
 
 function playSpatialSound(key, wx, wy, options = null) {
     const masterVol = window.GAME_AUDIO_SETTINGS ? Number(window.GAME_AUDIO_SETTINGS.soundVolume) : 1;
     if (!isFinite(masterVol) || masterVol <= 0.005) return;
     const nowMs = performance.now();
-    const minGap = key === 'beamerShot' ? 110 : (key === 'bulletWallImpact' ? 70 : (key === 'explosion' ? 60 : ((key === 'swing' || key === 'hit') ? 45 : (key === 'dropslide' ? 40 : 15))));
+    const minGap = key === 'mapbotCoreBlast' ? 140 : (key === 'beamerShot' ? 110 : (key === 'bulletWallImpact' ? 70 : (key === 'explosion' ? 60 : ((key === 'swing' || key === 'hit') ? 45 : (key === 'dropslide' ? 40 : 15)))));
     if (nowMs - (lastSoundAt[key] || 0) < minGap) return;
 
     const ctxAudio = ensureAudioContext();
@@ -2483,25 +2489,26 @@ function playSpatialSound(key, wx, wy, options = null) {
 
     const lx = myId !== null ? (ME.x + ME.width / 2) : ((WORLD.CAMERA.x || 0) + WORLD.CAMERA.width / 2);
     const ly = myId !== null ? (ME.y + ME.height / 2) : ((WORLD.CAMERA.y || 0) + WORLD.CAMERA.height / 2);
+    const maxHearDist = key === 'mapbotCoreBlast' ? 1500 : 1080;
     let dist = 0;
     if (typeof wx === 'number' && typeof wy === 'number') {
         const dx = wx - lx;
         const dy = wy - ly;
         const dSq = dx * dx + dy * dy;
-        if (dSq > 1080 * 1080) return;
+        if (dSq > maxHearDist * maxHearDist) return;
         dist = Math.sqrt(dSq);
     }
-    const falloff = Math.max(0, Math.min(1, 1 - Math.max(0, dist - 80) / 1000));
+    const falloff = Math.max(0, Math.min(1, 1 - Math.max(0, dist - 80) / (maxHearDist - 80)));
     const optVolMult = (options && typeof options.volumeMult === 'number') ? options.volumeMult : 1;
-    const volumeMult = (key === 'beamerShot' ? 0.55 : ((key === 'hitReceive' || key === 'hitDeal') ? 0.1 : (key === 'grapple1' ? 2.7 : 1))) * optVolMult;
+    const volumeMult = (key === 'mapbotCoreBlast' ? 2.0 : (key === 'beamerShot' ? 0.55 : ((key === 'hitReceive' || key === 'hitDeal') ? 0.1 : (key === 'grapple1' ? 2.7 : 1)))) * optVolMult;
     const gainValue = falloff * falloff * masterVol * volumeMult;
     if (gainValue <= 0.005) return;
 
     const playbackRate = (options && typeof options.playbackRate === 'number')
         ? options.playbackRate
-        : (key === 'beamerShot' ? 0.78 : 1);
+        : (key === 'mapbotCoreBlast' ? 0.34 : (key === 'beamerShot' ? 0.78 : 1));
 
-    const bufferKey = key === 'beamerShot' ? 'laserShot' : key;
+    const bufferKey = key === 'mapbotCoreBlast' ? 'explosion' : (key === 'beamerShot' ? 'laserShot' : key);
     if (!soundBuffers[bufferKey]) {
         const reqAt = nowMs;
         loadSoundBuffer(bufferKey, ctxAudio).then(() => {
@@ -2822,7 +2829,6 @@ function loadAssets() {
     mapbotChargingLaserImg.onload = refreshIcons;
     mapbotRocketImg.onload = refreshIcons;
     mapbotBlastImg.onload = refreshIcons;
-    mapbotAuraImg.onload = refreshIcons;
     mapbotExplosionImg.onload = refreshIcons;
     goodbotImg.src = 'assets/Goodbot.png';
     rarebotImg.src = 'assets/Rarebot.png';
@@ -2855,11 +2861,10 @@ function loadAssets() {
     mapbotBlasterSide2Img.src = 'assets/Mapbot Blaster Side 2.png';
     mapbotBlasterImg.src = 'assets/Mapbot Blaster.png';
     mapbotClawsImg.src = 'assets/Mapbot Claws.png';
-    mapbotCoreImg.src = 'assets/Mapbot Core.png';
+    mapbotCoreImg.src = 'assets/Mapbot Core.png?v=3';
     mapbotChargingLaserImg.src = 'assets/Mapbot Charging Laser.png';
     mapbotRocketImg.src = 'assets/Mapbot Rocket.png';
-    mapbotBlastImg.src = 'assets/Mapbot Blast.png';
-    mapbotAuraImg.src = 'assets/Mapbot Aura.png';
+    mapbotBlastImg.src = 'assets/Mapbot Blast.png?v=3';
     mapbotExplosionImg.src = 'assets/Mapbot Explosion.png';
 }
 
@@ -3272,6 +3277,7 @@ function update(dt) {
             e.renderX = e.x;
             e.renderY = e.y;
             e.renderAngle = e.angle || 0;
+            e.renderJumpHeight = e.jumpHeight || 0;
         }
 
         const eMaxX = Math.max(0, worldW - (e.width || 48));
@@ -3279,17 +3285,19 @@ function update(dt) {
         e.x = Math.max(0, Math.min(eMaxX, e.x + (e.vx || 0) * dt));
         e.y = Math.max(0, Math.min(eMaxY, e.y + (e.vy || 0) * dt));
 
-        const lerpF = 1 - Math.exp(-dt * 20);
+        const lerpRate = e.airborne ? 28 : 20;
+        const lerpF = 1 - Math.exp(-dt * lerpRate);
         const rdx = e.x - e.renderX;
         const rdy = e.y - e.renderY;
         const rdist = Math.sqrt(rdx * rdx + rdy * rdy);
-        const maxStep = 200;
+        const maxStep = e.airborne ? 420 : 200;
         if (rdist > maxStep) {
             e.renderX = e.x - (rdx / rdist) * maxStep;
             e.renderY = e.y - (rdy / rdist) * maxStep;
         }
         e.renderX += (e.x - e.renderX) * lerpF;
         e.renderY += (e.y - e.renderY) * lerpF;
+        e.renderJumpHeight = (e.renderJumpHeight || 0) + ((e.jumpHeight || 0) - (e.renderJumpHeight || 0)) * lerpF;
 
         let diff = (e.angle || 0) - e.renderAngle;
         while (diff < -Math.PI) diff += Math.PI * 2;
@@ -3690,14 +3698,6 @@ function update(dt) {
         }
     }
 
-    for (let i = mapbotCorePulses.length - 1; i >= 0; i--) {
-        const cp = mapbotCorePulses[i];
-        cp.age += dt;
-        if (cp.age >= cp.life) {
-            mapbotCorePulses[i] = mapbotCorePulses[mapbotCorePulses.length - 1];
-            mapbotCorePulses.pop();
-        }
-    }
 
     const nowMs = performance.now();
     updateAbilitySlotCooldown(nowMs);
@@ -4808,7 +4808,7 @@ function drawEntityLabel(x, y, sH, label, faction) {
     ctx.drawImage(lbl.canvas, drawX, drawY, lbl.drawW, lbl.drawH);
 }
 
-function drawEntity(x, y, width, height, angle, scale, label, faction, showHands, swingOffset, bars, spriteKind = null, weapon = 'hands', entityKey = null, nowMs = 0, armor = null, coreBoom = false) {
+function drawEntity(x, y, width, height, angle, scale, label, faction, showHands, swingOffset, bars, spriteKind = null, weapon = 'hands', entityKey = null, nowMs = 0, armor = null) {
     const sW = width * scale;
     const sH = height * scale;
     const isSpectator = faction === 'spectator';
@@ -4825,7 +4825,7 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
     }
 
     if (spriteKind === 'mapbot') {
-        const B = 108 * scale;
+        const B = 48 * scale;
         const sprintAnim = entityKey ? sprintAnims.get(entityKey) : null;
         const sprintBlend = sprintAnim ? sprintAnim.blend : 0;
         let bodyX = x;
@@ -4840,34 +4840,14 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         }
         const leftRecoil = getLeftRecoilTransform(entityKey, nowMs);
         const rightRecoil = getRecoilTransform(entityKey, nowMs);
-        const leftRecoilPx = leftRecoil ? Math.min(10, leftRecoil.dy) * scale : 0;
-        const rightRecoilPx = rightRecoil ? Math.min(10, rightRecoil.dy) * scale : 0;
+        const leftRecoilPx = leftRecoil ? Math.min(4.5, leftRecoil.dy * 0.45) * scale : 0;
+        const rightRecoilPx = rightRecoil ? Math.min(4.5, rightRecoil.dy * 0.45) * scale : 0;
         const clawLungePx = (swingOffset || 0) * 0.65 * B;
 
         ctx.save();
         ctx.translate(bodyX, bodyY);
         ctx.rotate(sprintBlend > 0.01 ? (angle + strideSin * 0.04 * sprintBlend) : angle);
         ctx.imageSmoothingEnabled = true;
-
-        if (coreBoom) {
-            const auraPulse = 1 + 0.08 * Math.sin(nowMs * 0.018);
-            const auraAlpha = 0.78 + 0.22 * Math.sin(nowMs * 0.025);
-            const auraSize = 2.25 * B * auraPulse;
-            if (mapbotAuraImg.complete && mapbotAuraImg.naturalWidth > 0) {
-                ctx.save();
-                ctx.globalAlpha = auraAlpha;
-                ctx.drawImage(mapbotAuraImg, -auraSize * 0.5, -auraSize * 0.5, auraSize, auraSize);
-                ctx.restore();
-            }
-            const blastSize = 1.6 * B * (1 + 0.12 * Math.sin(nowMs * 0.024));
-            if (mapbotBlastImg.complete && mapbotBlastImg.naturalWidth > 0) {
-                ctx.save();
-                ctx.translate(0, -0.51 * B);
-                ctx.rotate(nowMs * 0.005);
-                ctx.drawImage(mapbotBlastImg, -blastSize * 0.5, -blastSize * 0.5, blastSize, blastSize);
-                ctx.restore();
-            }
-        }
 
         if (mapbotBlasterSide1Img.complete && mapbotBlasterSide1Img.naturalWidth > 0) {
             const bw = 0.5078 * B;
@@ -4889,10 +4869,18 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
             ctx.fill();
         }
 
+        const cw = 0.5 * B;
+        const ch = 0.1719 * B;
         if (mapbotCoreImg.complete && mapbotCoreImg.naturalWidth > 0) {
-            const cw = 0.5 * B;
-            const ch = 0.1719 * B;
             ctx.drawImage(mapbotCoreImg, -cw * 0.5, -0.5098 * B - ch * 0.5, cw, ch);
+        } else {
+            ctx.fillStyle = '#d84aff';
+            ctx.strokeStyle = '#0e0e14';
+            ctx.lineWidth = Math.max(1.2, B * 0.04);
+            ctx.beginPath();
+            ctx.roundRect(-cw * 0.36, -0.5098 * B - ch * 0.35, cw * 0.72, ch * 0.7, ch * 0.35);
+            ctx.fill();
+            ctx.stroke();
         }
 
         if (mapbotClawsImg.complete && mapbotClawsImg.naturalWidth > 0) {
@@ -4907,7 +4895,7 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
             drawEntityLabel(x, y, B, label, faction);
         }
         if (bars) {
-            drawSubtleBars(x, y + B * 0.5 + 8, bars.health, bars.maxHealth, bars.energy, bars.maxEnergy);
+            drawSubtleBars(x, y + B * 0.5 + 6, bars.health, bars.maxHealth, bars.energy, bars.maxEnergy);
         }
         return;
     }
@@ -5204,7 +5192,7 @@ function render() {
                 }
                 if (b.variant === 'mapbot-blaster') {
                     const alpha = Math.min(1, Math.max(0, (1 - b.age / b.life) * 1.4));
-                    const bw = 0.36 * 108;
+                    const bw = 0.36 * 48;
                     ctx.save();
                     ctx.globalAlpha = alpha;
                     ctx.translate(sx1, sy1);
@@ -5214,14 +5202,14 @@ function render() {
                         ctx.drawImage(mapbotChargingLaserImg, -bw * 0.5, -beamLen, bw, beamLen);
                     } else {
                         ctx.fillStyle = '#d84aff';
-                        ctx.fillRect(-10, -beamLen, 20, beamLen);
+                        ctx.fillRect(-4.5, -beamLen, 9, beamLen);
                     }
                     ctx.fillStyle = '#f5c2ff';
                     ctx.beginPath();
-                    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+                    ctx.arc(0, 0, 6, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.beginPath();
-                    ctx.arc(0, -beamLen, 22, 0, Math.PI * 2);
+                    ctx.arc(0, -beamLen, 10, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.restore();
                     continue;
@@ -5248,7 +5236,30 @@ function render() {
             for (const [, proj] of serverProjectiles) {
                 const bx = proj.x - camX;
                 const by = proj.y - camY;
-                if (bx < -48 || bx > camW + 48 || by < -48 || by > camH + 48) continue;
+                if (bx < -120 || bx > camW + 120 || by < -120 || by > camH + 120) continue;
+                if (proj.kind === 'mapbot-core-blast' || proj.variant === 'mapbot-core-blast') {
+                    const pulse = 1 + 0.08 * Math.sin(nowMs * 0.022);
+                    const bSize = (proj.radius || 32) * 2.8 * pulse;
+                    ctx.save();
+                    ctx.translate(bx, by);
+                    ctx.rotate(proj.spinAngle !== undefined ? proj.spinAngle : (proj.angle || 0));
+                    ctx.imageSmoothingEnabled = true;
+                    if (mapbotBlastImg.complete && mapbotBlastImg.naturalWidth > 0) {
+                        ctx.drawImage(mapbotBlastImg, -bSize * 0.5, -bSize * 0.5, bSize, bSize);
+                    } else {
+                        const r = proj.radius || 32;
+                        ctx.fillStyle = '#b833ff';
+                        ctx.beginPath();
+                        ctx.arc(0, 0, r, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = '#f5c2ff';
+                        ctx.beginPath();
+                        ctx.arc(0, 0, r * 0.48, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    ctx.restore();
+                    continue;
+                }
                 const isCannonBall = proj.kind === 'cannonball' || proj.variant === 'goodbot-cannon';
                 if (isCannonBall) {
                     ctx.save();
@@ -5337,8 +5348,8 @@ function render() {
         }
 
         if (serverRockets.size > 0) {
-            const rw = 24;
-            const rh = 24 * (410 / 256);
+            const rw = 16;
+            const rh = 16 * (410 / 256);
             for (const [, r] of serverRockets) {
                 const rx = r.x - camX;
                 const ry = r.y - camY;
@@ -5352,43 +5363,11 @@ function render() {
                 } else {
                     ctx.fillStyle = '#c84aff';
                     ctx.beginPath();
-                    ctx.ellipse(0, 0, 7, 15, 0, 0, Math.PI * 2);
+                    ctx.ellipse(0, 0, 5, 10, 0, 0, Math.PI * 2);
                     ctx.fill();
                 }
                 ctx.restore();
             }
-        }
-
-        if (mapbotCorePulses.length > 0) {
-            ctx.save();
-            for (let i = 0; i < mapbotCorePulses.length; i++) {
-                const cp = mapbotCorePulses[i];
-                const sx = cp.x - camX;
-                const sy = cp.y - camY;
-                const maxR = Math.max(cp.radius, cp.coneRange);
-                if (sx + maxR < -40 || sx - maxR > camW + 40 || sy + maxR < -40 || sy - maxR > camH + 40) continue;
-                const p = Math.max(0, Math.min(1, cp.age / cp.life));
-                const alpha = 1 - p;
-                const r = cp.radius * (0.45 + 0.55 * p);
-                ctx.fillStyle = `rgba(190, 60, 255, ${(0.22 * alpha).toFixed(3)})`;
-                ctx.beginPath();
-                ctx.arc(sx, sy, r, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = `rgba(224, 120, 255, ${(0.75 * alpha).toFixed(3)})`;
-                ctx.lineWidth = 4;
-                ctx.stroke();
-
-                const dirAng = cp.angle - Math.PI * 0.5;
-                const coneSpread = Math.acos(0.42);
-                const coneR = cp.coneRange * (0.5 + 0.5 * p);
-                ctx.fillStyle = `rgba(216, 74, 255, ${(0.26 * alpha).toFixed(3)})`;
-                ctx.beginPath();
-                ctx.moveTo(sx, sy);
-                ctx.arc(sx, sy, coneR, dirAng - coneSpread, dirAng + coneSpread);
-                ctx.closePath();
-                ctx.fill();
-            }
-            ctx.restore();
         }
 
         if (mapbotExplosions.length > 0) {
@@ -5549,11 +5528,10 @@ function render() {
         for (const id in serverEnemies) {
             const e = serverEnemies[id];
             const eKind = e.kind || 'rarebot';
-            if (eKind === 'dropship') continue;
-            const isMapbot = eKind === 'mapbot';
-            const eFaction = e.faction || (isMapbot ? 'mapbot' : 'rarebot');
-            const ew = e.width || (isMapbot ? 58 : 48);
-            const eh = e.height || (isMapbot ? 58 : 48);
+            if (eKind === 'dropship' || eKind === 'mapbot') continue;
+            const eFaction = e.faction || 'rarebot';
+            const ew = e.width || 48;
+            const eh = e.height || 48;
             const eWorldCX = (e.renderX ?? e.x) + ew / 2;
             const eWorldCY = (e.renderY ?? e.y) + eh / 2;
             const eRX = eWorldCX - camX;
@@ -5562,20 +5540,20 @@ function render() {
             const es = Math.min(2, Math.max(0.3, e.scale || 1));
             const key = `enemy:${id}`;
             const eInTree = isWorldPointInTree(eWorldCX, eWorldCY);
-            const showBars = isMapbot ? !eInTree : (!eInTree && ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs);
-            const eWeapon = e.weapon || (isMapbot ? 'mapbot-claws' : 'hands');
-            const eLabel = e.name || (isMapbot ? 'Mapbot' : (eKind === 'grenadier' ? 'Rarebot Grenadier' : (eKind === 'sacrifice' ? 'Sacrifice Rarebot' : (eKind === 'scout' ? 'Scout Rarebot' : (eKind === 'healer' ? 'Healer Rarebot' : (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot3' ? 'Rarebot 3.0' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot'))))))));
-            const defMaxH = isMapbot ? 100000 : (eKind === 'prototype' ? 120 : (eKind === 'sacrifice' ? 100 : (eKind === 'scout' ? 300 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255))))));
-            const defMaxE = isMapbot ? 500 : (eKind === 'prototype' ? 100 : 50);
+            const showBars = !eInTree && ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs;
+            const eWeapon = e.weapon || 'hands';
+            const eLabel = e.name || (eKind === 'grenadier' ? 'Rarebot Grenadier' : (eKind === 'sacrifice' ? 'Sacrifice Rarebot' : (eKind === 'scout' ? 'Scout Rarebot' : (eKind === 'healer' ? 'Healer Rarebot' : (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot3' ? 'Rarebot 3.0' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot')))))));
+            const defMaxH = eKind === 'prototype' ? 120 : (eKind === 'sacrifice' ? 100 : (eKind === 'scout' ? 300 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255)))));
+            const defMaxE = eKind === 'prototype' ? 100 : 50;
             const bars = showBars ? {
                 health: e.health ?? defMaxH,
                 maxHealth: e.maxHealth ?? defMaxH,
                 energy: e.energy ?? defMaxE,
                 maxEnergy: e.maxEnergy ?? defMaxE
             } : null;
-            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, null, eFaction, eKind !== 'sacrifice', getSwingOffset(key, nowMs), bars, eKind, eWeapon, key, nowMs, e.armor || (eKind === 'rarebot3' ? 'rarebot-armor' : null), Boolean(e.coreBoom));
+            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, null, eFaction, eKind !== 'sacrifice', getSwingOffset(key, nowMs), bars, eKind, eWeapon, key, nowMs, e.armor || (eKind === 'rarebot3' ? 'rarebot-armor' : null));
             if (!eInTree && eLabel) {
-                pendingEntityLabels.push({ x: eRX, y: eRY, sH: isMapbot ? 108 * es : eh * es, label: eLabel, faction: eFaction });
+                pendingEntityLabels.push({ x: eRX, y: eRY, sH: eh * es, label: eLabel, faction: eFaction });
             }
         }
 
@@ -5663,6 +5641,35 @@ function render() {
             drawEntity(pRenderX, pRenderY, ME.width, ME.height, ME.angle, ME.scale, null, ME.faction, true, getSwingOffset(myKey, nowMs), null, null, getMyEquippedWeapon(), myKey, nowMs, ME.armor);
             if (!meInTree) {
                 pendingEntityLabels.push({ x: pRenderX, y: pRenderY, sH: ME.height * ME.scale, label: formatDisplayName(myName, isAdmin), faction: ME.faction });
+            }
+        }
+
+        for (const id in serverEnemies) {
+            const e = serverEnemies[id];
+            if ((e.kind || 'rarebot') !== 'mapbot' || e.airborne) continue;
+            const eFaction = e.faction || 'mapbot';
+            const ew = e.width || 48;
+            const eh = e.height || 48;
+            const eWorldCX = (e.renderX ?? e.x) + ew / 2;
+            const eWorldCY = (e.renderY ?? e.y) + eh / 2;
+            const eRX = eWorldCX - camX;
+            const eRY = eWorldCY - camY;
+            if (eRX < -cullPad || eRX > camW + cullPad || eRY < -cullPad || eRY > camH + cullPad) continue;
+            const es = Math.min(2, Math.max(0.3, e.scale || 1));
+            const key = `enemy:${id}`;
+            const eInTree = isWorldPointInTree(eWorldCX, eWorldCY);
+            const showBars = !eInTree;
+            const eWeapon = e.weapon || 'mapbot-claws';
+            const eLabel = e.name || 'Mapbot';
+            const bars = showBars ? {
+                health: e.health ?? 100000,
+                maxHealth: e.maxHealth ?? 100000,
+                energy: e.energy ?? 500,
+                maxEnergy: e.maxEnergy ?? 500
+            } : null;
+            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, null, eFaction, true, getSwingOffset(key, nowMs), bars, 'mapbot', eWeapon, key, nowMs, e.armor || null);
+            if (!eInTree && eLabel) {
+                pendingEntityLabels.push({ x: eRX, y: eRY, sH: eh * es, label: eLabel, faction: eFaction });
             }
         }
     }
@@ -5767,6 +5774,42 @@ function render() {
             const as = Math.min(2, Math.max(0.3, a.scale || 1));
             const key = `ally:${id}`;
             drawEntity(aRX, aRY, aw, ah, a.renderAngle ?? 0, as, a.name || 'Goodbot Dropship', 'goodbot', false, 0, null, 'dropship', 'none', key, nowMs);
+        }
+
+        for (const id in serverEnemies) {
+            const e = serverEnemies[id];
+            if ((e.kind || 'rarebot') !== 'mapbot' || !e.airborne) continue;
+            const eFaction = e.faction || 'mapbot';
+            const ew = e.width || 48;
+            const eh = e.height || 48;
+            const eWorldCX = (e.renderX ?? e.x) + ew / 2;
+            const eWorldCY = (e.renderY ?? e.y) + eh / 2;
+            const eRX = eWorldCX - camX;
+            const eRY = eWorldCY - camY;
+            if (eRX < -cullPad || eRX > camW + cullPad || eRY < -cullPad || eRY > camH + cullPad) continue;
+            const es = Math.min(2, Math.max(0.3, e.scale || 1));
+            const jh = Math.max(0, Math.min(1.6, e.renderJumpHeight ?? e.jumpHeight ?? 0));
+            const airScale = es * (1 + jh * 0.36);
+            const airY = eRY - jh * 26;
+            const key = `enemy:${id}`;
+            const eWeapon = e.weapon || 'mapbot-claws';
+            const eLabel = e.name || 'Mapbot';
+            const bars = {
+                health: e.health ?? 100000,
+                maxHealth: e.maxHealth ?? 100000,
+                energy: e.energy ?? 500,
+                maxEnergy: e.maxEnergy ?? 500
+            };
+            ctx.save();
+            ctx.fillStyle = `rgba(0, 0, 0, ${(Math.max(0.14, 0.34 - jh * 0.1)).toFixed(3)})`;
+            ctx.beginPath();
+            ctx.ellipse(eRX, eRY + 8, ew * 0.48 * Math.max(0.65, 1 - jh * 0.14), eh * 0.28 * Math.max(0.65, 1 - jh * 0.14), 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+            drawEntity(eRX, airY, ew, eh, e.renderAngle ?? 0, airScale, null, eFaction, true, getSwingOffset(key, nowMs), bars, 'mapbot', eWeapon, key, nowMs, e.armor || null);
+            if (eLabel) {
+                drawEntityLabel(eRX, airY, eh * airScale, eLabel, eFaction);
+            }
         }
     }
 
@@ -5945,7 +5988,7 @@ function render() {
                 const ew = e.width || 48;
                 const eh = e.height || 48;
                 const es = Math.min(2, Math.max(0.3, e.scale || 1));
-                const er = e.kind === 'mapbot' ? 54 * es : (ew * es) * 0.5;
+                const er = (ew * es) * 0.5;
                 const ecx = (e.renderX ?? e.x) + ew * 0.5 - camX;
                 const ecy = (e.renderY ?? e.y) + eh * 0.5 - camY;
                 if (ecx + er < -20 || ecx - er > camW + 20 || ecy + er < -20 || ecy - er > camH + 20) continue;
@@ -6141,7 +6184,7 @@ function renderMapView(targetCanvas, baseRadius) {
         const cx = (((e.renderX ?? e.x) + (e.width || 48) * 0.5) / mapW) * pw;
         const cy = (((e.renderY ?? e.y) + (e.height || 48) * 0.5) / mapH) * ph;
         mctx.beginPath();
-        mctx.arc(cx, cy, isMapbot ? r * 1.9 : r, 0, Math.PI * 2);
+        mctx.arc(cx, cy, r, 0, Math.PI * 2);
         mctx.fillStyle = isMapbot ? '#d84aff' : '#ff2a2a';
         mctx.fill();
         mctx.strokeStyle = isMapbot ? '#ffffff' : 'rgba(0, 0, 0, 0.85)';
@@ -6754,6 +6797,9 @@ async function connectToServer() {
                     }
                     playSpatialSound('laserCannonShot', data.x, data.y);
                     addCameraShake(0.28, data.projX, data.projY);
+                } else if (data.variant === 'mapbot-core-blast' || data.projKind === 'mapbot-core-blast') {
+                    playSpatialSound('mapbotCoreBlast', data.x, data.y, { volumeMult: 2.0, playbackRate: 0.34 });
+                    addCameraShake(1.0, data.x, data.y);
                 } else {
                     if (!isBeamerShot) {
                         if (data.hand === 'left') {
@@ -6774,20 +6820,31 @@ async function connectToServer() {
             return;
         }
 
-        if (data.type === 'mapbot_core_pulse') {
-            const cpx = Number(data.x) || 0;
-            const cpy = Number(data.y) || 0;
-            mapbotCorePulses.push({
-                x: cpx,
-                y: cpy,
-                angle: Number(data.angle) || 0,
-                radius: Number(data.radius) || 230,
-                coneRange: Number(data.coneRange) || 320,
+        if (data.type === 'mapbot_core_blast_impact') {
+            if (typeof data.id === 'number') {
+                serverProjectiles.delete(data.id);
+            }
+            const ix = Number(data.x) || 0;
+            const iy = Number(data.y) || 0;
+            const iRad = Number(data.radius) || 96;
+            mapbotExplosions.push({
+                x: ix,
+                y: iy,
+                radius: iRad,
                 age: 0,
-                life: 0.24
+                life: 0.48
             });
-            playSpatialSound('beamerShot', cpx, cpy, { playbackRate: 0.72, volumeMult: 0.85 });
-            addCameraShake(0.22, cpx, cpy);
+            grenadeShockwaves.push({
+                x: ix,
+                y: iy,
+                radius: iRad,
+                variant: 'goodbot',
+                isExplosionFlash: true,
+                age: 0,
+                life: 0.34
+            });
+            playSpatialSound('mapbotCoreBlast', ix, iy, { volumeMult: 2.0, playbackRate: 0.30 });
+            addCameraShake(0.95, ix, iy);
             return;
         }
 
@@ -6807,6 +6864,35 @@ async function connectToServer() {
             });
             playSpatialSound('explosion', rex, rey, { playbackRate: 0.82 });
             addCameraShake(0.65, rex, rey);
+            return;
+        }
+
+        if (data.type === 'mapbot_knuckleboom_explosion') {
+            const kx = Number(data.x) || 0;
+            const ky = Number(data.y) || 0;
+            const kRad = Number(data.radius) || 88;
+            const isLand = data.stage === 'land';
+            mapbotExplosions.push({
+                x: kx,
+                y: ky,
+                radius: kRad,
+                age: 0,
+                life: isLand ? 0.48 : 0.36
+            });
+            grenadeShockwaves.push({
+                x: kx,
+                y: ky,
+                radius: kRad,
+                variant: 'goodbot',
+                isExplosionFlash: true,
+                age: 0,
+                life: isLand ? 0.34 : 0.24
+            });
+            playSpatialSound('explosion', kx, ky, {
+                volumeMult: isLand ? 1.65 : 1.35,
+                playbackRate: isLand ? 0.72 : 0.9
+            });
+            addCameraShake(isLand ? 0.85 : 0.48, kx, ky);
             return;
         }
 
@@ -7147,13 +7233,14 @@ async function connectToServer() {
                     const isMapbot = eKind === 'mapbot';
                     const defMaxH = isMapbot ? 100000 : (eKind === 'dropship' ? 8000 : (eKind === 'prototype' ? 120 : (eKind === 'sacrifice' ? 100 : (eKind === 'scout' ? 300 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255)))))));
                     const defMaxE = isMapbot ? 500 : (eKind === 'prototype' ? 100 : 50);
-                    const defSize = isMapbot ? 58 : (eKind === 'dropship' ? 224 : 48);
+                    const defSize = eKind === 'dropship' ? 224 : 48;
                     const eFaction = incoming.faction || (isMapbot ? 'mapbot' : 'rarebot');
                     const existing = serverEnemies[id];
                     if (existing) {
                         const dx = incoming.x - existing.renderX;
                         const dy = incoming.y - existing.renderY;
-                        const jumped = (dx * dx + dy * dy) > 14400;
+                        const isAirborne = Boolean(incoming.airborne);
+                        const jumped = (dx * dx + dy * dy) > (isAirborne ? 90000 : 14400);
                         existing.x = incoming.x;
                         existing.y = incoming.y;
                         existing.vx = incoming.vx || 0;
@@ -7161,12 +7248,13 @@ async function connectToServer() {
                         existing.angle = incoming.angle || 0;
                         existing.scale = incoming.scale ?? 1;
                         existing.sprinting = Boolean(incoming.sprinting);
+                        existing.airborne = isAirborne;
+                        existing.jumpHeight = Number(incoming.jumpHeight) || 0;
                         existing.width = incoming.width || existing.width || defSize;
                         existing.height = incoming.height || existing.height || defSize;
                         existing.name = incoming.name !== undefined ? incoming.name : existing.name;
                         existing.kind = eKind;
                         existing.faction = eFaction;
-                        existing.coreBoom = Boolean(incoming.coreBoom);
                         existing.weapon = incoming.weapon || (isMapbot ? 'mapbot-claws' : 'hands');
                         existing.armor = incoming.armor || null;
                         existing.health = incoming.health ?? existing.health;
@@ -7183,12 +7271,14 @@ async function connectToServer() {
                             ...incoming,
                             kind: eKind,
                             faction: eFaction,
-                            coreBoom: Boolean(incoming.coreBoom),
                             vx: incoming.vx || 0,
                             vy: incoming.vy || 0,
                             angle: incoming.angle || 0,
                             scale: incoming.scale ?? 1,
                             sprinting: Boolean(incoming.sprinting),
+                            airborne: Boolean(incoming.airborne),
+                            jumpHeight: Number(incoming.jumpHeight) || 0,
+                            renderJumpHeight: Number(incoming.jumpHeight) || 0,
                             maxHealth: incoming.maxHealth ?? defMaxH,
                             maxEnergy: incoming.maxEnergy ?? defMaxE,
                             weapon: incoming.weapon || (isMapbot ? 'mapbot-claws' : 'hands'),
