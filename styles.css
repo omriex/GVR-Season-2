@@ -443,6 +443,10 @@ canvas {
     color: #d84aff;
 }
 
+#boss-health-bar.mapbot-boss #boss-bar-title {
+    color: #e040ff;
+}
+
 .boss-bar-track {
     position: relative;
     width: 100%;
@@ -462,6 +466,10 @@ canvas {
 
 #boss-health-bar.ally-boss #boss-bar-fill {
     background-color: #b833ff;
+}
+
+#boss-health-bar.mapbot-boss #boss-bar-fill {
+    background-color: #a824ff;
 }
 
 #boss-bar-value {
