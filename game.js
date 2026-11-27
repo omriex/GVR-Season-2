@@ -220,6 +220,9 @@ const dropslideEmitters = [];
 const dropslideParticles = [];
 const serverProjectiles = new Map();
 let serverGrenades = [];
+const serverRockets = new Map();
+const mapbotExplosions = [];
+const mapbotCorePulses = [];
 const grenadeShockwaves = [];
 const raycastBeams = [];
 const explosions = [];
@@ -438,6 +441,9 @@ function returnToMainMenu() {
     sprintDustParticles.length = 0;
     serverProjectiles.clear();
     serverGrenades = [];
+    serverRockets.clear();
+    mapbotExplosions.length = 0;
+    mapbotCorePulses.length = 0;
     grenadeShockwaves.length = 0;
     raycastBeams.length = 0;
     myInventory = [null, null, null, null, null];
@@ -1050,6 +1056,20 @@ const ADMIN_SPAWN_OPTIONS = [
         stats: [{ label: 'HP', value: '8000' }, { label: 'Reward', value: '2200 Scraps' }, { label: 'Cap', value: '30 Rarebots' }]
     },
     {
+        id: 'mapbot',
+        title: 'Mapbot',
+        kindLabel: 'BOSS',
+        description: 'Supreme boss faction hostile to both Goodbots and Rarebots. Fires dual blasters, core blasts, homing rockets, and crushing claws.',
+        bodyType: 'mapbot',
+        weapon: 'mapbot-claws',
+        stats: [
+            { label: 'HP', value: '100,000' },
+            { label: 'Armor', value: '50% DR' },
+            { label: 'Claws / Blasters', value: '650 / 500' },
+            { label: 'Core / Rockets', value: '250 DPS / 500' }
+        ]
+    },
+    {
         id: 'goodbot',
         title: 'Goodbot',
         kindLabel: 'ALLY',
@@ -1125,6 +1145,49 @@ function createEntityPreviewUrl(opt) {
 
     if (opt.bodyType === 'dropship') {
         drawDropshipSprite(g, 38, 38, 60, 60, opt.faction || 'rarebot', -Math.PI * 0.2, 0);
+        return c.toDataURL();
+    }
+
+    if (opt.bodyType === 'mapbot') {
+        const B = 36;
+        const pad = 4;
+        const minX = -0.7129 * B - 0.2539 * B;
+        const maxX = 0.7129 * B + 0.2539 * B;
+        const minY = -0.5098 * B - 0.08595 * B;
+        const maxY = 0.50195 * B;
+        const fitScale = Math.min(1, (76 - pad * 2) / (maxX - minX), (76 - pad * 2) / (maxY - minY));
+        g.save();
+        g.translate(38 - ((minX + maxX) * 0.5) * fitScale, 38 - ((minY + maxY) * 0.5) * fitScale);
+        g.scale(fitScale, fitScale);
+        if (mapbotBlasterSide1Img.complete && mapbotBlasterSide1Img.naturalWidth > 0) {
+            const bw = 0.5078 * B;
+            const bh = 0.3867 * B;
+            g.drawImage(mapbotBlasterSide1Img, -0.7129 * B - bw * 0.5, -0.1387 * B - bh * 0.5, bw, bh);
+        }
+        if (mapbotBlasterSide2Img.complete && mapbotBlasterSide2Img.naturalWidth > 0) {
+            const bw = 0.5078 * B;
+            const bh = 0.3867 * B;
+            g.drawImage(mapbotBlasterSide2Img, 0.7129 * B - bw * 0.5, -0.1387 * B - bh * 0.5, bw, bh);
+        }
+        if (mapbotImg.complete && mapbotImg.naturalWidth > 0) {
+            g.drawImage(mapbotImg, -B * 0.5, -B * 0.5, B, B);
+        } else {
+            g.fillStyle = '#a824ff';
+            g.beginPath();
+            g.arc(0, 0, B * 0.5, 0, Math.PI * 2);
+            g.fill();
+        }
+        if (mapbotCoreImg.complete && mapbotCoreImg.naturalWidth > 0) {
+            const cw = 0.5 * B;
+            const ch = 0.1719 * B;
+            g.drawImage(mapbotCoreImg, -cw * 0.5, -0.5098 * B - ch * 0.5, cw, ch);
+        }
+        if (mapbotClawsImg.complete && mapbotClawsImg.naturalWidth > 0) {
+            const clw = 1.2305 * B;
+            const clh = 0.3125 * B;
+            g.drawImage(mapbotClawsImg, -clw * 0.5, 0.3457 * B - clh * 0.5, clw, clh);
+        }
+        g.restore();
         return c.toDataURL();
     }
 
@@ -2306,6 +2369,17 @@ const rarebotDropshipImg = new Image();
 const goodbotDropshipImg = new Image();
 const rarebotDropshipRotorImg = new Image();
 const goodbotDropshipRotorImg = new Image();
+const mapbotImg = new Image();
+const mapbotBlasterSide1Img = new Image();
+const mapbotBlasterSide2Img = new Image();
+const mapbotBlasterImg = new Image();
+const mapbotClawsImg = new Image();
+const mapbotCoreImg = new Image();
+const mapbotChargingLaserImg = new Image();
+const mapbotRocketImg = new Image();
+const mapbotBlastImg = new Image();
+const mapbotAuraImg = new Image();
+const mapbotExplosionImg = new Image();
 
 let audioCtx = null;
 let soundBuffersLoaded = false;
@@ -2739,6 +2813,17 @@ function loadAssets() {
     goodbotDropshipImg.onload = refreshIcons;
     rarebotDropshipRotorImg.onload = refreshIcons;
     goodbotDropshipRotorImg.onload = refreshIcons;
+    mapbotImg.onload = refreshIcons;
+    mapbotBlasterSide1Img.onload = refreshIcons;
+    mapbotBlasterSide2Img.onload = refreshIcons;
+    mapbotBlasterImg.onload = refreshIcons;
+    mapbotClawsImg.onload = refreshIcons;
+    mapbotCoreImg.onload = refreshIcons;
+    mapbotChargingLaserImg.onload = refreshIcons;
+    mapbotRocketImg.onload = refreshIcons;
+    mapbotBlastImg.onload = refreshIcons;
+    mapbotAuraImg.onload = refreshIcons;
+    mapbotExplosionImg.onload = refreshIcons;
     goodbotImg.src = 'assets/Goodbot.png';
     rarebotImg.src = 'assets/Rarebot.png';
     prototypeRarebotImg.src = 'assets/Prototype Rarebot.png';
@@ -2765,6 +2850,17 @@ function loadAssets() {
     goodbotDropshipImg.src = 'assets/Goodbot Dropship.png';
     rarebotDropshipRotorImg.src = 'assets/Rarebot Dropship Rotor.png';
     goodbotDropshipRotorImg.src = 'assets/Goodbot Dropship Rotor.png';
+    mapbotImg.src = 'assets/Mapbot.png';
+    mapbotBlasterSide1Img.src = 'assets/Mapbot Blaster Side 1.png';
+    mapbotBlasterSide2Img.src = 'assets/Mapbot Blaster Side 2.png';
+    mapbotBlasterImg.src = 'assets/Mapbot Blaster.png';
+    mapbotClawsImg.src = 'assets/Mapbot Claws.png';
+    mapbotCoreImg.src = 'assets/Mapbot Core.png';
+    mapbotChargingLaserImg.src = 'assets/Mapbot Charging Laser.png';
+    mapbotRocketImg.src = 'assets/Mapbot Rocket.png';
+    mapbotBlastImg.src = 'assets/Mapbot Blast.png';
+    mapbotAuraImg.src = 'assets/Mapbot Aura.png';
+    mapbotExplosionImg.src = 'assets/Mapbot Explosion.png';
 }
 
 function updateStatsUI() {
@@ -2799,12 +2895,23 @@ function updateBossHealthBar() {
     if (!bossHealthBar || !bossBarTitle || !bossBarFill || !bossBarValue) return;
     let boss = null;
     let isAllyBoss = false;
+    let isMapbotBoss = false;
     for (const id in serverEnemies) {
         const e = serverEnemies[id];
-        if (e.kind === 'dropship' && (e.health || 0) > 0) {
+        if (e.kind === 'mapbot' && (e.health || 0) > 0) {
             boss = e;
-            isAllyBoss = false;
+            isMapbotBoss = true;
             break;
+        }
+    }
+    if (!boss) {
+        for (const id in serverEnemies) {
+            const e = serverEnemies[id];
+            if (e.kind === 'dropship' && (e.health || 0) > 0) {
+                boss = e;
+                isAllyBoss = false;
+                break;
+            }
         }
     }
     if (!boss) {
@@ -2819,13 +2926,14 @@ function updateBossHealthBar() {
     }
     if (!boss) {
         bossHealthBar.classList.add('hidden');
-        bossHealthBar.classList.remove('ally-boss');
+        bossHealthBar.classList.remove('ally-boss', 'mapbot-boss');
         return;
     }
     bossHealthBar.classList.remove('hidden');
     bossHealthBar.classList.toggle('ally-boss', isAllyBoss);
-    bossBarTitle.textContent = boss.name || (isAllyBoss ? 'Goodbot Dropship' : 'Rarebot Dropship');
-    const maxHp = Math.max(1, Math.round(boss.maxHealth || 8000));
+    bossHealthBar.classList.toggle('mapbot-boss', isMapbotBoss);
+    bossBarTitle.textContent = boss.name || (isMapbotBoss ? 'Mapbot' : (isAllyBoss ? 'Goodbot Dropship' : 'Rarebot Dropship'));
+    const maxHp = Math.max(1, Math.round(boss.maxHealth || (isMapbotBoss ? 100000 : 8000)));
     const hp = Math.max(0, Math.min(maxHp, Math.round(boss.health || 0)));
     bossBarFill.style.width = `${(hp / maxHp) * 100}%`;
     bossBarValue.textContent = `${hp} / ${maxHp}`;
@@ -3338,6 +3446,38 @@ function update(dt) {
         }
     }
 
+    if (serverRockets.size > 0) {
+        const rLerp = 1 - Math.exp(-dt * 24);
+        const rAngLerp = 1 - Math.exp(-dt * 22);
+        for (const [, r] of serverRockets) {
+            r.x += (r.tx - r.x) * rLerp;
+            r.y += (r.ty - r.y) * rLerp;
+            let diff = r.angle - r.renderAngle;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            r.renderAngle += diff * rAngLerp;
+            r.trailAccum = (r.trailAccum || 0) + dt;
+            while (r.trailAccum >= 0.032) {
+                r.trailAccum -= 0.032;
+                if (explosions.length >= MAX_EXPLOSION_PARTICLES) {
+                    explosions.shift();
+                }
+                const backAng = r.renderAngle + Math.PI * 0.5 + (Math.random() - 0.5) * 0.45;
+                const spd = 25 + Math.random() * 55;
+                explosions.push({
+                    x: r.x - Math.sin(r.renderAngle) * 14 + (Math.random() - 0.5) * 4,
+                    y: r.y + Math.cos(r.renderAngle) * 14 + (Math.random() - 0.5) * 4,
+                    vx: Math.cos(backAng) * spd,
+                    vy: Math.sin(backAng) * spd,
+                    radius: 3 + Math.random() * 3.5,
+                    life: 0.2 + Math.random() * 0.16,
+                    age: 0,
+                    color: GRENADE_EXPLOSION_COLORS[Math.floor(Math.random() * GRENADE_EXPLOSION_COLORS.length)]
+                });
+            }
+        }
+    }
+
     for (let i = raycastBeams.length - 1; i >= 0; i--) {
         const b = raycastBeams[i];
         b.age += dt;
@@ -3538,6 +3678,24 @@ function update(dt) {
         if (w.age >= w.life) {
             grenadeShockwaves[i] = grenadeShockwaves[grenadeShockwaves.length - 1];
             grenadeShockwaves.pop();
+        }
+    }
+
+    for (let i = mapbotExplosions.length - 1; i >= 0; i--) {
+        const me = mapbotExplosions[i];
+        me.age += dt;
+        if (me.age >= me.life) {
+            mapbotExplosions[i] = mapbotExplosions[mapbotExplosions.length - 1];
+            mapbotExplosions.pop();
+        }
+    }
+
+    for (let i = mapbotCorePulses.length - 1; i >= 0; i--) {
+        const cp = mapbotCorePulses[i];
+        cp.age += dt;
+        if (cp.age >= cp.life) {
+            mapbotCorePulses[i] = mapbotCorePulses[mapbotCorePulses.length - 1];
+            mapbotCorePulses.pop();
         }
     }
 
@@ -3837,13 +3995,27 @@ function getSwingOffset(entityKey, nowMs) {
     if (!entry) return 0;
     const startedAt = typeof entry === 'number' ? entry : entry.at;
     const isUgly = typeof entry === 'object' && entry !== null && Boolean(entry.ugly);
-    const duration = isUgly ? 175 : 260;
+    const isClaws = typeof entry === 'object' && entry !== null && Boolean(entry.claws);
+    const duration = isClaws ? 240 : (isUgly ? 175 : 260);
     const elapsed = nowMs - startedAt;
     if (elapsed >= duration || elapsed < 0) {
         swingAnims.delete(entityKey);
         return 0;
     }
     const p = elapsed / duration;
+    if (isClaws) {
+        if (p < 0.25) {
+            const t = p / 0.25;
+            return -0.22 * (1 - (1 - t) * (1 - t));
+        }
+        if (p < 0.58) {
+            const t = (p - 0.25) / 0.33;
+            const easeOut = 1 - (1 - t) * (1 - t);
+            return -0.22 + 1.22 * easeOut;
+        }
+        const t = (p - 0.58) / 0.42;
+        return 1.0 * (1 - t * t);
+    }
     if (isUgly) {
         const jitter = Math.sin(p * Math.PI * 6) * 0.16 * (1 - p);
         if (p < 0.22) {
@@ -3940,6 +4112,7 @@ function getLabelSprite(label, faction) {
     cctx.lineWidth = 3;
     cctx.strokeStyle = 'rgba(0,0,0,0.85)';
     if (faction === 'rarebot') cctx.fillStyle = '#f00000';
+    else if (faction === 'mapbot') cctx.fillStyle = '#e040ff';
     else if (faction === 'spectator') cctx.fillStyle = '#ffffff';
     else cctx.fillStyle = '#d84aff';
 
@@ -4635,7 +4808,7 @@ function drawEntityLabel(x, y, sH, label, faction) {
     ctx.drawImage(lbl.canvas, drawX, drawY, lbl.drawW, lbl.drawH);
 }
 
-function drawEntity(x, y, width, height, angle, scale, label, faction, showHands, swingOffset, bars, spriteKind = null, weapon = 'hands', entityKey = null, nowMs = 0, armor = null) {
+function drawEntity(x, y, width, height, angle, scale, label, faction, showHands, swingOffset, bars, spriteKind = null, weapon = 'hands', entityKey = null, nowMs = 0, armor = null, coreBoom = false) {
     const sW = width * scale;
     const sH = height * scale;
     const isSpectator = faction === 'spectator';
@@ -4647,6 +4820,94 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         }
         if (bars) {
             drawSubtleBars(x, y + sH / 2 + 6, bars.health, bars.maxHealth, bars.energy, bars.maxEnergy);
+        }
+        return;
+    }
+
+    if (spriteKind === 'mapbot') {
+        const B = 108 * scale;
+        const sprintAnim = entityKey ? sprintAnims.get(entityKey) : null;
+        const sprintBlend = sprintAnim ? sprintAnim.blend : 0;
+        let bodyX = x;
+        let bodyY = y;
+        let strideSin = 0;
+        if (sprintBlend > 0.01) {
+            strideSin = Math.sin(sprintAnim.phase);
+            const stepLift = Math.abs(strideSin) * 1.4 * sprintBlend * scale;
+            const lean = 2.4 * sprintBlend * scale;
+            bodyX += sprintAnim.dirX * lean;
+            bodyY += sprintAnim.dirY * lean - stepLift;
+        }
+        const leftRecoil = getLeftRecoilTransform(entityKey, nowMs);
+        const rightRecoil = getRecoilTransform(entityKey, nowMs);
+        const leftRecoilPx = leftRecoil ? Math.min(10, leftRecoil.dy) * scale : 0;
+        const rightRecoilPx = rightRecoil ? Math.min(10, rightRecoil.dy) * scale : 0;
+        const clawLungePx = (swingOffset || 0) * 0.65 * B;
+
+        ctx.save();
+        ctx.translate(bodyX, bodyY);
+        ctx.rotate(sprintBlend > 0.01 ? (angle + strideSin * 0.04 * sprintBlend) : angle);
+        ctx.imageSmoothingEnabled = true;
+
+        if (coreBoom) {
+            const auraPulse = 1 + 0.08 * Math.sin(nowMs * 0.018);
+            const auraAlpha = 0.78 + 0.22 * Math.sin(nowMs * 0.025);
+            const auraSize = 2.25 * B * auraPulse;
+            if (mapbotAuraImg.complete && mapbotAuraImg.naturalWidth > 0) {
+                ctx.save();
+                ctx.globalAlpha = auraAlpha;
+                ctx.drawImage(mapbotAuraImg, -auraSize * 0.5, -auraSize * 0.5, auraSize, auraSize);
+                ctx.restore();
+            }
+            const blastSize = 1.6 * B * (1 + 0.12 * Math.sin(nowMs * 0.024));
+            if (mapbotBlastImg.complete && mapbotBlastImg.naturalWidth > 0) {
+                ctx.save();
+                ctx.translate(0, -0.51 * B);
+                ctx.rotate(nowMs * 0.005);
+                ctx.drawImage(mapbotBlastImg, -blastSize * 0.5, -blastSize * 0.5, blastSize, blastSize);
+                ctx.restore();
+            }
+        }
+
+        if (mapbotBlasterSide1Img.complete && mapbotBlasterSide1Img.naturalWidth > 0) {
+            const bw = 0.5078 * B;
+            const bh = 0.3867 * B;
+            ctx.drawImage(mapbotBlasterSide1Img, -0.7129 * B - bw * 0.5, -0.1387 * B + leftRecoilPx - bh * 0.5, bw, bh);
+        }
+        if (mapbotBlasterSide2Img.complete && mapbotBlasterSide2Img.naturalWidth > 0) {
+            const bw = 0.5078 * B;
+            const bh = 0.3867 * B;
+            ctx.drawImage(mapbotBlasterSide2Img, 0.7129 * B - bw * 0.5, -0.1387 * B + rightRecoilPx - bh * 0.5, bw, bh);
+        }
+
+        if (mapbotImg.complete && mapbotImg.naturalWidth > 0) {
+            ctx.drawImage(mapbotImg, -B * 0.5, -B * 0.5, B, B);
+        } else {
+            ctx.fillStyle = '#a824ff';
+            ctx.beginPath();
+            ctx.arc(0, 0, B * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        if (mapbotCoreImg.complete && mapbotCoreImg.naturalWidth > 0) {
+            const cw = 0.5 * B;
+            const ch = 0.1719 * B;
+            ctx.drawImage(mapbotCoreImg, -cw * 0.5, -0.5098 * B - ch * 0.5, cw, ch);
+        }
+
+        if (mapbotClawsImg.complete && mapbotClawsImg.naturalWidth > 0) {
+            const clw = 1.2305 * B;
+            const clh = 0.3125 * B;
+            ctx.drawImage(mapbotClawsImg, -clw * 0.5, 0.3457 * B - clawLungePx - clh * 0.5, clw, clh);
+        }
+
+        ctx.restore();
+
+        if (label) {
+            drawEntityLabel(x, y, B, label, faction);
+        }
+        if (bars) {
+            drawSubtleBars(x, y + B * 0.5 + 8, bars.health, bars.maxHealth, bars.energy, bars.maxEnergy);
         }
         return;
     }
@@ -4941,6 +5202,30 @@ function render() {
                     ctx.restore();
                     continue;
                 }
+                if (b.variant === 'mapbot-blaster') {
+                    const alpha = Math.min(1, Math.max(0, (1 - b.age / b.life) * 1.4));
+                    const bw = 0.36 * 108;
+                    ctx.save();
+                    ctx.globalAlpha = alpha;
+                    ctx.translate(sx1, sy1);
+                    ctx.rotate(beamAngle);
+                    ctx.imageSmoothingEnabled = true;
+                    if (mapbotChargingLaserImg.complete && mapbotChargingLaserImg.naturalWidth > 0) {
+                        ctx.drawImage(mapbotChargingLaserImg, -bw * 0.5, -beamLen, bw, beamLen);
+                    } else {
+                        ctx.fillStyle = '#d84aff';
+                        ctx.fillRect(-10, -beamLen, 20, beamLen);
+                    }
+                    ctx.fillStyle = '#f5c2ff';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(0, -beamLen, 22, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                    continue;
+                }
                 const alpha = Math.max(0, 1 - b.age / b.life);
                 const bulletImg = b.variant === 'rarebot' ? rarebotBulletImg : goodbotBulletImg;
                 ctx.save();
@@ -5048,6 +5333,87 @@ function render() {
                     ctx.fillRect(-2, -12, 4, 24);
                 }
                 ctx.restore();
+            }
+        }
+
+        if (serverRockets.size > 0) {
+            const rw = 24;
+            const rh = 24 * (410 / 256);
+            for (const [, r] of serverRockets) {
+                const rx = r.x - camX;
+                const ry = r.y - camY;
+                if (rx < -48 || rx > camW + 48 || ry < -48 || ry > camH + 48) continue;
+                ctx.save();
+                ctx.translate(rx, ry);
+                ctx.rotate(r.renderAngle ?? r.angle ?? 0);
+                ctx.imageSmoothingEnabled = true;
+                if (mapbotRocketImg.complete && mapbotRocketImg.naturalWidth > 0) {
+                    ctx.drawImage(mapbotRocketImg, -rw * 0.5, -rh * 0.5, rw, rh);
+                } else {
+                    ctx.fillStyle = '#c84aff';
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, 7, 15, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        if (mapbotCorePulses.length > 0) {
+            ctx.save();
+            for (let i = 0; i < mapbotCorePulses.length; i++) {
+                const cp = mapbotCorePulses[i];
+                const sx = cp.x - camX;
+                const sy = cp.y - camY;
+                const maxR = Math.max(cp.radius, cp.coneRange);
+                if (sx + maxR < -40 || sx - maxR > camW + 40 || sy + maxR < -40 || sy - maxR > camH + 40) continue;
+                const p = Math.max(0, Math.min(1, cp.age / cp.life));
+                const alpha = 1 - p;
+                const r = cp.radius * (0.45 + 0.55 * p);
+                ctx.fillStyle = `rgba(190, 60, 255, ${(0.22 * alpha).toFixed(3)})`;
+                ctx.beginPath();
+                ctx.arc(sx, sy, r, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = `rgba(224, 120, 255, ${(0.75 * alpha).toFixed(3)})`;
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                const dirAng = cp.angle - Math.PI * 0.5;
+                const coneSpread = Math.acos(0.42);
+                const coneR = cp.coneRange * (0.5 + 0.5 * p);
+                ctx.fillStyle = `rgba(216, 74, 255, ${(0.26 * alpha).toFixed(3)})`;
+                ctx.beginPath();
+                ctx.moveTo(sx, sy);
+                ctx.arc(sx, sy, coneR, dirAng - coneSpread, dirAng + coneSpread);
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+
+        if (mapbotExplosions.length > 0) {
+            const expReady = mapbotExplosionImg.complete && mapbotExplosionImg.naturalWidth >= 1536;
+            for (let i = 0; i < mapbotExplosions.length; i++) {
+                const me = mapbotExplosions[i];
+                const mx = me.x - camX;
+                const my = me.y - camY;
+                const drawSize = me.radius * 2.15;
+                if (mx + drawSize < -40 || mx - drawSize > camW + 40 || my + drawSize < -40 || my - drawSize > camH + 40) continue;
+                const p = Math.max(0, Math.min(0.999, me.age / me.life));
+                if (expReady) {
+                    const frame = Math.min(5, Math.floor(p * 6));
+                    ctx.save();
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.drawImage(mapbotExplosionImg, frame * 256, 0, 256, 256, mx - drawSize * 0.5, my - drawSize * 0.5, drawSize, drawSize);
+                    ctx.restore();
+                } else {
+                    ctx.save();
+                    ctx.fillStyle = `rgba(216, 74, 255, ${(0.6 * (1 - p)).toFixed(3)})`;
+                    ctx.beginPath();
+                    ctx.arc(mx, my, me.radius * (0.3 + 0.7 * p), 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
             }
         }
 
@@ -5184,8 +5550,10 @@ function render() {
             const e = serverEnemies[id];
             const eKind = e.kind || 'rarebot';
             if (eKind === 'dropship') continue;
-            const ew = e.width || 48;
-            const eh = e.height || 48;
+            const isMapbot = eKind === 'mapbot';
+            const eFaction = e.faction || (isMapbot ? 'mapbot' : 'rarebot');
+            const ew = e.width || (isMapbot ? 58 : 48);
+            const eh = e.height || (isMapbot ? 58 : 48);
             const eWorldCX = (e.renderX ?? e.x) + ew / 2;
             const eWorldCY = (e.renderY ?? e.y) + eh / 2;
             const eRX = eWorldCX - camX;
@@ -5194,19 +5562,20 @@ function render() {
             const es = Math.min(2, Math.max(0.3, e.scale || 1));
             const key = `enemy:${id}`;
             const eInTree = isWorldPointInTree(eWorldCX, eWorldCY);
-            const showBars = !eInTree && ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs;
-            const eWeapon = e.weapon || 'hands';
-            const eLabel = e.name || (eKind === 'grenadier' ? 'Rarebot Grenadier' : (eKind === 'sacrifice' ? 'Sacrifice Rarebot' : (eKind === 'scout' ? 'Scout Rarebot' : (eKind === 'healer' ? 'Healer Rarebot' : (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot3' ? 'Rarebot 3.0' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot')))))));
-            const defMaxH = eKind === 'prototype' ? 120 : (eKind === 'sacrifice' ? 100 : (eKind === 'scout' ? 300 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255)))));
+            const showBars = isMapbot ? !eInTree : (!eInTree && ME.faction === 'goodbot' && (enemyAggroUntil.get(key) || 0) > nowMs);
+            const eWeapon = e.weapon || (isMapbot ? 'mapbot-claws' : 'hands');
+            const eLabel = e.name || (isMapbot ? 'Mapbot' : (eKind === 'grenadier' ? 'Rarebot Grenadier' : (eKind === 'sacrifice' ? 'Sacrifice Rarebot' : (eKind === 'scout' ? 'Scout Rarebot' : (eKind === 'healer' ? 'Healer Rarebot' : (eKind === 'prototype' ? 'Prototype Rarebot' : (eKind === 'rarebot3' ? 'Rarebot 3.0' : (eKind === 'rarebot2' ? 'Rarebot 2.0' : 'Rarebot'))))))));
+            const defMaxH = isMapbot ? 100000 : (eKind === 'prototype' ? 120 : (eKind === 'sacrifice' ? 100 : (eKind === 'scout' ? 300 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255))))));
+            const defMaxE = isMapbot ? 500 : (eKind === 'prototype' ? 100 : 50);
             const bars = showBars ? {
                 health: e.health ?? defMaxH,
                 maxHealth: e.maxHealth ?? defMaxH,
-                energy: e.energy ?? (eKind === 'prototype' ? 100 : 50),
-                maxEnergy: e.maxEnergy ?? (eKind === 'prototype' ? 100 : 50)
+                energy: e.energy ?? defMaxE,
+                maxEnergy: e.maxEnergy ?? defMaxE
             } : null;
-            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, null, 'rarebot', eKind !== 'sacrifice', getSwingOffset(key, nowMs), bars, eKind, eWeapon, key, nowMs, e.armor || (eKind === 'rarebot3' ? 'rarebot-armor' : null));
+            drawEntity(eRX, eRY, ew, eh, e.renderAngle ?? 0, es, null, eFaction, eKind !== 'sacrifice', getSwingOffset(key, nowMs), bars, eKind, eWeapon, key, nowMs, e.armor || (eKind === 'rarebot3' ? 'rarebot-armor' : null), Boolean(e.coreBoom));
             if (!eInTree && eLabel) {
-                pendingEntityLabels.push({ x: eRX, y: eRY, sH: eh * es, label: eLabel, faction: 'rarebot' });
+                pendingEntityLabels.push({ x: eRX, y: eRY, sH: isMapbot ? 108 * es : eh * es, label: eLabel, faction: eFaction });
             }
         }
 
@@ -5576,7 +5945,7 @@ function render() {
                 const ew = e.width || 48;
                 const eh = e.height || 48;
                 const es = Math.min(2, Math.max(0.3, e.scale || 1));
-                const er = (ew * es) * 0.5;
+                const er = e.kind === 'mapbot' ? 54 * es : (ew * es) * 0.5;
                 const ecx = (e.renderX ?? e.x) + ew * 0.5 - camX;
                 const ecy = (e.renderY ?? e.y) + eh * 0.5 - camY;
                 if (ecx + er < -20 || ecx - er > camW + 20 || ecy + er < -20 || ecy - er > camH + 20) continue;
@@ -5768,13 +6137,14 @@ function renderMapView(targetCanvas, baseRadius) {
     for (const id in serverEnemies) {
         const e = serverEnemies[id];
         if (e.kind === 'dropship') continue;
+        const isMapbot = e.kind === 'mapbot';
         const cx = (((e.renderX ?? e.x) + (e.width || 48) * 0.5) / mapW) * pw;
         const cy = (((e.renderY ?? e.y) + (e.height || 48) * 0.5) / mapH) * ph;
         mctx.beginPath();
-        mctx.arc(cx, cy, r, 0, Math.PI * 2);
-        mctx.fillStyle = '#ff2a2a';
+        mctx.arc(cx, cy, isMapbot ? r * 1.9 : r, 0, Math.PI * 2);
+        mctx.fillStyle = isMapbot ? '#d84aff' : '#ff2a2a';
         mctx.fill();
-        mctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+        mctx.strokeStyle = isMapbot ? '#ffffff' : 'rgba(0, 0, 0, 0.85)';
         mctx.stroke();
     }
 
@@ -6134,7 +6504,7 @@ async function connectToServer() {
             const prevEntry = swingAnims.get(key);
             const prevAt = typeof prevEntry === 'number' ? prevEntry : (prevEntry ? prevEntry.at : 0);
             if (!(data.kind === 'player' && data.id === myId && prevAt && nowMs - prevAt < 160)) {
-                swingAnims.set(key, data.ugly ? { at: nowMs, ugly: true } : nowMs);
+                swingAnims.set(key, data.variant === 'mapbot-claws' ? { at: nowMs, claws: true } : (data.ugly ? { at: nowMs, ugly: true } : nowMs));
                 playSpatialSound('swing', data.x, data.y);
             }
             if (ME.faction === 'goodbot' && data.kind === 'enemy') {
@@ -6353,7 +6723,7 @@ async function connectToServer() {
                         x2: data.endX,
                         y2: data.endY,
                         age: 0,
-                        life: 0.14,
+                        life: data.variant === 'mapbot-blaster' ? 0.22 : 0.14,
                         seed: 0
                     });
                 }
@@ -6376,14 +6746,24 @@ async function connectToServer() {
             const nowMs = performance.now();
             if (!(data.kind === 'player' && data.id === myId && nowMs - lastLocalShotAt < 250)) {
                 const entityKey = `${data.kind}:${data.id}`;
-                if (!isBeamerShot) {
-                    if (data.hand === 'left') {
+                if (data.variant === 'mapbot-blaster') {
+                    if (data.side === 'left') {
                         leftRecoilAnims.set(entityKey, { at: nowMs, strong: false });
                     } else {
-                        recoilAnims.set(entityKey, { at: nowMs, strong: isCannonShot });
+                        recoilAnims.set(entityKey, { at: nowMs, strong: false });
                     }
+                    playSpatialSound('laserCannonShot', data.x, data.y);
+                    addCameraShake(0.28, data.projX, data.projY);
+                } else {
+                    if (!isBeamerShot) {
+                        if (data.hand === 'left') {
+                            leftRecoilAnims.set(entityKey, { at: nowMs, strong: false });
+                        } else {
+                            recoilAnims.set(entityKey, { at: nowMs, strong: isCannonShot });
+                        }
+                    }
+                    playSpatialSound(isBeamerShot ? 'beamerShot' : (isCannonShot ? 'laserCannonShot' : 'laserShot'), data.x, data.y);
                 }
-                playSpatialSound(isBeamerShot ? 'beamerShot' : (isCannonShot ? 'laserCannonShot' : 'laserShot'), data.x, data.y);
             }
             if (ME.faction === 'goodbot' && data.kind === 'enemy' && typeof data.x === 'number' && typeof data.y === 'number') {
                 const dist = Math.hypot(data.x - (ME.x + ME.width / 2), data.y - (ME.y + ME.height / 2));
@@ -6391,6 +6771,42 @@ async function connectToServer() {
                     enemyAggroUntil.set(`enemy:${data.id}`, nowMs + 8000);
                 }
             }
+            return;
+        }
+
+        if (data.type === 'mapbot_core_pulse') {
+            const cpx = Number(data.x) || 0;
+            const cpy = Number(data.y) || 0;
+            mapbotCorePulses.push({
+                x: cpx,
+                y: cpy,
+                angle: Number(data.angle) || 0,
+                radius: Number(data.radius) || 230,
+                coneRange: Number(data.coneRange) || 320,
+                age: 0,
+                life: 0.24
+            });
+            playSpatialSound('beamerShot', cpx, cpy, { playbackRate: 0.72, volumeMult: 0.85 });
+            addCameraShake(0.22, cpx, cpy);
+            return;
+        }
+
+        if (data.type === 'mapbot_rocket_explosion') {
+            if (data.id !== undefined) {
+                serverRockets.delete(data.id);
+            }
+            const rex = Number(data.x) || 0;
+            const rey = Number(data.y) || 0;
+            const rRad = Number(data.radius) || 148;
+            mapbotExplosions.push({
+                x: rex,
+                y: rey,
+                radius: rRad,
+                age: 0,
+                life: 0.42
+            });
+            playSpatialSound('explosion', rex, rey, { playbackRate: 0.82 });
+            addCameraShake(0.65, rex, rey);
             return;
         }
 
@@ -6409,12 +6825,12 @@ async function connectToServer() {
             }
             const hx = typeof data.hitX === 'number' ? data.hitX : Number(data.x) || 0;
             const hy = typeof data.hitY === 'number' ? data.hitY : Number(data.y) || 0;
-            const victimFaction = data.targetFaction || (data.kind === 'enemy' ? 'rarebot' : 'goodbot');
-            if (victimFaction === 'goodbot' || victimFaction === 'rarebot') {
+            const victimFaction = data.targetFaction || (data.kind === 'enemy' ? ((serverEnemies[data.id] && serverEnemies[data.id].faction) || 'rarebot') : 'goodbot');
+            if (victimFaction === 'goodbot' || victimFaction === 'rarebot' || victimFaction === 'mapbot') {
                 hitPointMarkers.push({
                     x: hx,
                     y: hy,
-                    color: victimFaction === 'goodbot' ? '#ff2a2a' : '#b833ff',
+                    color: victimFaction === 'goodbot' ? '#ff2a2a' : (victimFaction === 'mapbot' ? '#e040ff' : '#b833ff'),
                     age: 0,
                     life: 0.6
                 });
@@ -6728,9 +7144,11 @@ async function connectToServer() {
                 for (const id in data.enemies) {
                     const incoming = data.enemies[id];
                     const eKind = incoming.kind || 'rarebot';
-                    const defMaxH = eKind === 'dropship' ? 8000 : (eKind === 'prototype' ? 120 : (eKind === 'sacrifice' ? 100 : (eKind === 'scout' ? 300 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255))))));
-                    const defMaxE = eKind === 'prototype' ? 100 : 50;
-                    const defSize = eKind === 'dropship' ? 224 : 48;
+                    const isMapbot = eKind === 'mapbot';
+                    const defMaxH = isMapbot ? 100000 : (eKind === 'dropship' ? 8000 : (eKind === 'prototype' ? 120 : (eKind === 'sacrifice' ? 100 : (eKind === 'scout' ? 300 : (eKind === 'rarebot3' ? 600 : (eKind === 'rarebot2' ? 475 : (eKind === 'grenadier' ? 320 : 255)))))));
+                    const defMaxE = isMapbot ? 500 : (eKind === 'prototype' ? 100 : 50);
+                    const defSize = isMapbot ? 58 : (eKind === 'dropship' ? 224 : 48);
+                    const eFaction = incoming.faction || (isMapbot ? 'mapbot' : 'rarebot');
                     const existing = serverEnemies[id];
                     if (existing) {
                         const dx = incoming.x - existing.renderX;
@@ -6747,7 +7165,9 @@ async function connectToServer() {
                         existing.height = incoming.height || existing.height || defSize;
                         existing.name = incoming.name !== undefined ? incoming.name : existing.name;
                         existing.kind = eKind;
-                        existing.weapon = incoming.weapon || 'hands';
+                        existing.faction = eFaction;
+                        existing.coreBoom = Boolean(incoming.coreBoom);
+                        existing.weapon = incoming.weapon || (isMapbot ? 'mapbot-claws' : 'hands');
                         existing.armor = incoming.armor || null;
                         existing.health = incoming.health ?? existing.health;
                         existing.maxHealth = incoming.maxHealth ?? defMaxH;
@@ -6762,6 +7182,8 @@ async function connectToServer() {
                         serverEnemies[id] = {
                             ...incoming,
                             kind: eKind,
+                            faction: eFaction,
+                            coreBoom: Boolean(incoming.coreBoom),
                             vx: incoming.vx || 0,
                             vy: incoming.vy || 0,
                             angle: incoming.angle || 0,
@@ -6769,7 +7191,7 @@ async function connectToServer() {
                             sprinting: Boolean(incoming.sprinting),
                             maxHealth: incoming.maxHealth ?? defMaxH,
                             maxEnergy: incoming.maxEnergy ?? defMaxE,
-                            weapon: incoming.weapon || 'hands',
+                            weapon: incoming.weapon || (isMapbot ? 'mapbot-claws' : 'hands'),
                             armor: incoming.armor || null,
                             width: incoming.width || defSize,
                             height: incoming.height || defSize,
@@ -6850,6 +7272,40 @@ async function connectToServer() {
                 }
             }
             serverGrenades = Array.isArray(data.grenades) ? data.grenades : [];
+            if (Array.isArray(data.rockets)) {
+                for (let i = 0; i < data.rockets.length; i++) {
+                    const inc = data.rockets[i];
+                    const existing = serverRockets.get(inc.id);
+                    if (existing) {
+                        existing.tx = Number(inc.x) || 0;
+                        existing.ty = Number(inc.y) || 0;
+                        existing.angle = Number(inc.angle) || 0;
+                        existing._seq = stateSeq;
+                    } else {
+                        const rx = Number(inc.x) || 0;
+                        const ry = Number(inc.y) || 0;
+                        const ra = Number(inc.angle) || 0;
+                        serverRockets.set(inc.id, {
+                            id: inc.id,
+                            x: rx,
+                            y: ry,
+                            tx: rx,
+                            ty: ry,
+                            angle: ra,
+                            renderAngle: ra,
+                            trailAccum: 0,
+                            _seq: stateSeq
+                        });
+                    }
+                }
+                for (const [rid, r] of serverRockets) {
+                    if (r._seq !== stateSeq) {
+                        serverRockets.delete(rid);
+                    }
+                }
+            } else {
+                serverRockets.clear();
+            }
             updateBossHealthBar();
             return;
         }
