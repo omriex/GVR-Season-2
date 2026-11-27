@@ -23,10 +23,13 @@ const gameStateTitle = document.getElementById('game-state-title');
 const gameStateDivider = document.getElementById('game-state-divider');
 const gameStateDesc = document.getElementById('game-state-desc');
 const gameStartBtn = document.getElementById('game-start-btn');
-const bossHealthBar = document.getElementById('boss-health-bar');
-const bossBarTitle = document.getElementById('boss-bar-title');
-const bossBarFill = document.getElementById('boss-bar-fill');
-const bossBarValue = document.getElementById('boss-bar-value');
+const bossBarsContainer = document.getElementById('boss-bars-container');
+const bossBarSlots = Array.from(document.querySelectorAll('#boss-bars-container .boss-health-bar')).map((el) => ({
+    el,
+    title: el.querySelector('.boss-bar-title'),
+    fill: el.querySelector('.boss-bar-fill'),
+    value: el.querySelector('.boss-bar-value')
+}));
 const goodbotsCount = document.getElementById('goodbots-count');
 const rarebotsCount = document.getElementById('rarebots-count');
 const waveCount = document.getElementById('wave-count');
@@ -491,9 +494,13 @@ function returnToMainMenu() {
     ME.faction = 'goodbot';
     ME.armor = null;
     ME.chats = [];
-    if (bossHealthBar) {
-        bossHealthBar.classList.add('hidden');
-        bossHealthBar.classList.remove('ally-boss');
+    if (bossBarsContainer) {
+        bossBarsContainer.classList.add('hidden');
+    }
+    for (let i = 0; i < bossBarSlots.length; i++) {
+        const slot = bossBarSlots[i];
+        slot.el.classList.add('hidden');
+        slot.el.classList.remove('rarebot-boss', 'ally-boss', 'mapbot-boss');
     }
     lastRenderedHealth = -1;
     lastRenderedEnergy = -1;
@@ -3214,52 +3221,68 @@ function updateStatsUI() {
 }
 
 function updateBossHealthBar() {
-    if (!bossHealthBar || !bossBarTitle || !bossBarFill || !bossBarValue) return;
-    let boss = null;
-    let isAllyBoss = false;
-    let isMapbotBoss = false;
+    if (!bossBarsContainer || bossBarSlots.length === 0) return;
+    const activeBosses = [];
     for (const id in serverEnemies) {
         const e = serverEnemies[id];
-        if (e.kind === 'mapbot' && (e.health || 0) > 0) {
-            boss = e;
-            isMapbotBoss = true;
-            break;
+        if ((e.kind === 'mapbot' || e.kind === 'dropship') && (e.health || 0) > 0) {
+            const isMapbot = e.kind === 'mapbot';
+            activeBosses.push({
+                priority: isMapbot ? 0 : 1,
+                id: Number(id) || 0,
+                entity: e,
+                defaultFaction: isMapbot ? 'mapbot' : 'rarebot',
+                defaultName: isMapbot ? 'Mapbot' : 'Rarebot Dropship',
+                defaultMaxHp: isMapbot ? 100000 : 8000
+            });
         }
     }
-    if (!boss) {
-        for (const id in serverEnemies) {
-            const e = serverEnemies[id];
-            if (e.kind === 'dropship' && (e.health || 0) > 0) {
-                boss = e;
-                isAllyBoss = false;
-                break;
-            }
+    for (const id in serverAllies) {
+        const a = serverAllies[id];
+        if (a.kind === 'dropship' && (a.health || 0) > 0) {
+            activeBosses.push({
+                priority: 2,
+                id: Number(id) || 0,
+                entity: a,
+                defaultFaction: 'goodbot',
+                defaultName: 'Goodbot Dropship',
+                defaultMaxHp: 8000
+            });
         }
     }
-    if (!boss) {
-        for (const id in serverAllies) {
-            const a = serverAllies[id];
-            if (a.kind === 'dropship' && (a.health || 0) > 0) {
-                boss = a;
-                isAllyBoss = true;
-                break;
-            }
+    if (activeBosses.length === 0) {
+        bossBarsContainer.classList.add('hidden');
+        for (let i = 0; i < bossBarSlots.length; i++) {
+            const slot = bossBarSlots[i];
+            slot.el.classList.add('hidden');
+            slot.el.classList.remove('rarebot-boss', 'ally-boss', 'mapbot-boss');
         }
-    }
-    if (!boss) {
-        bossHealthBar.classList.add('hidden');
-        bossHealthBar.classList.remove('ally-boss', 'mapbot-boss');
         return;
     }
-    const bossFaction = boss.faction || (isMapbotBoss ? 'mapbot' : (isAllyBoss ? 'goodbot' : 'rarebot'));
-    bossHealthBar.classList.remove('hidden');
-    bossHealthBar.classList.toggle('ally-boss', bossFaction === 'goodbot');
-    bossHealthBar.classList.toggle('mapbot-boss', bossFaction === 'mapbot');
-    bossBarTitle.textContent = boss.name || (isMapbotBoss ? 'Mapbot' : (isAllyBoss ? 'Goodbot Dropship' : 'Rarebot Dropship'));
-    const maxHp = Math.max(1, Math.round(boss.maxHealth || (isMapbotBoss ? 100000 : 8000)));
-    const hp = Math.max(0, Math.min(maxHp, Math.round(boss.health || 0)));
-    bossBarFill.style.width = `${(hp / maxHp) * 100}%`;
-    bossBarValue.textContent = `${hp} / ${maxHp}`;
+    activeBosses.sort((a, b) => (a.priority - b.priority) || (a.id - b.id));
+    const maxStacks = Math.min(3, bossBarSlots.length);
+    const shownCount = Math.min(maxStacks, activeBosses.length);
+    bossBarsContainer.classList.remove('hidden');
+    for (let i = 0; i < bossBarSlots.length; i++) {
+        const slot = bossBarSlots[i];
+        if (i >= shownCount) {
+            slot.el.classList.add('hidden');
+            slot.el.classList.remove('rarebot-boss', 'ally-boss', 'mapbot-boss');
+            continue;
+        }
+        const item = activeBosses[i];
+        const boss = item.entity;
+        const bossFaction = boss.faction || item.defaultFaction;
+        slot.el.classList.remove('hidden');
+        slot.el.classList.toggle('rarebot-boss', bossFaction === 'rarebot');
+        slot.el.classList.toggle('ally-boss', bossFaction === 'goodbot');
+        slot.el.classList.toggle('mapbot-boss', bossFaction === 'mapbot');
+        if (slot.title) slot.title.textContent = boss.name || item.defaultName;
+        const maxHp = Math.max(1, Math.round(boss.maxHealth || item.defaultMaxHp));
+        const hp = Math.max(0, Math.min(maxHp, Math.round(boss.health || 0)));
+        if (slot.fill) slot.fill.style.width = `${(hp / maxHp) * 100}%`;
+        if (slot.value) slot.value.textContent = `${hp} / ${maxHp}`;
+    }
 }
 
 function applyGameStateUI(state) {
@@ -4430,7 +4453,7 @@ function getLabelSprite(label, faction) {
     cctx.lineWidth = 3;
     cctx.strokeStyle = 'rgba(0,0,0,0.85)';
     if (faction === 'rarebot') cctx.fillStyle = '#f00000';
-    else if (faction === 'mapbot') cctx.fillStyle = '#e040ff';
+    else if (faction === 'mapbot') cctx.fillStyle = '#2ee6ff';
     else if (faction === 'spectator') cctx.fillStyle = '#ffffff';
     else cctx.fillStyle = '#d84aff';
 
@@ -6539,7 +6562,7 @@ function renderMapView(targetCanvas, baseRadius) {
         const cy = (((e.renderY ?? e.y) + (e.height || 48) * 0.5) / mapH) * ph;
         mctx.beginPath();
         mctx.arc(cx, cy, r, 0, Math.PI * 2);
-        mctx.fillStyle = ef === 'mapbot' ? '#d84aff' : (ef === 'goodbot' ? '#b833ff' : '#ff2a2a');
+        mctx.fillStyle = ef === 'mapbot' ? '#18b8e6' : (ef === 'goodbot' ? '#b833ff' : '#ff2a2a');
         mctx.fill();
         mctx.strokeStyle = isMapbot ? '#ffffff' : 'rgba(0, 0, 0, 0.85)';
         mctx.stroke();
@@ -6553,7 +6576,7 @@ function renderMapView(targetCanvas, baseRadius) {
         const cy = (((a.renderY ?? a.y) + (a.height || 48) * 0.5) / mapH) * ph;
         mctx.beginPath();
         mctx.arc(cx, cy, r, 0, Math.PI * 2);
-        mctx.fillStyle = af === 'mapbot' ? '#d84aff' : (af === 'rarebot' ? '#ff2a2a' : '#b833ff');
+        mctx.fillStyle = af === 'mapbot' ? '#18b8e6' : (af === 'rarebot' ? '#ff2a2a' : '#b833ff');
         mctx.fill();
         mctx.strokeStyle = af === 'mapbot' ? '#ffffff' : 'rgba(0, 0, 0, 0.85)';
         mctx.stroke();
@@ -6592,7 +6615,7 @@ function renderMapView(targetCanvas, baseRadius) {
         const cy = (((e.renderY ?? e.y) + (e.height || 224) * 0.5) / mapH) * ph;
         mctx.beginPath();
         mctx.arc(cx, cy, r * 2.1, 0, Math.PI * 2);
-        mctx.fillStyle = ef === 'mapbot' ? '#d84aff' : (ef === 'goodbot' ? '#b833ff' : '#ff2a2a');
+        mctx.fillStyle = ef === 'mapbot' ? '#18b8e6' : (ef === 'goodbot' ? '#b833ff' : '#ff2a2a');
         mctx.fill();
         mctx.strokeStyle = '#ffffff';
         mctx.stroke();
@@ -6606,7 +6629,7 @@ function renderMapView(targetCanvas, baseRadius) {
         const cy = (((a.renderY ?? a.y) + (a.height || 224) * 0.5) / mapH) * ph;
         mctx.beginPath();
         mctx.arc(cx, cy, r * 2.1, 0, Math.PI * 2);
-        mctx.fillStyle = af === 'mapbot' ? '#d84aff' : (af === 'rarebot' ? '#ff2a2a' : '#b833ff');
+        mctx.fillStyle = af === 'mapbot' ? '#18b8e6' : (af === 'rarebot' ? '#ff2a2a' : '#b833ff');
         mctx.fill();
         mctx.strokeStyle = '#ffffff';
         mctx.stroke();
