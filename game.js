@@ -94,6 +94,8 @@ const mobileAbilityBtn = document.getElementById('mobile-ability-btn');
 const targetEliminatedBanner = document.getElementById('target-eliminated-banner');
 const inventoryLayer = document.getElementById('inventory-layer');
 const inventorySlots = document.querySelectorAll('#inventory-layer .slot');
+const shoveSlotWrapper = document.getElementById('shove-slot-wrapper');
+const shoveSlot = document.getElementById('shove-slot');
 const abilitySlot = document.getElementById('ability-slot');
 const armorSlot = document.getElementById('armor-slot');
 const adminModBtn = document.getElementById('admin-mod-btn');
@@ -206,6 +208,9 @@ let myAbility = null;
 let abilityReadyAt = 0;
 let lastLocalAbilityAt = 0;
 let lastRenderedAbilityCooldownSec = -1;
+let shoveReadyAt = 0;
+let lastLocalShoveAt = 0;
+let lastRenderedShoveCooldownSec = -1;
 let lastAttackSentAt = 0;
 let lastBeamerHoldSentAt = 0;
 let lastLocalShotAt = 0;
@@ -494,6 +499,9 @@ function returnToMainMenu() {
     abilityReadyAt = 0;
     lastLocalAbilityAt = 0;
     lastRenderedAbilityCooldownSec = -1;
+    shoveReadyAt = 0;
+    lastLocalShoveAt = 0;
+    lastRenderedShoveCooldownSec = -1;
     activeSlot = 0;
     lastEquippedItemKey = null;
     renderInventorySlots();
@@ -1965,6 +1973,51 @@ function updateAbilitySlotCooldown(nowMs) {
     }
 }
 
+function updateShoveSlotCooldown(nowMs) {
+    const remMs = (ME.faction === 'goodbot' && shoveReadyAt > nowMs) ? (shoveReadyAt - nowMs) : 0;
+    const remSec = remMs > 0 ? Math.ceil(remMs / 1000) : 0;
+    if (remSec === lastRenderedShoveCooldownSec) return;
+    lastRenderedShoveCooldownSec = remSec;
+    if (shoveSlot) {
+        const cdOverlay = shoveSlot.querySelector('.ability-cooldown-overlay');
+        if (remSec > 0) {
+            shoveSlot.classList.add('on-cooldown');
+            if (cdOverlay) {
+                cdOverlay.style.display = 'flex';
+                cdOverlay.textContent = String(remSec);
+            }
+        } else {
+            shoveSlot.classList.remove('on-cooldown');
+            if (cdOverlay) {
+                cdOverlay.style.display = 'none';
+                cdOverlay.textContent = '';
+            }
+        }
+    }
+}
+
+function createShoveSlotIcon() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2.1');
+    svg.setAttribute('stroke-linecap', 'square');
+    svg.setAttribute('stroke-linejoin', 'miter');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.classList.add('shove-slot-icon');
+    const paths = [
+        'M4 14v-3h6V6l7 6-7 6v-4H4z',
+        'M19 6v12'
+    ];
+    for (let i = 0; i < paths.length; i++) {
+        const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        p.setAttribute('d', paths[i]);
+        svg.appendChild(p);
+    }
+    return svg;
+}
+
 function renderInventorySlots() {
     if (inventorySlots && inventorySlots.length > 0) {
         for (let i = 0; i < inventorySlots.length; i++) {
@@ -1985,6 +2038,23 @@ function renderInventorySlots() {
                 slotEl.appendChild(img);
             }
         }
+    }
+    if (shoveSlotWrapper) {
+        shoveSlotWrapper.classList.toggle('hidden', ME.faction !== 'goodbot');
+    }
+    if (shoveSlot) {
+        shoveSlot.textContent = '';
+        const keyEl = document.createElement('span');
+        keyEl.className = 'slot-number';
+        keyEl.textContent = 'Q';
+        shoveSlot.appendChild(keyEl);
+        shoveSlot.appendChild(createShoveSlotIcon());
+        const cdOverlay = document.createElement('div');
+        cdOverlay.className = 'ability-cooldown-overlay';
+        cdOverlay.style.display = 'none';
+        shoveSlot.appendChild(cdOverlay);
+        lastRenderedShoveCooldownSec = -1;
+        updateShoveSlotCooldown(performance.now());
     }
     if (abilitySlot) {
         abilitySlot.textContent = '';
@@ -4169,6 +4239,7 @@ function update(dt) {
 
     const nowMs = performance.now();
     updateAbilitySlotCooldown(nowMs);
+    updateShoveSlotCooldown(nowMs);
     const isBeamerEquipped = getMyEquippedWeapon() === 'goodbot-beamer';
     if (!isBeamerEquipped || ME.faction !== 'goodbot') {
         isBeamerActive = false;
@@ -4819,9 +4890,11 @@ function getEquipTransform(entityKey, nowMs) {
 
 function getLeftPunchOffset(entityKey, nowMs) {
     if (!entityKey) return null;
-    const startedAt = leftPunchAnims.get(entityKey);
-    if (!startedAt) return null;
-    const duration = 240;
+    const entry = leftPunchAnims.get(entityKey);
+    if (!entry) return null;
+    const startedAt = typeof entry === 'number' ? entry : entry.at;
+    const isShove = Boolean(typeof entry === 'object' && entry.shove);
+    const duration = isShove ? 230 : 240;
     const elapsed = nowMs - startedAt;
     if (elapsed < 0 || elapsed >= duration) {
         leftPunchAnims.delete(entityKey);
@@ -4836,7 +4909,10 @@ function getLeftPunchOffset(entityKey, nowMs) {
         const t = (p - 0.28) / 0.72;
         mag = Math.pow(1 - t, 2);
     }
-    return { dy: -16 * mag, rot: 0.28 * mag };
+    if (isShove) {
+        return { dx: 11 * mag, dy: -15 * mag, rot: 0.58 * mag };
+    }
+    return { dx: 0, dy: -16 * mag, rot: 0.28 * mag };
 }
 
 const scaledSpriteCache = new Map();
@@ -4928,14 +5004,15 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
                 ) || weaponImg;
                 const equip = getEquipTransform(entityKey, nowMs);
                 const recoil = getRecoilTransform(entityKey, nowMs);
+                const leftPunch = getLeftPunchOffset(entityKey, nowMs);
                 const fireAtten = (recoil || isLocalBeamerFiring) ? 0.15 : 1;
                 const carry = sprintBlend * fireAtten;
                 const carryDx = carry > 0.01 ? (-2.1 * carry) * bodyScale : 0;
                 const carryDy = carry > 0.01 ? (2.3 + sprintCos2 * 0.95) * carry * bodyScale : 0;
                 const carryRot = carry > 0.01 ? (-0.20 + sprintSin * 0.045) * carry : 0;
-                const cDx = (equip ? equip.dx * bodyScale : 0) + carryDx;
-                const cDy = (equip ? equip.dy * bodyScale : 0) + (recoil ? recoil.dy * bodyScale : 0) + carryDy;
-                const cRot = (equip ? equip.rot : 0) + (recoil ? recoil.rot : 0) + carryRot;
+                const cDx = (equip ? equip.dx * bodyScale : 0) + (leftPunch ? (leftPunch.dx || 0) * 0.6 * bodyScale : 0) + carryDx;
+                const cDy = (equip ? equip.dy * bodyScale : 0) + (recoil ? recoil.dy * bodyScale : 0) + (leftPunch ? (leftPunch.dy || 0) * 0.6 * bodyScale : 0) + carryDy;
+                const cRot = (equip ? equip.rot : 0) + (recoil ? recoil.rot : 0) + (leftPunch ? (leftPunch.rot || 0) * 0.45 : 0) + carryRot;
                 if (cDx !== 0 || cDy !== 0) {
                     ctx.translate(cDx, cDy);
                 }
@@ -4975,7 +5052,7 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
 
                 ctx.save();
                 if (leftPunch) {
-                    ctx.translate(0, leftPunch.dy * bodyScale);
+                    ctx.translate((leftPunch.dx || 0) * bodyScale, leftPunch.dy * bodyScale);
                     ctx.rotate(leftPunch.rot);
                 }
                 if (leftCarry > 0.01) {
@@ -5010,7 +5087,7 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
                 const leftPumpRot = leftPumpBlend > 0.01 ? (0.07 + sprintSin * 0.07) * leftPumpBlend : 0;
                 if (leftPunch || leftPumpBlend > 0.01) {
                     ctx.save();
-                    ctx.translate(leftPumpDx, (leftPunch ? leftPunch.dy * bodyScale : 0) + leftPumpDy);
+                    ctx.translate((leftPunch ? (leftPunch.dx || 0) * bodyScale : 0) + leftPumpDx, (leftPunch ? leftPunch.dy * bodyScale : 0) + leftPumpDy);
                     ctx.rotate((leftPunch ? leftPunch.rot : 0) + leftPumpRot);
                     if (leftMip !== weaponImg) {
                         ctx.drawImage(leftMip, baseLeftX, baseTopY, leftDrawW, pH);
@@ -5105,7 +5182,7 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
         ) || handsImg;
         if (leftPunch || leftSprintPump > 0.01) {
             ctx.save();
-            ctx.translate(leftPumpDx, (leftPunch ? leftPunch.dy * bodyScale : 0) + leftPumpDy);
+            ctx.translate((leftPunch ? (leftPunch.dx || 0) * bodyScale : 0) + leftPumpDx, (leftPunch ? leftPunch.dy * bodyScale : 0) + leftPumpDy);
             ctx.rotate((leftPunch ? leftPunch.rot : 0) + leftPumpRot);
             if (leftMip !== handsImg) {
                 ctx.drawImage(leftMip, -hW / 2, -hH / 2, leftDrawW, hH);
@@ -5194,7 +5271,7 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
         ctx.lineWidth = Math.max(1.5, sW * 0.045);
         if (leftPunch || leftSprintPump > 0.01) {
             ctx.save();
-            ctx.translate(leftPumpDx, (leftPunch ? leftPunch.dy * bodyScale : 0) + leftPumpDy);
+            ctx.translate((leftPunch ? (leftPunch.dx || 0) * bodyScale : 0) + leftPumpDx, (leftPunch ? leftPunch.dy * bodyScale : 0) + leftPumpDy);
             ctx.rotate((leftPunch ? leftPunch.rot : 0) + leftPumpRot);
         }
         ctx.beginPath();
@@ -5906,32 +5983,6 @@ function render() {
             }
         }
 
-        if (mapbotExplosions.length > 0) {
-            const expReady = mapbotExplosionImg.complete && mapbotExplosionImg.naturalWidth >= 1536;
-            for (let i = 0; i < mapbotExplosions.length; i++) {
-                const me = mapbotExplosions[i];
-                const mx = me.x - camX;
-                const my = me.y - camY;
-                const drawSize = me.radius * 2.15;
-                if (mx + drawSize < -40 || mx - drawSize > camW + 40 || my + drawSize < -40 || my - drawSize > camH + 40) continue;
-                const p = Math.max(0, Math.min(0.999, me.age / me.life));
-                if (expReady) {
-                    const frame = Math.min(5, Math.floor(p * 6));
-                    ctx.save();
-                    ctx.imageSmoothingEnabled = true;
-                    ctx.drawImage(mapbotExplosionImg, frame * 256, 0, 256, 256, mx - drawSize * 0.5, my - drawSize * 0.5, drawSize, drawSize);
-                    ctx.restore();
-                } else {
-                    ctx.save();
-                    ctx.fillStyle = `rgba(216, 74, 255, ${(0.6 * (1 - p)).toFixed(3)})`;
-                    ctx.beginPath();
-                    ctx.arc(mx, my, me.radius * (0.3 + 0.7 * p), 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.restore();
-                }
-            }
-        }
-
         if (grenadeShockwaves.length > 0) {
             ctx.save();
             for (let i = 0; i < grenadeShockwaves.length; i++) {
@@ -6359,6 +6410,31 @@ function render() {
             drawEntity(eRX, airY, ew, eh, e.renderAngle ?? 0, airScale, null, eFaction, true, getSwingOffset(key, nowMs), bars, 'mapbot', eWeapon, key, nowMs, e.armor || null);
             if (eLabel) {
                 drawEntityLabel(eRX, airY, eh * airScale, eLabel, eFaction);
+            }
+        }
+
+        if (mapbotExplosions.length > 0) {
+            const expReady = mapbotExplosionImg.complete && mapbotExplosionImg.naturalWidth >= 1536;
+            for (let i = 0; i < mapbotExplosions.length; i++) {
+                const me = mapbotExplosions[i];
+                const mx = me.x - camX;
+                const my = me.y - camY;
+                const drawSize = me.radius * 1.55;
+                if (mx + drawSize < -40 || mx - drawSize > camW + 40 || my + drawSize < -40 || my - drawSize > camH + 40) continue;
+                const p = Math.max(0, Math.min(0.999, me.age / me.life));
+                ctx.save();
+                ctx.globalAlpha = 0.5;
+                if (expReady) {
+                    const frame = Math.min(5, Math.floor(p * 6));
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.drawImage(mapbotExplosionImg, frame * 256, 0, 256, 256, mx - drawSize * 0.5, my - drawSize * 0.5, drawSize, drawSize);
+                } else {
+                    ctx.fillStyle = `rgba(216, 74, 255, ${(0.6 * (1 - p)).toFixed(3)})`;
+                    ctx.beginPath();
+                    ctx.arc(mx, my, me.radius * 0.72 * (0.3 + 0.7 * p), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
             }
         }
     }
@@ -7001,6 +7077,7 @@ async function connectToServer() {
             while (myInventory.length < 5) myInventory.push(null);
             myAbility = data.ability || null;
             abilityReadyAt = typeof data.abilityCooldownMs === 'number' && data.abilityCooldownMs > 0 ? (performance.now() + data.abilityCooldownMs) : 0;
+            shoveReadyAt = typeof data.shoveCooldownMs === 'number' && data.shoveCooldownMs > 0 ? (performance.now() + data.shoveCooldownMs) : 0;
             activeSlot = Number.isInteger(data.activeSlot) ? Math.max(0, Math.min(4, data.activeSlot)) : 0;
             lastEquippedItemKey = myInventory[activeSlot] || null;
             renderInventorySlots();
@@ -7181,10 +7258,17 @@ async function connectToServer() {
             const kind = data.kind === 'enemy' ? 'enemy' : (data.kind === 'ally' ? 'ally' : 'player');
             const key = `${kind}:${data.id}`;
             const nowMs = performance.now();
-            if (!(kind === 'player' && data.id === myId && nowMs - lastLocalAbilityAt < 250)) {
-                leftPunchAnims.set(key, nowMs);
+            const isShove = Boolean(data.shove);
+            const localAt = isShove ? lastLocalShoveAt : lastLocalAbilityAt;
+            if (!(kind === 'player' && data.id === myId && nowMs - localAt < 250)) {
+                leftPunchAnims.set(key, isShove ? { at: nowMs, shove: true } : nowMs);
                 playSpatialSound('swing', data.x, data.y);
             }
+            return;
+        }
+
+        if (data.type === 'shove_impact') {
+            playSpatialSound('hit', data.x, data.y, { volumeMult: 0.7 });
             return;
         }
 
@@ -7253,6 +7337,9 @@ async function connectToServer() {
             }
             if (typeof data.abilityCooldownMs === 'number') {
                 abilityReadyAt = data.abilityCooldownMs > 0 ? (performance.now() + data.abilityCooldownMs) : 0;
+            }
+            if (typeof data.shoveCooldownMs === 'number') {
+                shoveReadyAt = data.shoveCooldownMs > 0 ? (performance.now() + data.shoveCooldownMs) : 0;
             }
             if (Number.isInteger(data.activeSlot)) {
                 activeSlot = Math.max(0, Math.min(4, data.activeSlot));
@@ -8226,6 +8313,11 @@ window.addEventListener('keydown', e => {
         openShop();
         return;
     }
+    if (e.key.toLowerCase() === 'q' && !inMainMenu && myId !== null) {
+        e.preventDefault();
+        triggerShove();
+        return;
+    }
     if (e.key.toLowerCase() === 'f' && !inMainMenu && myId !== null) {
         e.preventDefault();
         triggerAbility(false);
@@ -8354,6 +8446,29 @@ function triggerAbility(useAimAngleOnly = false) {
         targetX,
         targetY,
         angle: roundedAbilityAngle
+    }));
+}
+
+function triggerShove() {
+    ensureAudioContext();
+    if (inMainMenu || myId === null || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isSpectateDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
+    if (ME.faction !== 'goodbot') return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const nowMs = performance.now();
+    if (nowMs < shoveReadyAt) return;
+
+    lastLocalShoveAt = nowMs;
+    shoveReadyAt = nowMs + 4000;
+    leftPunchAnims.set(`player:${myId}`, { at: nowMs, shove: true });
+    playSpatialSound('swing', ME.x + ME.width / 2, ME.y + ME.height / 2);
+    updateShoveSlotCooldown(nowMs);
+    const roundedShoveAngle = Math.round(ME.angle * 1000) / 1000;
+    lastSentAngle = roundedShoveAngle;
+    lastInputSendTime = nowMs;
+    ws.send(JSON.stringify({
+        type: 'shove',
+        angle: roundedShoveAngle
     }));
 }
 
@@ -8943,6 +9058,17 @@ window.addEventListener('DOMContentLoaded', () => {
                 ghostEl: null,
                 overSlot: -1
             };
+        });
+    }
+
+    if (shoveSlot) {
+        shoveSlot.addEventListener('pointerdown', (e) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            e.preventDefault();
+            if (!isShopOpen) {
+                hideShopTooltip();
+            }
+            triggerShove();
         });
     }
 
