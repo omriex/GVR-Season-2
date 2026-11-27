@@ -1347,7 +1347,7 @@ function createEntityPreviewUrl(opt) {
         g.fillStyle = opt.bodyType === 'goodbot' ? '#b833ff' : '#cc3f3f';
         g.fillRect(-bodySize / 2, -bodySize / 2, bodySize, bodySize);
     }
-    if ((opt.armor === 'goodbot-armor' || (opt.bodyType === 'goodbot' && opt.weapon === 'goodbot-assault-laser')) && goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
+    if ((opt.armor === 'goodbot-armor' || opt.armor === 'goodbot-armor-2' || opt.armor === 'goodbot-armor-3' || (opt.bodyType === 'goodbot' && opt.weapon === 'goodbot-assault-laser')) && goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
         g.drawImage(goodbotArmorImg, -bodySize / 2, -bodySize / 2, bodySize, bodySize);
     } else if ((opt.armor === 'rarebot-armor' || (opt.bodyType === 'rarebot' && opt.weapon === 'rarebot-assault-laser')) && rarebotArmorImg.complete && rarebotArmorImg.naturalWidth > 0) {
         g.drawImage(rarebotArmorImg, -bodySize / 2, -bodySize / 2, bodySize, bodySize);
@@ -1536,12 +1536,54 @@ function drawDropshipSprite(targetCtx, x, y, sW, sH, faction, angle, nowMs = per
     targetCtx.restore();
 }
 
+function createArmorTierSlotUrl(tier) {
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 64;
+    const g = c.getContext('2d');
+    const isT3 = tier === 3;
+    g.fillStyle = isT3 ? '#1a1126' : '#182030';
+    g.strokeStyle = isT3 ? '#ffd24a' : '#4be3ff';
+    g.lineWidth = 3;
+    g.beginPath();
+    g.moveTo(14, 16);
+    g.lineTo(24, 12);
+    g.lineTo(32, 17);
+    g.lineTo(40, 12);
+    g.lineTo(50, 16);
+    g.lineTo(54, 28);
+    g.lineTo(46, 33);
+    g.lineTo(44, 52);
+    g.lineTo(20, 52);
+    g.lineTo(18, 33);
+    g.lineTo(10, 28);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.fillStyle = isT3 ? '#c842ff' : '#35bfff';
+    g.beginPath();
+    g.arc(32, 33, 7, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = isT3 ? '#fff2a8' : '#d6f9ff';
+    g.beginPath();
+    g.arc(32, 33, 3.2, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = isT3 ? '#ffd24a' : '#8ceeff';
+    g.font = 'bold 12px sans-serif';
+    g.textAlign = 'right';
+    g.textBaseline = 'bottom';
+    g.fillText(isT3 ? 'III' : 'II', 57, 58);
+    return c.toDataURL();
+}
+
 const ITEM_SLOT_IMAGES = {
     'goodbot-pistol': 'assets/Goodbot Pistol Slot.png',
     'goodbot-assault-laser': 'assets/Goodbot Assault Laser Slot.png',
     'goodbot-cannon': 'assets/Goodbot Cannon Slot.png',
     'goodbot-beamer': 'assets/Goodbot Beamer Slot.png',
     'goodbot-armor': 'assets/Goodbot Armor Slot.png',
+    'goodbot-armor-2': createArmorTierSlotUrl(2),
+    'goodbot-armor-3': createArmorTierSlotUrl(3),
     'goodbot-grenade': 'assets/Goodbot Grenade Slot.png'
 };
 
@@ -1629,12 +1671,44 @@ const SHOP_ITEMS = [
         id: 'goodbot-armor',
         title: 'Goodbot Armor',
         kind: 'armor',
+        tier: 1,
         description: 'Heavy dark plating that boosts your Max HP to 1500 and heals +500 HP right away.',
         cost: 400,
         slotImage: ITEM_SLOT_IMAGES['goodbot-armor'],
         stats: [
             { label: 'Max HP', value: '1500 (+500)' },
-            { label: 'Type', value: 'Armor' }
+            { label: 'Type', value: 'Armor (Tier 1)' }
+        ]
+    },
+    {
+        id: 'goodbot-armor-2',
+        title: 'Tier 2 Armor',
+        kind: 'armor',
+        tier: 2,
+        description: 'Reinforced Tier 2 plating that boosts your Max HP to 2000 (+1000) and heals +1000 HP immediately.',
+        cost: 900,
+        slotImage: ITEM_SLOT_IMAGES['goodbot-armor-2'],
+        stats: [
+            { label: 'Max HP', value: '2000 (+1000)' },
+            { label: 'Heal', value: '+1000 HP' },
+            { label: 'Type', value: 'Armor (Tier 2)' }
+        ]
+    },
+    {
+        id: 'goodbot-armor-3',
+        title: 'Tier 3 Armor',
+        kind: 'armor',
+        tier: 3,
+        description: 'Apex Tier 3 armor that boosts your Max HP to 3500 (+2500), heals +2500 HP, and reduces all damage, knockback, and stuns.',
+        cost: 2000,
+        slotImage: ITEM_SLOT_IMAGES['goodbot-armor-3'],
+        stats: [
+            { label: 'Max HP', value: '3500 (+2500)' },
+            { label: 'Heal', value: '+2500 HP' },
+            { label: 'Damage Taken', value: '-20% (All Sources)' },
+            { label: 'Knockback', value: '-20% (All Sources)' },
+            { label: 'Stun Duration', value: '-0.5s (All Sources)' },
+            { label: 'Type', value: 'Armor (Tier 3)' }
         ]
     },
     {
@@ -1941,9 +2015,13 @@ function showShopTooltip(item, slot, showCost = true, preferAbove = false) {
         if (showCost) {
             const cantAfford = ME.scraps < item.cost;
             const alliesFull = item.kind === 'unit' && currentAllyCount >= maxAlliesCount;
-            const armorOwned = item.kind === 'armor' && ME.armor === item.id;
+            const curArmorTier = ME.armor && ITEM_BY_ID[ME.armor] ? (ITEM_BY_ID[ME.armor].tier || 1) : 0;
+            const itemArmorTier = item.kind === 'armor' ? (item.tier || 1) : 0;
+            const armorOwned = item.kind === 'armor' && curArmorTier >= itemArmorTier;
             if (armorOwned) {
-                shopTooltipCost.textContent = `Cost: ${item.cost} Scraps (Equipped)`;
+                shopTooltipCost.textContent = ME.armor === item.id
+                    ? `Cost: ${item.cost} Scraps (Equipped)`
+                    : `Cost: ${item.cost} Scraps (Lower Tier)`;
             } else if (alliesFull) {
                 shopTooltipCost.textContent = `Cost: ${item.cost} Scraps (Max ${maxAlliesCount} Allies)`;
             } else {
@@ -1989,11 +2067,13 @@ function refreshShopAffordability() {
     }
     if (shopGrid) {
         const slotEls = shopGrid.querySelectorAll('.shop-item-slot');
+        const curArmorTier = ME.armor && ITEM_BY_ID[ME.armor] ? (ITEM_BY_ID[ME.armor].tier || 1) : 0;
         for (let i = 0; i < slotEls.length; i++) {
             const slotEl = slotEls[i];
             const itemKind = slotEl.dataset.itemKind || '';
             const itemId = slotEl.dataset.itemId || '';
-            const armorOwned = itemKind === 'armor' && ME.armor === itemId;
+            const itemDef = itemId ? ITEM_BY_ID[itemId] : null;
+            const armorOwned = itemKind === 'armor' && curArmorTier >= (itemDef ? (itemDef.tier || 1) : 1);
             slotEl.classList.toggle('disabled', (itemKind === 'unit' && alliesFull) || armorOwned);
         }
         const costEls = shopGrid.querySelectorAll('.shop-item-cost');
@@ -2005,9 +2085,12 @@ function refreshShopAffordability() {
     if (lastHoveredShopItem && lastHoveredShowCost && shopTooltip && shopTooltip.classList.contains('visible') && shopTooltipCost) {
         const cantAfford = ME.scraps < lastHoveredShopItem.cost;
         const unitFull = lastHoveredShopItem.kind === 'unit' && alliesFull;
-        const armorOwned = lastHoveredShopItem.kind === 'armor' && ME.armor === lastHoveredShopItem.id;
+        const curArmorTier = ME.armor && ITEM_BY_ID[ME.armor] ? (ITEM_BY_ID[ME.armor].tier || 1) : 0;
+        const armorOwned = lastHoveredShopItem.kind === 'armor' && curArmorTier >= (lastHoveredShopItem.tier || 1);
         if (armorOwned) {
-            shopTooltipCost.textContent = `Cost: ${lastHoveredShopItem.cost} Scraps (Equipped)`;
+            shopTooltipCost.textContent = ME.armor === lastHoveredShopItem.id
+                ? `Cost: ${lastHoveredShopItem.cost} Scraps (Equipped)`
+                : `Cost: ${lastHoveredShopItem.cost} Scraps (Lower Tier)`;
         } else if (unitFull) {
             shopTooltipCost.textContent = `Cost: ${lastHoveredShopItem.cost} Scraps (Max ${maxAlliesCount} Allies)`;
         } else {
@@ -2113,7 +2196,8 @@ function renderShopItems() {
         slot.addEventListener('click', () => {
             showShopTooltip(item, slot);
             if (item.kind === 'unit' && currentAllyCount >= maxAlliesCount) return;
-            if (item.kind === 'armor' && ME.armor === item.id) return;
+            const curArmorTier = ME.armor && ITEM_BY_ID[ME.armor] ? (ITEM_BY_ID[ME.armor].tier || 1) : 0;
+            if (item.kind === 'armor' && curArmorTier >= (item.tier || 1)) return;
             if (ws && ws.readyState === WebSocket.OPEN && myId !== null) {
                 ws.send(JSON.stringify({ type: 'buy_item', itemId: item.id }));
             }
@@ -4947,9 +5031,29 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         ctx.translate(bodyX, bodyY);
         ctx.rotate(sprintBlend > 0.01 ? (angle + strideSin * 0.055 * sprintBlend) : angle);
         ctx.drawImage(bodyMip, -drawW / 2, -sH / 2, drawW, drawH);
-        if (armor === 'goodbot-armor' && !isSpectator && faction === 'goodbot' && goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
-            const armorMip = getScaledSpriteCanvas('armor_goodbot', goodbotArmorImg, 0, 0, goodbotArmorImg.naturalWidth, goodbotArmorImg.naturalHeight, width, height) || goodbotArmorImg;
-            ctx.drawImage(armorMip, -sW / 2, -sH / 2, sW, sH);
+        if ((armor === 'goodbot-armor' || armor === 'goodbot-armor-2' || armor === 'goodbot-armor-3') && !isSpectator && faction === 'goodbot') {
+            if (goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
+                const armorMip = getScaledSpriteCanvas('armor_goodbot', goodbotArmorImg, 0, 0, goodbotArmorImg.naturalWidth, goodbotArmorImg.naturalHeight, width, height) || goodbotArmorImg;
+                ctx.drawImage(armorMip, -sW / 2, -sH / 2, sW, sH);
+            }
+            if (armor === 'goodbot-armor-2' || armor === 'goodbot-armor-3') {
+                const isT3 = armor === 'goodbot-armor-3';
+                ctx.strokeStyle = isT3 ? '#ffd24a' : '#4be3ff';
+                ctx.lineWidth = Math.max(2, sW * 0.065);
+                ctx.beginPath();
+                ctx.arc(0, 0, sW * 0.44, -Math.PI * 0.78, -Math.PI * 0.22);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(0, 0, sW * 0.44, Math.PI * 0.22, Math.PI * 0.78);
+                ctx.stroke();
+                if (isT3) {
+                    ctx.strokeStyle = 'rgba(200, 66, 255, 0.85)';
+                    ctx.lineWidth = Math.max(1.5, sW * 0.045);
+                    ctx.beginPath();
+                    ctx.arc(0, 0, sW * 0.5, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
         } else if ((armor === 'rarebot-armor' || spriteKind === 'rarebot3') && !isSpectator && faction === 'rarebot' && rarebotArmorImg.complete && rarebotArmorImg.naturalWidth > 0) {
             const armorMip = getScaledSpriteCanvas('armor_rarebot', rarebotArmorImg, 0, 0, rarebotArmorImg.naturalWidth, rarebotArmorImg.naturalHeight, width, height) || rarebotArmorImg;
             ctx.drawImage(armorMip, -sW / 2, -sH / 2, sW, sH);
