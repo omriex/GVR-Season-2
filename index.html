@@ -41,6 +41,12 @@
                     <path d="M10 8l4 4-4 4"/>
                 </svg>
             </button>
+            <button id="spectate-btn" type="button" aria-label="Spectate">
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M2 12s3.8-6 10-6 10 6 10 6-3.8 6-10 6-10-6-10-6z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                </svg>
+            </button>
             <button id="admin-mod-btn" type="button" aria-label="Moderation">
                 <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true">
                     <path d="M2 19.6l8.6-8.6 2.4 2.4L4.4 22 2 19.6zm10.4-10.4L10 6.8l2.2-2.2c1.2-1.2 3.1-1.4 4.5-.4l2.1-2.1 2.1 2.1-2.1 2.1c1 1.4.8 3.3-.4 4.5l-.8.8 1.5 1.5-2.1 2.1-4.6-4.6z"/>
@@ -233,6 +239,17 @@
             </div>
         </div>
 
+        <div id="spectate-overlay" aria-hidden="true">
+            <div id="spectate-dialog" role="dialog" aria-modal="true" aria-labelledby="spectate-title">
+                <h2 id="spectate-title">Are you sure?</h2>
+                <p id="spectate-text">Are you sure you want to spectate? You will spectate until you leave this server.</p>
+                <div id="spectate-actions">
+                    <button id="spectate-yes-btn" type="button">Yes</button>
+                    <button id="spectate-no-btn" type="button">No</button>
+                </div>
+            </div>
+        </div>
+
         <div id="shop-overlay" aria-hidden="true">
             <div id="shop-dialog" role="dialog" aria-modal="true" aria-labelledby="shop-title">
                 <button id="shop-close-btn" type="button" aria-label="Close shop">
@@ -296,6 +313,12 @@
                     <button id="admin-restart-game-btn" type="button">Restart Game</button>
                 </div>
             </div>
+        </div>
+        <div id="admin-spawn-faction-menu" aria-hidden="true">
+            <div id="admin-spawn-faction-title">Spawn Faction</div>
+            <button type="button" class="admin-spawn-faction-btn rarebot" data-spawn-faction="rarebot">Rarebot Faction</button>
+            <button type="button" class="admin-spawn-faction-btn goodbot" data-spawn-faction="goodbot">Goodbot Faction</button>
+            <button type="button" class="admin-spawn-faction-btn mapbot" data-spawn-faction="mapbot">Mapbot Faction</button>
         </div>
         <div id="wave-leaderboard-overlay" aria-hidden="true">
             <div id="wave-leaderboard-dialog" role="dialog" aria-modal="true" aria-labelledby="wave-leaderboard-title">
