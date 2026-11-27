@@ -1016,6 +1016,7 @@ body.touch-mode #chat-input {
 }
 
 .slot,
+#shove-slot,
 #ability-slot,
 #armor-slot {
     position: relative;
@@ -1040,11 +1041,13 @@ body.touch-mode #chat-input {
 }
 
 .slot:hover,
+#shove-slot:hover,
 #ability-slot:hover {
     filter: brightness(0.5);
 }
 
 .slot:active,
+#shove-slot:active,
 #ability-slot:active {
     transform: scale(0.92);
 }
@@ -1070,10 +1073,25 @@ body.touch-mode #chat-input {
     z-index: 2;
 }
 
+#shove-slot-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-left: 10px;
+}
+
+#shove-slot-wrapper.hidden {
+    display: none;
+}
+
 #ability-slot-wrapper {
     display: flex;
     flex-direction: column;
     align-items: center;
+    margin-left: 0;
+}
+
+#shove-slot-wrapper.hidden + #ability-slot-wrapper {
     margin-left: 10px;
 }
 
@@ -1083,6 +1101,7 @@ body.touch-mode #chat-input {
     align-items: center;
 }
 
+#shove-slot-label,
 #ability-slot-label,
 #armor-slot-label {
     font-size: 11px;
@@ -1096,6 +1115,16 @@ body.touch-mode #chat-input {
     -webkit-user-select: none;
 }
 
+.shove-slot-icon {
+    width: 78%;
+    height: 78%;
+    color: #ffffff;
+    pointer-events: none;
+    user-select: none;
+    display: block;
+}
+
+#shove-slot.on-cooldown .shove-slot-icon,
 #ability-slot.on-cooldown .slot-item-img {
     opacity: 0.45;
 }
@@ -2237,6 +2266,7 @@ body.touch-mode #mobile-ability-btn.has-ability {
 }
 
 #ui-scale-layer.layout-tablet .slot,
+#ui-scale-layer.layout-tablet #shove-slot,
 #ui-scale-layer.layout-tablet #ability-slot,
 #ui-scale-layer.layout-tablet #armor-slot {
     width: 44px;
@@ -2244,6 +2274,7 @@ body.touch-mode #mobile-ability-btn.has-ability {
 }
 
 #ui-scale-layer.layout-tablet .slot-number,
+#ui-scale-layer.layout-tablet #shove-slot-label,
 #ui-scale-layer.layout-tablet #ability-slot-label,
 #ui-scale-layer.layout-tablet #armor-slot-label {
     font-size: 10px;
@@ -2484,17 +2515,24 @@ body.touch-mode #mobile-ability-btn.has-ability {
 }
 
 #ui-scale-layer.layout-mobile .slot,
+#ui-scale-layer.layout-mobile #shove-slot,
 #ui-scale-layer.layout-mobile #ability-slot,
 #ui-scale-layer.layout-mobile #armor-slot {
     width: 40px;
     height: 40px;
 }
 
-#ui-scale-layer.layout-mobile #ability-slot-wrapper {
+#ui-scale-layer.layout-mobile #shove-slot-wrapper,
+#ui-scale-layer.layout-mobile #shove-slot-wrapper.hidden + #ability-slot-wrapper {
     margin-left: 6px;
 }
 
+#ui-scale-layer.layout-mobile #ability-slot-wrapper {
+    margin-left: 0;
+}
+
 #ui-scale-layer.layout-mobile .slot-number,
+#ui-scale-layer.layout-mobile #shove-slot-label,
 #ui-scale-layer.layout-mobile #ability-slot-label,
 #ui-scale-layer.layout-mobile #armor-slot-label {
     font-size: 9px;
@@ -2630,17 +2668,24 @@ body.touch-mode #mobile-ability-btn.has-ability {
 }
 
 #ui-scale-layer.layout-tiny .slot,
+#ui-scale-layer.layout-tiny #shove-slot,
 #ui-scale-layer.layout-tiny #ability-slot,
 #ui-scale-layer.layout-tiny #armor-slot {
     width: 35px;
     height: 35px;
 }
 
-#ui-scale-layer.layout-tiny #ability-slot-wrapper {
+#ui-scale-layer.layout-tiny #shove-slot-wrapper,
+#ui-scale-layer.layout-tiny #shove-slot-wrapper.hidden + #ability-slot-wrapper {
     margin-left: 4px;
 }
 
+#ui-scale-layer.layout-tiny #ability-slot-wrapper {
+    margin-left: 0;
+}
+
 #ui-scale-layer.layout-tiny .slot-number,
+#ui-scale-layer.layout-tiny #shove-slot-label,
 #ui-scale-layer.layout-tiny #ability-slot-label,
 #ui-scale-layer.layout-tiny #armor-slot-label {
     font-size: 8px;
@@ -2884,17 +2929,24 @@ body.touch-mode #mobile-ability-btn.has-ability {
 }
 
 #ui-scale-layer.layout-short .slot,
+#ui-scale-layer.layout-short #shove-slot,
 #ui-scale-layer.layout-short #ability-slot,
 #ui-scale-layer.layout-short #armor-slot {
     width: 38px;
     height: 38px;
 }
 
-#ui-scale-layer.layout-short #ability-slot-wrapper {
+#ui-scale-layer.layout-short #shove-slot-wrapper,
+#ui-scale-layer.layout-short #shove-slot-wrapper.hidden + #ability-slot-wrapper {
     margin-left: 6px;
 }
 
+#ui-scale-layer.layout-short #ability-slot-wrapper {
+    margin-left: 0;
+}
+
 #ui-scale-layer.layout-short .slot-number,
+#ui-scale-layer.layout-short #shove-slot-label,
 #ui-scale-layer.layout-short #ability-slot-label,
 #ui-scale-layer.layout-short #armor-slot-label {
     font-size: 9px;
