@@ -62,6 +62,7 @@ canvas {
 #settings-btn,
 #wave-leaderboard-btn,
 #leave-btn,
+#spectate-btn,
 #admin-mod-btn,
 #admin-panel-btn {
     background: transparent;
@@ -76,12 +77,14 @@ canvas {
 }
 
 #leave-btn,
+#spectate-btn,
 #admin-mod-btn,
 #admin-panel-btn {
     display: none;
 }
 
 #leave-btn.visible,
+#spectate-btn.visible,
 #admin-mod-btn.visible,
 #admin-panel-btn.visible {
     display: flex;
@@ -90,6 +93,7 @@ canvas {
 #settings-btn:hover,
 #wave-leaderboard-btn:hover,
 #leave-btn:hover,
+#spectate-btn:hover,
 #admin-mod-btn:hover,
 #admin-panel-btn:hover {
     filter: drop-shadow(2px 2px 0px rgba(0, 0, 0, 0.85)) brightness(0.5);
@@ -98,6 +102,7 @@ canvas {
 #settings-btn:active,
 #wave-leaderboard-btn:active,
 #leave-btn:active,
+#spectate-btn:active,
 #admin-mod-btn:active,
 #admin-panel-btn:active {
     transform: scale(0.92);
@@ -1205,6 +1210,7 @@ body.touch-mode #mobile-ability-btn.has-ability {
 
 #settings-overlay,
 #leave-overlay,
+#spectate-overlay,
 #shop-overlay,
 #map-overlay,
 #admin-mod-overlay,
@@ -1223,6 +1229,7 @@ body.touch-mode #mobile-ability-btn.has-ability {
 
 #settings-overlay.open,
 #leave-overlay.open,
+#spectate-overlay.open,
 #shop-overlay.open,
 #map-overlay.open,
 #admin-mod-overlay.open,
@@ -1247,6 +1254,7 @@ body.touch-mode #mobile-ability-btn.has-ability {
 
 #settings-dialog,
 #leave-dialog,
+#spectate-dialog,
 #shop-dialog,
 #admin-mod-dialog,
 #admin-panel-dialog,
@@ -1312,6 +1320,7 @@ body.touch-mode #mobile-ability-btn.has-ability {
 
 #settings-title,
 #leave-title,
+#spectate-title,
 #shop-title,
 #admin-mod-title,
 #admin-panel-title,
@@ -1616,24 +1625,29 @@ body.touch-mode #mobile-ability-btn.has-ability {
     color: #dddddd;
 }
 
-#leave-title {
+#leave-title,
+#spectate-title {
     margin-bottom: 12px;
 }
 
-#leave-text {
+#leave-text,
+#spectate-text {
     margin: 0 0 22px 0;
     font-size: 16px;
     color: #dddddd;
     line-height: 1.4;
 }
 
-#leave-actions {
+#leave-actions,
+#spectate-actions {
     display: flex;
     gap: 12px;
 }
 
 #leave-yes-btn,
-#leave-no-btn {
+#leave-no-btn,
+#spectate-yes-btn,
+#spectate-no-btn {
     flex: 1;
     padding: 12px;
     font-size: 18px;
@@ -1643,21 +1657,27 @@ body.touch-mode #mobile-ability-btn.has-ability {
     cursor: pointer;
 }
 
-#leave-yes-btn {
+#leave-yes-btn,
+#spectate-yes-btn {
     background-color: #4CAF50;
 }
 
-#leave-no-btn {
+#leave-no-btn,
+#spectate-no-btn {
     background-color: #cc3f3f;
 }
 
 #leave-yes-btn:hover,
-#leave-no-btn:hover {
+#leave-no-btn:hover,
+#spectate-yes-btn:hover,
+#spectate-no-btn:hover {
     filter: brightness(0.5);
 }
 
 #leave-yes-btn:active,
-#leave-no-btn:active {
+#leave-no-btn:active,
+#spectate-yes-btn:active,
+#spectate-no-btn:active {
     transform: scale(0.92);
 }
 
@@ -1856,6 +1876,64 @@ body.touch-mode #mobile-ability-btn.has-ability {
     cursor: not-allowed;
     filter: none;
     transform: none;
+}
+
+#admin-spawn-faction-menu {
+    position: fixed;
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 260;
+    min-width: 174px;
+    background-color: #242424;
+    border: 4px solid #1a1a1a;
+    border-radius: 5px;
+    padding: 8px;
+    pointer-events: auto;
+}
+
+#admin-spawn-faction-menu.visible {
+    display: flex;
+}
+
+#admin-spawn-faction-title {
+    font-size: 13px;
+    color: #bbbbbb;
+    text-shadow: 1px 1px 0px #1a1a1a;
+    letter-spacing: 0.5px;
+    padding: 0 2px 2px 2px;
+}
+
+.admin-spawn-faction-btn {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 14px;
+    border: 3px solid #1a1a1a;
+    border-radius: 4px;
+    color: #eeeeee;
+    text-shadow: 1px 1px 0px #1a1a1a;
+    cursor: pointer;
+    text-align: left;
+}
+
+.admin-spawn-faction-btn.rarebot {
+    background-color: #cc3f3f;
+}
+
+.admin-spawn-faction-btn.goodbot {
+    background-color: #b833ff;
+}
+
+.admin-spawn-faction-btn.mapbot {
+    background-color: #8c1eff;
+}
+
+.admin-spawn-faction-btn:hover {
+    filter: brightness(0.5);
+}
+
+.admin-spawn-faction-btn:active {
+    transform: scale(0.92);
 }
 
 .settings-list {
@@ -2191,6 +2269,7 @@ body.touch-mode #mobile-ability-btn.has-ability {
 #ui-scale-layer.layout-mobile #settings-btn svg,
 #ui-scale-layer.layout-mobile #wave-leaderboard-btn svg,
 #ui-scale-layer.layout-mobile #leave-btn svg,
+#ui-scale-layer.layout-mobile #spectate-btn svg,
 #ui-scale-layer.layout-mobile #admin-mod-btn svg,
 #ui-scale-layer.layout-mobile #admin-panel-btn svg {
     width: 28px;
@@ -2510,6 +2589,7 @@ body.touch-mode #mobile-ability-btn.has-ability {
 
 #ui-scale-layer.layout-tiny #settings-dialog,
 #ui-scale-layer.layout-tiny #leave-dialog,
+#ui-scale-layer.layout-tiny #spectate-dialog,
 #ui-scale-layer.layout-tiny #shop-dialog,
 #ui-scale-layer.layout-tiny #admin-mod-dialog,
 #ui-scale-layer.layout-tiny #admin-panel-dialog,
