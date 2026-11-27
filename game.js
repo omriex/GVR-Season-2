@@ -1536,54 +1536,14 @@ function drawDropshipSprite(targetCtx, x, y, sW, sH, faction, angle, nowMs = per
     targetCtx.restore();
 }
 
-function createArmorTierSlotUrl(tier) {
-    const c = document.createElement('canvas');
-    c.width = 64;
-    c.height = 64;
-    const g = c.getContext('2d');
-    const isT3 = tier === 3;
-    g.fillStyle = isT3 ? '#1a1126' : '#182030';
-    g.strokeStyle = isT3 ? '#ffd24a' : '#4be3ff';
-    g.lineWidth = 3;
-    g.beginPath();
-    g.moveTo(14, 16);
-    g.lineTo(24, 12);
-    g.lineTo(32, 17);
-    g.lineTo(40, 12);
-    g.lineTo(50, 16);
-    g.lineTo(54, 28);
-    g.lineTo(46, 33);
-    g.lineTo(44, 52);
-    g.lineTo(20, 52);
-    g.lineTo(18, 33);
-    g.lineTo(10, 28);
-    g.closePath();
-    g.fill();
-    g.stroke();
-    g.fillStyle = isT3 ? '#c842ff' : '#35bfff';
-    g.beginPath();
-    g.arc(32, 33, 7, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = isT3 ? '#fff2a8' : '#d6f9ff';
-    g.beginPath();
-    g.arc(32, 33, 3.2, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = isT3 ? '#ffd24a' : '#8ceeff';
-    g.font = 'bold 12px sans-serif';
-    g.textAlign = 'right';
-    g.textBaseline = 'bottom';
-    g.fillText(isT3 ? 'III' : 'II', 57, 58);
-    return c.toDataURL();
-}
-
 const ITEM_SLOT_IMAGES = {
     'goodbot-pistol': 'assets/Goodbot Pistol Slot.png',
     'goodbot-assault-laser': 'assets/Goodbot Assault Laser Slot.png',
     'goodbot-cannon': 'assets/Goodbot Cannon Slot.png',
     'goodbot-beamer': 'assets/Goodbot Beamer Slot.png',
     'goodbot-armor': 'assets/Goodbot Armor Slot.png',
-    'goodbot-armor-2': createArmorTierSlotUrl(2),
-    'goodbot-armor-3': createArmorTierSlotUrl(3),
+    'goodbot-armor-2': 'assets/Goodbot Armor Slot.png',
+    'goodbot-armor-3': 'assets/Goodbot Armor Slot.png',
     'goodbot-grenade': 'assets/Goodbot Grenade Slot.png'
 };
 
@@ -1685,12 +1645,11 @@ const SHOP_ITEMS = [
         title: 'Tier 2 Armor',
         kind: 'armor',
         tier: 2,
-        description: 'Reinforced Tier 2 plating that boosts your Max HP to 2000 (+1000) and heals +1000 HP immediately.',
+        description: 'Heavy dark plating that boosts your Max HP to 2000 and heals +1000 HP right away.',
         cost: 900,
         slotImage: ITEM_SLOT_IMAGES['goodbot-armor-2'],
         stats: [
             { label: 'Max HP', value: '2000 (+1000)' },
-            { label: 'Heal', value: '+1000 HP' },
             { label: 'Type', value: 'Armor (Tier 2)' }
         ]
     },
@@ -1699,15 +1658,14 @@ const SHOP_ITEMS = [
         title: 'Tier 3 Armor',
         kind: 'armor',
         tier: 3,
-        description: 'Apex Tier 3 armor that boosts your Max HP to 3500 (+2500), heals +2500 HP, and reduces all damage, knockback, and stuns.',
+        description: 'Heavy dark plating that boosts your Max HP to 3500, heals +2500 HP right away, and gives 20% damage/knockback reduction and 0.5s stun reduction.',
         cost: 2000,
         slotImage: ITEM_SLOT_IMAGES['goodbot-armor-3'],
         stats: [
             { label: 'Max HP', value: '3500 (+2500)' },
-            { label: 'Heal', value: '+2500 HP' },
-            { label: 'Damage Taken', value: '-20% (All Sources)' },
-            { label: 'Knockback', value: '-20% (All Sources)' },
-            { label: 'Stun Duration', value: '-0.5s (All Sources)' },
+            { label: 'Damage Taken', value: '-20% (All)' },
+            { label: 'Knockback', value: '-20% (All)' },
+            { label: 'Stun', value: '-0.5s (All)' },
             { label: 'Type', value: 'Armor (Tier 3)' }
         ]
     },
@@ -2640,6 +2598,186 @@ function playRandomBulletImpact(wx, wy) {
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
     lastBulletImpactIdx = picked;
     playSpatialSound(`bulletImpact${picked + 1}`, wx, wy);
+}
+
+let mapbotThemeBuffer = null;
+let mapbotThemePromise = null;
+let mapbotThemeSource = null;
+let mapbotThemeGain = null;
+let mapbotThemeLowpass = null;
+let mapbotThemePanner = null;
+let mapbotThemeNodes = [];
+let mapbotThemeSilenceAt = 0;
+
+function loadMapbotThemeBuffer(ctxAudio) {
+    if (!ctxAudio || mapbotThemeBuffer) return Promise.resolve(mapbotThemeBuffer);
+    if (mapbotThemePromise) return mapbotThemePromise;
+    mapbotThemePromise = fetch(encodeURI('music/Mapbot Theme.mp3'), { cache: 'no-cache' })
+        .then(res => (res.ok ? res.arrayBuffer() : null))
+        .then(arr => (arr ? ctxAudio.decodeAudioData(arr) : null))
+        .then(decoded => {
+            if (decoded) mapbotThemeBuffer = decoded;
+            return mapbotThemeBuffer;
+        })
+        .catch(() => null)
+        .finally(() => {
+            mapbotThemePromise = null;
+        });
+    return mapbotThemePromise;
+}
+
+function stopMapbotThemeAudio() {
+    if (mapbotThemeSource) {
+        try {
+            mapbotThemeSource.onended = null;
+            mapbotThemeSource.stop();
+        } catch (_) {}
+        try {
+            mapbotThemeSource.disconnect();
+        } catch (_) {}
+        mapbotThemeSource = null;
+    }
+    for (let i = 0; i < mapbotThemeNodes.length; i++) {
+        try {
+            mapbotThemeNodes[i].disconnect();
+        } catch (_) {}
+    }
+    mapbotThemeNodes = [];
+    mapbotThemeGain = null;
+    mapbotThemeLowpass = null;
+    mapbotThemePanner = null;
+    mapbotThemeSilenceAt = 0;
+}
+
+function startMapbotThemeAudio(ctxAudio) {
+    if (!ctxAudio || !mapbotThemeBuffer || mapbotThemeSource) return;
+    try {
+        const source = ctxAudio.createBufferSource();
+        source.buffer = mapbotThemeBuffer;
+        source.loop = true;
+
+        const highpass = ctxAudio.createBiquadFilter();
+        highpass.type = 'highpass';
+        highpass.frequency.value = 390;
+        highpass.Q.value = 0.7;
+
+        const peaking = ctxAudio.createBiquadFilter();
+        peaking.type = 'peaking';
+        peaking.frequency.value = 1050;
+        peaking.Q.value = 1.05;
+        peaking.gain.value = 2.0;
+
+        const lowpass = ctxAudio.createBiquadFilter();
+        lowpass.type = 'lowpass';
+        lowpass.frequency.value = 1500;
+        lowpass.Q.value = 0.75;
+
+        const gainNode = ctxAudio.createGain();
+        gainNode.gain.value = 0;
+
+        let panner = null;
+        if (typeof ctxAudio.createStereoPanner === 'function') {
+            panner = ctxAudio.createStereoPanner();
+            panner.pan.value = 0;
+        }
+
+        source.connect(highpass);
+        highpass.connect(peaking);
+        peaking.connect(lowpass);
+        if (panner) {
+            lowpass.connect(panner);
+            panner.connect(gainNode);
+            mapbotThemeNodes = [highpass, peaking, lowpass, panner, gainNode];
+        } else {
+            lowpass.connect(gainNode);
+            mapbotThemeNodes = [highpass, peaking, lowpass, gainNode];
+        }
+        gainNode.connect(ctxAudio.destination);
+
+        source.onended = () => {
+            if (mapbotThemeSource === source) {
+                stopMapbotThemeAudio();
+            }
+        };
+
+        source.start(0);
+        mapbotThemeSource = source;
+        mapbotThemeGain = gainNode;
+        mapbotThemeLowpass = lowpass;
+        mapbotThemePanner = panner;
+        mapbotThemeSilenceAt = 0;
+    } catch (_) {
+        stopMapbotThemeAudio();
+    }
+}
+
+function updateMapbotThemeAudio() {
+    if (!audioCtx) return;
+
+    const musicVol = window.GAME_AUDIO_SETTINGS ? Number(window.GAME_AUDIO_SETTINGS.musicVolume) : 1;
+    let closestDistSq = Infinity;
+    let closestX = 0;
+    let hasLivingMapbot = false;
+
+    if (!inMainMenu && myId !== null) {
+        const lx = ME.x + ME.width / 2;
+        const ly = ME.y + ME.height / 2;
+        for (const id in serverEnemies) {
+            const e = serverEnemies[id];
+            if (!e || (e.kind || 'rarebot') !== 'mapbot' || (e.health ?? 0) <= 0) continue;
+            hasLivingMapbot = true;
+            const ew = e.width || 48;
+            const eh = e.height || 48;
+            const ex = (e.renderX ?? e.x) + ew * 0.5;
+            const ey = (e.renderY ?? e.y) + eh * 0.5;
+            const dx = ex - lx;
+            const dy = ey - ly;
+            const dSq = dx * dx + dy * dy;
+            if (dSq < closestDistSq) {
+                closestDistSq = dSq;
+                closestX = dx;
+            }
+        }
+    }
+
+    if (!hasLivingMapbot || !isFinite(musicVol) || musicVol <= 0.005) {
+        if (mapbotThemeGain && mapbotThemeSource) {
+            const tNow = audioCtx.currentTime;
+            mapbotThemeGain.gain.setTargetAtTime(0, tNow, 0.08);
+            const nowMs = performance.now();
+            if (!mapbotThemeSilenceAt) mapbotThemeSilenceAt = nowMs;
+            if (nowMs - mapbotThemeSilenceAt > 450) {
+                stopMapbotThemeAudio();
+            }
+        }
+        return;
+    }
+
+    mapbotThemeSilenceAt = 0;
+    if (!mapbotThemeBuffer) {
+        loadMapbotThemeBuffer(audioCtx);
+        return;
+    }
+    if (audioCtx.state !== 'running') return;
+    if (!mapbotThemeSource) {
+        startMapbotThemeAudio(audioCtx);
+    }
+    if (!mapbotThemeGain || !mapbotThemeLowpass) return;
+
+    const dist = Math.sqrt(closestDistSq);
+    const minDist = 90;
+    const maxDist = 1350;
+    const falloff = Math.max(0, Math.min(1, 1 - Math.max(0, dist - minDist) / (maxDist - minDist)));
+    const targetGain = falloff * falloff * 0.16 * musicVol;
+    const targetLowpass = 920 + falloff * 960;
+    const tNow = audioCtx.currentTime;
+
+    mapbotThemeGain.gain.setTargetAtTime(targetGain, tNow, 0.08);
+    mapbotThemeLowpass.frequency.setTargetAtTime(targetLowpass, tNow, 0.08);
+    if (mapbotThemePanner) {
+        const pan = Math.max(-0.8, Math.min(0.8, closestX / 620));
+        mapbotThemePanner.pan.setTargetAtTime(pan, tNow, 0.08);
+    }
 }
 
 function applyMapPayload(rawMap) {
@@ -6369,6 +6507,8 @@ function gameLoop(now) {
     WORLD.SYSTEM.lastTime = now;
     if (dt > 0.1) dt = 0.1;
     if (dt < 0 || isNaN(dt)) dt = 0.016;
+
+    updateMapbotThemeAudio();
 
     if (inMainMenu) {
         updateMenuCamera(dt);
