@@ -958,6 +958,51 @@ body.touch-mode #chat-input {
     background-color: rgba(255, 255, 255, 0.25);
 }
 
+#target-eliminated-banner {
+    position: absolute;
+    bottom: 112px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 2px;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    z-index: 36;
+    opacity: 1;
+    transition: opacity 0.45s ease;
+    white-space: nowrap;
+}
+
+#target-eliminated-banner.hidden {
+    display: none;
+}
+
+#target-eliminated-banner.fading {
+    opacity: 0;
+}
+
+#target-eliminated-title {
+    font-size: 20px;
+    font-weight: bold;
+    line-height: 1.15;
+    color: #ffd43b;
+    letter-spacing: 0.4px;
+    text-shadow: 2px 2px 0px #000000, -1px -1px 0px #000000, 1px -1px 0px #000000, -1px 1px 0px #000000;
+}
+
+#target-eliminated-subtitle {
+    font-size: 15px;
+    font-weight: normal;
+    line-height: 1.15;
+    color: #ffffff;
+    text-shadow: 2px 2px 0px #000000, -1px -1px 0px #000000, 1px -1px 0px #000000, -1px 1px 0px #000000;
+}
+
 #inventory-layer {
     position: absolute;
     bottom: 30px;
@@ -2174,6 +2219,18 @@ body.touch-mode #mobile-ability-btn.has-ability {
     height: 115px;
 }
 
+#ui-scale-layer.layout-tablet #target-eliminated-banner {
+    bottom: 88px;
+}
+
+#ui-scale-layer.layout-tablet #target-eliminated-title {
+    font-size: 17px;
+}
+
+#ui-scale-layer.layout-tablet #target-eliminated-subtitle {
+    font-size: 13px;
+}
+
 #ui-scale-layer.layout-tablet #inventory-layer {
     bottom: 18px;
     gap: 6px;
@@ -2409,6 +2466,18 @@ body.touch-mode #mobile-ability-btn.has-ability {
     padding: 6px 8px;
 }
 
+#ui-scale-layer.layout-mobile #target-eliminated-banner {
+    bottom: 76px;
+}
+
+#ui-scale-layer.layout-mobile #target-eliminated-title {
+    font-size: 15px;
+}
+
+#ui-scale-layer.layout-mobile #target-eliminated-subtitle {
+    font-size: 12px;
+}
+
 #ui-scale-layer.layout-mobile #inventory-layer {
     bottom: 12px;
     gap: 5px;
@@ -2546,6 +2615,18 @@ body.touch-mode #mobile-ability-btn.has-ability {
 
 #ui-scale-layer.layout-tiny #chat-log {
     height: 76px;
+}
+
+#ui-scale-layer.layout-tiny #target-eliminated-banner {
+    bottom: 68px;
+}
+
+#ui-scale-layer.layout-tiny #target-eliminated-title {
+    font-size: 13px;
+}
+
+#ui-scale-layer.layout-tiny #target-eliminated-subtitle {
+    font-size: 11px;
 }
 
 #ui-scale-layer.layout-tiny .slot,
@@ -2782,6 +2863,18 @@ body.touch-mode #mobile-ability-btn.has-ability {
 
 #ui-scale-layer.layout-short #chat-log {
     height: 46px;
+    font-size: 12px;
+}
+
+#ui-scale-layer.layout-short #target-eliminated-banner {
+    bottom: 70px;
+}
+
+#ui-scale-layer.layout-short #target-eliminated-title {
+    font-size: 15px;
+}
+
+#ui-scale-layer.layout-short #target-eliminated-subtitle {
     font-size: 12px;
 }
 
