@@ -4453,7 +4453,7 @@ function getLabelSprite(label, faction) {
     cctx.lineWidth = 3;
     cctx.strokeStyle = 'rgba(0,0,0,0.85)';
     if (faction === 'rarebot') cctx.fillStyle = '#f00000';
-    else if (faction === 'mapbot') cctx.fillStyle = '#2ee6ff';
+    else if (faction === 'mapbot') cctx.fillStyle = '#e040ff';
     else if (faction === 'spectator') cctx.fillStyle = '#ffffff';
     else cctx.fillStyle = '#d84aff';
 
@@ -6562,7 +6562,7 @@ function renderMapView(targetCanvas, baseRadius) {
         const cy = (((e.renderY ?? e.y) + (e.height || 48) * 0.5) / mapH) * ph;
         mctx.beginPath();
         mctx.arc(cx, cy, r, 0, Math.PI * 2);
-        mctx.fillStyle = ef === 'mapbot' ? '#18b8e6' : (ef === 'goodbot' ? '#b833ff' : '#ff2a2a');
+        mctx.fillStyle = ef === 'mapbot' ? '#d84aff' : (ef === 'goodbot' ? '#b833ff' : '#ff2a2a');
         mctx.fill();
         mctx.strokeStyle = isMapbot ? '#ffffff' : 'rgba(0, 0, 0, 0.85)';
         mctx.stroke();
@@ -6576,7 +6576,7 @@ function renderMapView(targetCanvas, baseRadius) {
         const cy = (((a.renderY ?? a.y) + (a.height || 48) * 0.5) / mapH) * ph;
         mctx.beginPath();
         mctx.arc(cx, cy, r, 0, Math.PI * 2);
-        mctx.fillStyle = af === 'mapbot' ? '#18b8e6' : (af === 'rarebot' ? '#ff2a2a' : '#b833ff');
+        mctx.fillStyle = af === 'mapbot' ? '#d84aff' : (af === 'rarebot' ? '#ff2a2a' : '#b833ff');
         mctx.fill();
         mctx.strokeStyle = af === 'mapbot' ? '#ffffff' : 'rgba(0, 0, 0, 0.85)';
         mctx.stroke();
@@ -6615,7 +6615,7 @@ function renderMapView(targetCanvas, baseRadius) {
         const cy = (((e.renderY ?? e.y) + (e.height || 224) * 0.5) / mapH) * ph;
         mctx.beginPath();
         mctx.arc(cx, cy, r * 2.1, 0, Math.PI * 2);
-        mctx.fillStyle = ef === 'mapbot' ? '#18b8e6' : (ef === 'goodbot' ? '#b833ff' : '#ff2a2a');
+        mctx.fillStyle = ef === 'mapbot' ? '#d84aff' : (ef === 'goodbot' ? '#b833ff' : '#ff2a2a');
         mctx.fill();
         mctx.strokeStyle = '#ffffff';
         mctx.stroke();
@@ -6629,7 +6629,7 @@ function renderMapView(targetCanvas, baseRadius) {
         const cy = (((a.renderY ?? a.y) + (a.height || 224) * 0.5) / mapH) * ph;
         mctx.beginPath();
         mctx.arc(cx, cy, r * 2.1, 0, Math.PI * 2);
-        mctx.fillStyle = af === 'mapbot' ? '#18b8e6' : (af === 'rarebot' ? '#ff2a2a' : '#b833ff');
+        mctx.fillStyle = af === 'mapbot' ? '#d84aff' : (af === 'rarebot' ? '#ff2a2a' : '#b833ff');
         mctx.fill();
         mctx.strokeStyle = '#ffffff';
         mctx.stroke();
