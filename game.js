@@ -8415,6 +8415,11 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'mapbot_heavy_claw_charge') {
+            playSpatialSound('blade', Number(data.x) || 0, Number(data.y) || 0, { playbackRate: 0.72, volumeMult: 1.15 });
+            return;
+        }
+
         if (data.type === 'grenade_shockwave') {
             const sx = Number(data.x) || 0;
             const sy = Number(data.y) || 0;
