@@ -495,6 +495,7 @@ function returnToMainMenu() {
     equipAnims.clear();
     leftPunchAnims.clear();
     parryAnims.clear();
+    clearAllBlasterChargeSounds();
     sprintAnims.clear();
     meLocalExhausted = false;
     ME.sprinting = false;
@@ -3057,6 +3058,160 @@ function playSpatialSound(key, wx, wy, options = null) {
     } catch (_) {}
 }
 
+const activeBlasterChargeSounds = new Map();
+let reversedLaserCannonBuffer = null;
+
+function getReversedLaserCannonBuffer(ctxAudio) {
+    if (reversedLaserCannonBuffer) return reversedLaserCannonBuffer;
+    const orig = soundBuffers.laserCannonShot;
+    if (!orig || !ctxAudio) return null;
+    try {
+        const rev = ctxAudio.createBuffer(orig.numberOfChannels, orig.length, orig.sampleRate);
+        for (let ch = 0; ch < orig.numberOfChannels; ch++) {
+            const src = orig.getChannelData(ch);
+            const dst = rev.getChannelData(ch);
+            for (let i = 0, n = src.length; i < n; i++) {
+                dst[i] = src[n - 1 - i];
+            }
+        }
+        reversedLaserCannonBuffer = rev;
+        return rev;
+    } catch (_) {
+        return orig;
+    }
+}
+
+function stopMapbotBlasterChargeSound(id) {
+    const key = String(id);
+    const active = activeBlasterChargeSounds.get(key);
+    if (!active) return;
+    activeBlasterChargeSounds.delete(key);
+    try {
+        if (active.gainNode && audioCtx) {
+            const now = audioCtx.currentTime;
+            active.gainNode.gain.cancelScheduledValues(now);
+            active.gainNode.gain.setValueAtTime(active.gainNode.gain.value, now);
+            active.gainNode.gain.linearRampToValueAtTime(0.0001, now + 0.04);
+        }
+    } catch (_) {}
+    try {
+        if (active.source) {
+            active.source.stop(audioCtx ? audioCtx.currentTime + 0.05 : 0);
+        }
+    } catch (_) {}
+}
+
+function clearAllBlasterChargeSounds() {
+    for (const key of Array.from(activeBlasterChargeSounds.keys())) {
+        stopMapbotBlasterChargeSound(key);
+    }
+}
+
+function playMapbotBlasterChargeSound(id, wx, wy, durationMs = 1250) {
+    stopMapbotBlasterChargeSound(id);
+    const masterVol = window.GAME_AUDIO_SETTINGS ? Number(window.GAME_AUDIO_SETTINGS.soundVolume) : 1;
+    if (!isFinite(masterVol) || masterVol <= 0.005) return;
+    const ctxAudio = ensureAudioContext();
+    if (!ctxAudio) return;
+
+    const lx = myId !== null ? (ME.x + ME.width / 2) : ((WORLD.CAMERA.x || 0) + WORLD.CAMERA.width / 2);
+    const ly = myId !== null ? (ME.y + ME.height / 2) : ((WORLD.CAMERA.y || 0) + WORLD.CAMERA.height / 2);
+    const maxHearDist = 1350;
+    let dist = 0;
+    if (typeof wx === 'number' && typeof wy === 'number') {
+        const dx = wx - lx;
+        const dy = wy - ly;
+        const dSq = dx * dx + dy * dy;
+        if (dSq > maxHearDist * maxHearDist) return;
+        dist = Math.sqrt(dSq);
+    }
+    const falloff = Math.max(0, Math.min(1, 1 - Math.max(0, dist - 90) / (maxHearDist - 90)));
+    const peakGain = falloff * falloff * masterVol * 0.34;
+    if (peakGain <= 0.004) return;
+
+    const startPlayback = (remDurationMs) => {
+        const revBuf = getReversedLaserCannonBuffer(ctxAudio);
+        if (!revBuf) return;
+        const durSec = Math.max(0.15, remDurationMs / 1000);
+        const now = ctxAudio.currentTime;
+        try {
+            const source = ctxAudio.createBufferSource();
+            source.buffer = revBuf;
+            source.loop = true;
+            const startRate = Math.max(0.32, Math.min(0.6, revBuf.duration / durSec * 0.55));
+            const endRate = Math.max(1.15, startRate * 2.4);
+            source.playbackRate.setValueAtTime(startRate, now);
+            source.playbackRate.exponentialRampToValueAtTime(endRate, now + durSec);
+
+            const filter = ctxAudio.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.Q.value = 3.2;
+            filter.frequency.setValueAtTime(420, now);
+            filter.frequency.exponentialRampToValueAtTime(3400, now + durSec);
+
+            const gainNode = ctxAudio.createGain();
+            gainNode.gain.setValueAtTime(Math.max(0.001, peakGain * 0.18), now);
+            gainNode.gain.exponentialRampToValueAtTime(peakGain, now + durSec * 0.88);
+            gainNode.gain.linearRampToValueAtTime(0.0001, now + durSec);
+
+            source.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(ctxAudio.destination);
+
+            const key = String(id);
+            const entry = { source, gainNode };
+            activeBlasterChargeSounds.set(key, entry);
+            source.onended = () => {
+                if (activeBlasterChargeSounds.get(key) === entry) {
+                    activeBlasterChargeSounds.delete(key);
+                }
+            };
+            source.start(now);
+            source.stop(now + durSec + 0.02);
+        } catch (_) {}
+    };
+
+    if (!soundBuffers.laserCannonShot) {
+        const reqAt = performance.now();
+        loadSoundBuffer('laserCannonShot', ctxAudio).then(() => {
+            if (!soundBuffers.laserCannonShot) return;
+            const elapsed = performance.now() - reqAt;
+            const rem = durationMs - elapsed;
+            if (rem <= 150) return;
+            const e = serverEnemies[id];
+            if (e && (e.blasterCharge || 0) <= 0) return;
+            startPlayback(rem);
+        });
+        return;
+    }
+
+    startPlayback(durationMs);
+}
+
+function findClientWallDistance(x1, y1, ang, maxDist) {
+    const mapData = WORLD.MAP && WORLD.MAP.mapData;
+    const wallGrid = mapData ? mapData.wall : null;
+    const ts = WORLD.MAP.tileSize || 64;
+    const cols = WORLD.MAP.columns || 0;
+    const rows = WORLD.MAP.rows || 0;
+    if (!wallGrid || cols <= 0 || rows <= 0) return maxDist;
+    const fx = Math.sin(ang);
+    const fy = -Math.cos(ang);
+    const step = 12;
+    const steps = Math.max(1, Math.ceil(maxDist / step));
+    for (let i = 1; i <= steps; i++) {
+        const d = Math.min(maxDist, i * step);
+        const px = x1 + fx * d;
+        const py = y1 + fy * d;
+        const c = Math.floor(px / ts);
+        const r = Math.floor(py / ts);
+        if (c < 0 || c >= cols || r < 0 || r >= rows || (wallGrid[r] && wallGrid[r][c])) {
+            return d;
+        }
+    }
+    return maxDist;
+}
+
 function playRandomBulletImpact(wx, wy) {
     const candidates = [];
     for (let i = 0; i < 3; i++) {
@@ -5576,12 +5731,12 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
     const swingAtten = Math.abs(swingOffset) > 0.03 ? 0.2 : 1;
     const unarmedSprint = parryMag > 0.01 ? 0 : (sprintBlend * swingAtten);
     const leftSprintPump = unarmedSprint * (leftPunch ? 0 : 1);
-    const leftPumpDx = parryMag > 0.01 ? (10.5 * parryMag * bodyScale) : (leftSprintPump > 0.01 ? 0.7 * leftSprintPump * bodyScale : 0);
-    const leftPumpDy = parryMag > 0.01 ? (-13.5 * parryMag * bodyScale) : (leftSprintPump > 0.01 ? -sprintSin * 5.0 * leftSprintPump * bodyScale : 0);
-    const leftPumpRot = parryMag > 0.01 ? (0.62 * parryMag) : (leftSprintPump > 0.01 ? (0.08 + sprintSin * 0.08) * leftSprintPump : 0);
-    const rightPumpDx = parryMag > 0.01 ? (-10.5 * parryMag * bodyScale) : (unarmedSprint > 0.01 ? -0.7 * unarmedSprint * bodyScale : 0);
-    const rightPumpDy = parryMag > 0.01 ? (-13.5 * parryMag * bodyScale) : (unarmedSprint > 0.01 ? sprintSin * 5.0 * unarmedSprint * bodyScale : 0);
-    const rightPumpRot = parryMag > 0.01 ? (-0.62 * parryMag) : (unarmedSprint > 0.01 ? (-0.08 - sprintSin * 0.08) * unarmedSprint : 0);
+    const leftPumpDx = parryMag > 0.01 ? (9.5 * parryMag * bodyScale) : (leftSprintPump > 0.01 ? 0.7 * leftSprintPump * bodyScale : 0);
+    const leftPumpDy = parryMag > 0.01 ? (-7.5 * parryMag * bodyScale) : (leftSprintPump > 0.01 ? -sprintSin * 5.0 * leftSprintPump * bodyScale : 0);
+    const leftPumpRot = parryMag > 0.01 ? (0.58 * parryMag) : (leftSprintPump > 0.01 ? (0.08 + sprintSin * 0.08) * leftSprintPump : 0);
+    const rightPumpDx = parryMag > 0.01 ? (-9.5 * parryMag * bodyScale) : (unarmedSprint > 0.01 ? -0.7 * unarmedSprint * bodyScale : 0);
+    const rightPumpDy = parryMag > 0.01 ? (-7.5 * parryMag * bodyScale) : (unarmedSprint > 0.01 ? sprintSin * 5.0 * unarmedSprint * bodyScale : 0);
+    const rightPumpRot = parryMag > 0.01 ? (-0.58 * parryMag) : (unarmedSprint > 0.01 ? (-0.08 - sprintSin * 0.08) * unarmedSprint : 0);
 
     if (handsImg.complete && handsImg.naturalWidth > 0) {
         const hW = sW * (handsImg.naturalWidth / refW) * HANDS_SCALE;
@@ -6531,6 +6686,66 @@ function render() {
             ctx.fill();
             ctx.stroke();
             ctx.restore();
+        }
+
+        for (const id in serverEnemies) {
+            const e = serverEnemies[id];
+            if ((e.kind || 'rarebot') !== 'mapbot') continue;
+            const bc = Number(e.blasterCharge) || 0;
+            if (bc <= 0.005) continue;
+            const p = Math.max(0, Math.min(1, bc));
+            const ew = e.width || 48;
+            const eh = e.height || 48;
+            const B = 48 * (e.scale || 1);
+            const mcx = (e.renderX ?? e.x) + ew * 0.5;
+            const mcy = (e.renderY ?? e.y) + eh * 0.5;
+            const bodyAng = e.renderAngle ?? e.angle ?? 0;
+            const bodyFx = Math.sin(bodyAng);
+            const bodyFy = -Math.cos(bodyAng);
+            const bodyRx = Math.cos(bodyAng);
+            const bodyRy = Math.sin(bodyAng);
+            const fwd = 0.332 * B;
+            const pulse = 0.8 + 0.2 * Math.sin(nowMs * 0.036);
+            const outerAlpha = (0.14 + 0.30 * p) * pulse;
+            const innerAlpha = (0.28 + 0.50 * p) * pulse;
+            const sides = [
+                { lat: -0.6855 * B, ang: Number.isFinite(e.blasterLeftAngle) ? e.blasterLeftAngle : bodyAng },
+                { lat: 0.6855 * B, ang: Number.isFinite(e.blasterRightAngle) ? e.blasterRightAngle : bodyAng }
+            ];
+            for (let si = 0; si < sides.length; si++) {
+                const s = sides[si];
+                const mX = mcx + bodyFx * fwd + bodyRx * s.lat;
+                const mY = mcy + bodyFy * fwd + bodyRy * s.lat;
+                const beamLen = findClientWallDistance(mX, mY, s.ang, 1250);
+                const sx1 = mX - camX;
+                const sy1 = mY - camY;
+                ctx.save();
+                ctx.translate(sx1, sy1);
+                ctx.rotate(s.ang);
+                const outerW = (18 - 5 * p) * (e.scale || 1);
+                ctx.globalAlpha = outerAlpha;
+                if (mapbotChargingLaserImg.complete && mapbotChargingLaserImg.naturalWidth > 0) {
+                    ctx.drawImage(mapbotChargingLaserImg, -outerW * 0.5, -beamLen, outerW, beamLen);
+                } else {
+                    ctx.fillStyle = '#d84aff';
+                    ctx.fillRect(-outerW * 0.5, -beamLen, outerW, beamLen);
+                }
+                ctx.globalAlpha = innerAlpha;
+                ctx.fillStyle = '#f5c2ff';
+                const innerW = (2.0 + 2.4 * p) * (e.scale || 1);
+                ctx.fillRect(-innerW * 0.5, -beamLen, innerW, beamLen);
+                ctx.globalAlpha = 0.35 + 0.5 * p;
+                ctx.fillStyle = '#e58cff';
+                ctx.beginPath();
+                ctx.arc(0, 0, (4.5 + 5.5 * p) * (e.scale || 1), 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(248, 204, 255, 0.78)';
+                ctx.lineWidth = 1.6;
+                ctx.beginPath();
+                ctx.arc(0, 0, (14 * (1 - p * 0.65) + 4) * (e.scale || 1), 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
         }
 
         if (raycastBeams.length > 0) {
@@ -8067,6 +8282,9 @@ async function connectToServer() {
         if (data.type === 'entity_swing') {
             const key = `${data.kind}:${data.id}`;
             const nowMs = performance.now();
+            if (data.kind === 'player') {
+                parryAnims.delete(key);
+            }
             const prevEntry = swingAnims.get(key);
             const prevAt = typeof prevEntry === 'number' ? prevEntry : (prevEntry ? prevEntry.at : 0);
             if (!(data.kind === 'player' && data.id === myId && prevAt && nowMs - prevAt < 160)) {
@@ -8184,6 +8402,16 @@ async function connectToServer() {
             const py = Number(data.y) || 0;
             playSpatialSound('parry', px, py, { volumeMult: 1.25 });
             addCameraShake(0.32, px, py);
+            return;
+        }
+
+        if (data.type === 'mapbot_blaster_charge') {
+            playMapbotBlasterChargeSound(data.id, Number(data.x) || 0, Number(data.y) || 0, Number(data.durationMs) || 1250);
+            return;
+        }
+
+        if (data.type === 'mapbot_blaster_charge_cancel') {
+            stopMapbotBlasterChargeSound(data.id);
             return;
         }
 
@@ -8375,9 +8603,13 @@ async function connectToServer() {
                 });
             }
             const nowMs = performance.now();
+            if (data.kind === 'player') {
+                parryAnims.delete(`${data.kind}:${data.id}`);
+            }
             if (!(data.kind === 'player' && data.id === myId && nowMs - lastLocalShotAt < 250)) {
                 const entityKey = `${data.kind}:${data.id}`;
                 if (data.variant === 'mapbot-blaster') {
+                    stopMapbotBlasterChargeSound(data.id);
                     if (data.side === 'left') {
                         leftRecoilAnims.set(entityKey, { at: nowMs, strong: false });
                     } else {
@@ -9010,6 +9242,12 @@ async function connectToServer() {
                         existing.blocking = Boolean(incoming.blocking);
                         existing.clawsGround = Boolean(incoming.clawsGround);
                         existing.heavyClawCharge = Number(incoming.heavyClawCharge) || 0;
+                        existing.blasterCharge = Number(incoming.blasterCharge) || 0;
+                        existing.blasterLeftAngle = Number.isFinite(incoming.blasterLeftAngle) ? Number(incoming.blasterLeftAngle) : existing.angle;
+                        existing.blasterRightAngle = Number.isFinite(incoming.blasterRightAngle) ? Number(incoming.blasterRightAngle) : existing.angle;
+                        if (existing.blasterCharge <= 0) {
+                            stopMapbotBlasterChargeSound(id);
+                        }
                         existing.invincible = Boolean(incoming.invincible);
                         existing.speedBoost = Boolean(incoming.speedBoost);
                         existing.width = incoming.width || existing.width || defSize;
@@ -9042,6 +9280,9 @@ async function connectToServer() {
                             blocking: Boolean(incoming.blocking),
                             clawsGround: Boolean(incoming.clawsGround),
                             heavyClawCharge: Number(incoming.heavyClawCharge) || 0,
+                            blasterCharge: Number(incoming.blasterCharge) || 0,
+                            blasterLeftAngle: Number.isFinite(incoming.blasterLeftAngle) ? Number(incoming.blasterLeftAngle) : (incoming.angle || 0),
+                            blasterRightAngle: Number.isFinite(incoming.blasterRightAngle) ? Number(incoming.blasterRightAngle) : (incoming.angle || 0),
                             invincible: Boolean(incoming.invincible),
                             speedBoost: Boolean(incoming.speedBoost),
                             jumpHeight: Number(incoming.jumpHeight) || 0,
@@ -9062,6 +9303,7 @@ async function connectToServer() {
             }
             for (const id in serverEnemies) {
                 if (serverEnemies[id]._seq !== stateSeq) {
+                    stopMapbotBlasterChargeSound(id);
                     delete serverEnemies[id];
                 }
             }
@@ -9662,6 +9904,7 @@ function triggerParry() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     const nowMs = performance.now();
+    if (swingAnims.has(`player:${myId}`) || nowMs - lastAttackSentAt < 260) return;
     if (nowMs < parryReadyAt) return;
 
     lastLocalParryAt = nowMs;
