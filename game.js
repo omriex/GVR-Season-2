@@ -213,6 +213,8 @@ let lastRenderedAbilityCooldownSec = -1;
 let shoveReadyAt = 0;
 let lastLocalShoveAt = 0;
 let lastRenderedShoveCooldownSec = -1;
+let parryReadyAt = 0;
+let lastLocalParryAt = 0;
 let adminHealReadyAt = 0;
 let lastRenderedAdminHealCooldownSec = -1;
 let lastAttackSentAt = 0;
@@ -224,6 +226,7 @@ let dragState = null;
 let lastEquippedItemKey = null;
 
 const swingAnims = new Map();
+const parryAnims = new Map();
 const clawBlockAnims = new Map();
 const clawGroundAnims = new Map();
 const mapbotGloryKills = new Map();
@@ -491,6 +494,7 @@ function returnToMainMenu() {
     leftRecoilAnims.clear();
     equipAnims.clear();
     leftPunchAnims.clear();
+    parryAnims.clear();
     sprintAnims.clear();
     meLocalExhausted = false;
     ME.sprinting = false;
@@ -516,6 +520,8 @@ function returnToMainMenu() {
     shoveReadyAt = 0;
     lastLocalShoveAt = 0;
     lastRenderedShoveCooldownSec = -1;
+    parryReadyAt = 0;
+    lastLocalParryAt = 0;
     activeSlot = 0;
     lastEquippedItemKey = null;
     adminHealReadyAt = 0;
@@ -2814,6 +2820,7 @@ const SOUND_FILES = {
     blade: 'sounds/blade.mp3',
     block: 'sounds/block.mp3',
     parry: 'sounds/parry.mp3',
+    parrying: 'sounds/parrying.mp3',
     targetEliminated: 'sounds/target eliminated.mp3',
     explosion: 'sounds/explosion.mp3',
     hitReceive: 'sounds/hit receive.mp3',
@@ -2834,6 +2841,7 @@ const soundBuffers = {
     blade: null,
     block: null,
     parry: null,
+    parrying: null,
     targetEliminated: null,
     explosion: null,
     hitReceive: null,
@@ -2892,6 +2900,7 @@ const lastSoundAt = {
     blade: 0,
     block: 0,
     parry: 0,
+    parrying: 0,
     targetEliminated: 0,
     explosion: 0,
     hitReceive: 0,
@@ -5304,6 +5313,28 @@ function getLeftPunchOffset(entityKey, nowMs) {
     return { dx: 0, dy: -16 * mag, rot: 0.28 * mag };
 }
 
+function getParryInterlockMag(entityKey, nowMs) {
+    if (!entityKey) return 0;
+    const entry = parryAnims.get(entityKey);
+    if (!entry) return 0;
+    const duration = entry.duration || 500;
+    const elapsed = nowMs - entry.at;
+    if (elapsed < 0 || elapsed >= duration) {
+        parryAnims.delete(entityKey);
+        return 0;
+    }
+    const p = elapsed / duration;
+    if (p < 0.14) {
+        const t = p / 0.14;
+        return 1 - (1 - t) * (1 - t);
+    }
+    if (p < 0.74) {
+        return 1;
+    }
+    const t = (p - 0.74) / 0.26;
+    return Math.pow(1 - t, 2);
+}
+
 const scaledSpriteCache = new Map();
 let scaledSpriteViewScale = 0;
 
@@ -5540,16 +5571,17 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
 
     const handsImg = spriteKind === 'prototype' ? prototypeRarebotHandsImg : botHandsImg;
     const bodyScale = sW / 48;
-    const leftPunch = getLeftPunchOffset(entityKey, nowMs);
+    const parryMag = weapon === 'hands' ? getParryInterlockMag(entityKey, nowMs) : 0;
+    const leftPunch = parryMag > 0.01 ? null : getLeftPunchOffset(entityKey, nowMs);
     const swingAtten = Math.abs(swingOffset) > 0.03 ? 0.2 : 1;
-    const unarmedSprint = sprintBlend * swingAtten;
+    const unarmedSprint = parryMag > 0.01 ? 0 : (sprintBlend * swingAtten);
     const leftSprintPump = unarmedSprint * (leftPunch ? 0 : 1);
-    const leftPumpDx = leftSprintPump > 0.01 ? 0.7 * leftSprintPump * bodyScale : 0;
-    const leftPumpDy = leftSprintPump > 0.01 ? -sprintSin * 5.0 * leftSprintPump * bodyScale : 0;
-    const leftPumpRot = leftSprintPump > 0.01 ? (0.08 + sprintSin * 0.08) * leftSprintPump : 0;
-    const rightPumpDx = unarmedSprint > 0.01 ? -0.7 * unarmedSprint * bodyScale : 0;
-    const rightPumpDy = unarmedSprint > 0.01 ? sprintSin * 5.0 * unarmedSprint * bodyScale : 0;
-    const rightPumpRot = unarmedSprint > 0.01 ? (-0.08 - sprintSin * 0.08) * unarmedSprint : 0;
+    const leftPumpDx = parryMag > 0.01 ? (10.5 * parryMag * bodyScale) : (leftSprintPump > 0.01 ? 0.7 * leftSprintPump * bodyScale : 0);
+    const leftPumpDy = parryMag > 0.01 ? (-13.5 * parryMag * bodyScale) : (leftSprintPump > 0.01 ? -sprintSin * 5.0 * leftSprintPump * bodyScale : 0);
+    const leftPumpRot = parryMag > 0.01 ? (0.62 * parryMag) : (leftSprintPump > 0.01 ? (0.08 + sprintSin * 0.08) * leftSprintPump : 0);
+    const rightPumpDx = parryMag > 0.01 ? (-10.5 * parryMag * bodyScale) : (unarmedSprint > 0.01 ? -0.7 * unarmedSprint * bodyScale : 0);
+    const rightPumpDy = parryMag > 0.01 ? (-13.5 * parryMag * bodyScale) : (unarmedSprint > 0.01 ? sprintSin * 5.0 * unarmedSprint * bodyScale : 0);
+    const rightPumpRot = parryMag > 0.01 ? (-0.62 * parryMag) : (unarmedSprint > 0.01 ? (-0.08 - sprintSin * 0.08) * unarmedSprint : 0);
 
     if (handsImg.complete && handsImg.naturalWidth > 0) {
         const hW = sW * (handsImg.naturalWidth / refW) * HANDS_SCALE;
@@ -5569,7 +5601,7 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
             (splitX / refW) * 48 * HANDS_SCALE,
             (handsImg.naturalHeight / refH) * 48 * HANDS_SCALE
         ) || handsImg;
-        if (leftPunch || leftSprintPump > 0.01) {
+        if (leftPunch || leftSprintPump > 0.01 || parryMag > 0.01) {
             ctx.save();
             ctx.translate((leftPunch ? (leftPunch.dx || 0) * bodyScale : 0) + leftPumpDx, (leftPunch ? leftPunch.dy * bodyScale : 0) + leftPumpDy);
             ctx.rotate((leftPunch ? leftPunch.rot : 0) + leftPumpRot);
@@ -5637,7 +5669,7 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
                 (rightW / refW) * 48 * HANDS_SCALE,
                 (handsImg.naturalHeight / refH) * 48 * HANDS_SCALE
             ) || handsImg;
-            if (unarmedSprint > 0.01) {
+            if (unarmedSprint > 0.01 || parryMag > 0.01) {
                 ctx.save();
                 ctx.translate(rightPumpDx, rightPumpDy);
                 ctx.rotate(rightPumpRot);
@@ -5647,7 +5679,7 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
             } else {
                 ctx.drawImage(handsImg, splitX, 0, rightW, handsImg.naturalHeight, -hW / 2 + leftDrawW, -hH / 2, rightDrawW, hH);
             }
-            if (unarmedSprint > 0.01) {
+            if (unarmedSprint > 0.01 || parryMag > 0.01) {
                 ctx.restore();
             }
         }
@@ -7933,6 +7965,7 @@ async function connectToServer() {
             myAbility = data.ability || null;
             abilityReadyAt = typeof data.abilityCooldownMs === 'number' && data.abilityCooldownMs > 0 ? (performance.now() + data.abilityCooldownMs) : 0;
             shoveReadyAt = typeof data.shoveCooldownMs === 'number' && data.shoveCooldownMs > 0 ? (performance.now() + data.shoveCooldownMs) : 0;
+            parryReadyAt = typeof data.parryCooldownMs === 'number' && data.parryCooldownMs > 0 ? (performance.now() + data.parryCooldownMs) : 0;
             adminHealReadyAt = typeof data.adminHealCooldownMs === 'number' && data.adminHealCooldownMs > 0 ? (performance.now() + data.adminHealCooldownMs) : 0;
             activeSlot = Number.isInteger(data.activeSlot) ? Math.max(0, Math.min(4, data.activeSlot)) : 0;
             lastEquippedItemKey = myInventory[activeSlot] || null;
@@ -8136,6 +8169,24 @@ async function connectToServer() {
             return;
         }
 
+        if (data.type === 'player_parry') {
+            const pKey = `player:${data.id}`;
+            const nowMs = performance.now();
+            if (!(data.id === myId && nowMs - lastLocalParryAt < 250)) {
+                parryAnims.set(pKey, { at: nowMs, duration: Number(data.durationMs) || 500 });
+                playSpatialSound('parrying', data.x, data.y);
+            }
+            return;
+        }
+
+        if (data.type === 'player_parry_hit') {
+            const px = Number(data.x) || 0;
+            const py = Number(data.y) || 0;
+            playSpatialSound('parry', px, py, { volumeMult: 1.25 });
+            addCameraShake(0.32, px, py);
+            return;
+        }
+
         if (data.type === 'grenade_shockwave') {
             const sx = Number(data.x) || 0;
             const sy = Number(data.y) || 0;
@@ -8210,6 +8261,9 @@ async function connectToServer() {
             }
             if (typeof data.shoveCooldownMs === 'number') {
                 shoveReadyAt = data.shoveCooldownMs > 0 ? (performance.now() + data.shoveCooldownMs) : 0;
+            }
+            if (typeof data.parryCooldownMs === 'number') {
+                parryReadyAt = data.parryCooldownMs > 0 ? (performance.now() + data.parryCooldownMs) : 0;
             }
             if (typeof data.adminHealCooldownMs === 'number') {
                 adminHealReadyAt = data.adminHealCooldownMs > 0 ? (performance.now() + data.adminHealCooldownMs) : 0;
@@ -9432,6 +9486,11 @@ window.addEventListener('keydown', e => {
         triggerShove();
         return;
     }
+    if (e.key.toLowerCase() === 'r' && !inMainMenu && myId !== null) {
+        e.preventDefault();
+        triggerParry();
+        return;
+    }
     if (e.key.toLowerCase() === 'f' && !inMainMenu && myId !== null) {
         e.preventDefault();
         triggerAbility(false);
@@ -9489,6 +9548,9 @@ function triggerAttack(isHoldRepeat = false) {
     const isAssaultLaser = equippedWeapon === 'goodbot-assault-laser';
     const isBeamer = equippedWeapon === 'goodbot-beamer';
     const nowMs = performance.now();
+    if (myId !== null) {
+        parryAnims.delete(`player:${myId}`);
+    }
 
     if (isAdminMaxHeal) {
         if (isHoldRepeat) return;
@@ -9592,6 +9654,29 @@ function triggerAbility(useAimAngleOnly = false) {
     }));
 }
 
+function triggerParry() {
+    ensureAudioContext();
+    if (inMainMenu || myId === null || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isSpectateDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
+    if (ME.faction === 'spectator') return;
+    if (getMyEquippedWeapon() !== 'hands') return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const nowMs = performance.now();
+    if (nowMs < parryReadyAt) return;
+
+    lastLocalParryAt = nowMs;
+    parryReadyAt = nowMs + 1000;
+    parryAnims.set(`player:${myId}`, { at: nowMs, duration: 500 });
+    playSpatialSound('parrying', ME.x + ME.width / 2, ME.y + ME.height / 2);
+    const roundedParryAngle = Math.round(ME.angle * 1000) / 1000;
+    lastSentAngle = roundedParryAngle;
+    lastInputSendTime = nowMs;
+    ws.send(JSON.stringify({
+        type: 'parry',
+        angle: roundedParryAngle
+    }));
+}
+
 function triggerShove() {
     ensureAudioContext();
     if (inMainMenu || myId === null || isSettingsOpen || isWaveLeaderboardOpen || isLeaveDialogOpen || isSpectateDialogOpen || isShopOpen || isModDialogOpen || isAdminPanelOpen || isMapExpanded) return;
@@ -9604,6 +9689,7 @@ function triggerShove() {
 
     lastLocalShoveAt = nowMs;
     shoveReadyAt = nowMs + 1000;
+    parryAnims.delete(`player:${myId}`);
     ME.energy = Math.max(0, (ME.energy || 0) - 30);
     updateStatsUI();
     leftPunchAnims.set(`player:${myId}`, { at: nowMs, shove: true });
