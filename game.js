@@ -1839,7 +1839,7 @@ const SHOP_ITEMS = [
         slotImage: 'assets/Goodbot Cannon Slot.png',
         stats: [
             { label: 'Damage', value: '250 Split AoE' },
-            { label: 'Cooldown', value: '2s' },
+            { label: 'Cooldown', value: '1s' },
             { label: 'Stun', value: '1s' }
         ]
     },
@@ -2010,7 +2010,7 @@ const SHOP_UNITS = [
         stats: [
             { label: 'HP', value: '1000' },
             { label: 'Weapon', value: 'Goodbot Cannon' },
-            { label: 'Damage', value: '250 Split AoE / 2s CD' },
+            { label: 'Damage', value: '250 Split AoE / 1s CD' },
             { label: 'Stun', value: '1s' }
         ]
     },
@@ -4248,17 +4248,62 @@ function update(dt) {
     }
 
     for (const [id, proj] of serverProjectiles) {
-        proj.x += proj.vx * dt;
-        proj.y += proj.vy * dt;
-        proj.age += dt;
+        if (proj.kind === 'mapbot-core-blast' || proj.variant === 'mapbot-core-blast') {
+            if (typeof proj.tx === 'number' && typeof proj.ty === 'number') {
+                const cLerp = 1 - Math.exp(-dt * 24);
+                proj.x += (proj.tx - proj.x) * cLerp;
+                proj.y += (proj.ty - proj.y) * cLerp;
+            } else {
+                proj.x += proj.vx * dt;
+                proj.y += proj.vy * dt;
+            }
+            proj.age += dt;
+            proj.spinAngle = (proj.spinAngle || 0) + (proj.parried ? 10 : 4.5) * dt;
+            if (proj.parried) {
+                proj.particleAccum = (proj.particleAccum || 0) + dt;
+                while (proj.particleAccum >= 0.025) {
+                    proj.particleAccum -= 0.025;
+                    if (explosions.length >= MAX_EXPLOSION_PARTICLES) {
+                        explosions.shift();
+                    }
+                    explosions.push({
+                        x: proj.x + (Math.random() - 0.5) * 14,
+                        y: proj.y + (Math.random() - 0.5) * 14,
+                        vx: (Math.random() - 0.5) * 60,
+                        vy: (Math.random() - 0.5) * 60,
+                        radius: 4 + Math.random() * 4,
+                        life: 0.22 + Math.random() * 0.14,
+                        age: 0,
+                        color: Math.random() < 0.5 ? '#7df9ff' : '#e27dff'
+                    });
+                }
+            }
+            continue;
+        }
         if (proj.kind === 'cannonball' || proj.variant === 'goodbot-cannon') {
+            if (typeof proj.tx === 'number' && typeof proj.ty === 'number') {
+                const cbLerp = 1 - Math.exp(-dt * 24);
+                proj.x += (proj.tx - proj.x) * cbLerp;
+                proj.y += (proj.ty - proj.y) * cbLerp;
+            } else {
+                proj.x += proj.vx * dt;
+                proj.y += proj.vy * dt;
+            }
+            proj.age += dt;
             proj.spinAngle = (proj.spinAngle || 0) + 14 * dt;
             proj.particleAccum = (proj.particleAccum || 0) + dt;
             while (proj.particleAccum >= 0.022) {
                 proj.particleAccum -= 0.022;
                 spawnCannonTrailParticle(proj.x, proj.y);
             }
+            if (proj.age >= 2.6) {
+                serverProjectiles.delete(id);
+            }
+            continue;
         }
+        proj.x += proj.vx * dt;
+        proj.y += proj.vy * dt;
+        proj.age += dt;
         if (proj.age >= 2.0) {
             serverProjectiles.delete(id);
         }
@@ -4290,7 +4335,9 @@ function update(dt) {
                     radius: 3 + Math.random() * 3.5,
                     life: 0.2 + Math.random() * 0.16,
                     age: 0,
-                    color: GRENADE_EXPLOSION_COLORS[Math.floor(Math.random() * GRENADE_EXPLOSION_COLORS.length)]
+                    color: r.parried
+                        ? (Math.random() < 0.5 ? '#7df9ff' : '#e27dff')
+                        : GRENADE_EXPLOSION_COLORS[Math.floor(Math.random() * GRENADE_EXPLOSION_COLORS.length)]
                 });
             }
         }
@@ -6411,6 +6458,7 @@ function render() {
                 const by = proj.y - camY;
                 if (bx < -120 || bx > camW + 120 || by < -120 || by > camH + 120) continue;
                 if (proj.kind === 'mapbot-core-blast' || proj.variant === 'mapbot-core-blast') {
+                    if (proj.parried) continue;
                     const pulse = 1 + 0.08 * Math.sin(nowMs * 0.022);
                     const bSize = (proj.radius || 32) * 2.8 * pulse;
                     ctx.save();
@@ -6524,6 +6572,7 @@ function render() {
             const rw = 16;
             const rh = 16 * (410 / 256);
             for (const [, r] of serverRockets) {
+                if (r.parried) continue;
                 const rx = r.x - camX;
                 const ry = r.y - camY;
                 if (rx < -48 || rx > camW + 48 || ry < -48 || ry > camH + 48) continue;
@@ -6970,6 +7019,80 @@ function render() {
             drawEntity(eRX, airY, ew, eh, e.renderAngle ?? 0, airScale, null, eFaction, true, getSwingOffset(key, nowMs), bars, 'mapbot', eWeapon, key, nowMs, e.armor || null);
             if (eLabel) {
                 drawEntityLabel(eRX, airY, eh * airScale, eLabel, eFaction);
+            }
+        }
+
+        if (serverProjectiles.size > 0) {
+            for (const [, proj] of serverProjectiles) {
+                if (!proj.parried) continue;
+                if (proj.kind !== 'mapbot-core-blast' && proj.variant !== 'mapbot-core-blast') continue;
+                const bx = proj.x - camX;
+                const by = proj.y - camY;
+                if (bx < -120 || bx > camW + 120 || by < -120 || by > camH + 120) continue;
+                const pulse = 1 + 0.08 * Math.sin(nowMs * 0.028);
+                const bSize = (proj.radius || 32) * 3.25 * pulse;
+                ctx.save();
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+                ctx.beginPath();
+                ctx.ellipse(bx, by + 16, bSize * 0.36, bSize * 0.18, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                ctx.save();
+                ctx.translate(bx, by - 14);
+                ctx.strokeStyle = 'rgba(125, 249, 255, 0.72)';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(0, 0, bSize * 0.44, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.rotate(proj.spinAngle !== undefined ? proj.spinAngle : (proj.angle || 0));
+                ctx.imageSmoothingEnabled = true;
+                if (mapbotBlastImg.complete && mapbotBlastImg.naturalWidth > 0) {
+                    ctx.drawImage(mapbotBlastImg, -bSize * 0.5, -bSize * 0.5, bSize, bSize);
+                } else {
+                    const r = (proj.radius || 32) * 1.18;
+                    ctx.fillStyle = '#7df9ff';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        if (serverRockets.size > 0) {
+            const rw = 19.5;
+            const rh = 19.5 * (410 / 256);
+            for (const [, r] of serverRockets) {
+                if (!r.parried) continue;
+                const rx = r.x - camX;
+                const ry = r.y - camY;
+                if (rx < -48 || rx > camW + 48 || ry < -48 || ry > camH + 48) continue;
+                ctx.save();
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.26)';
+                ctx.beginPath();
+                ctx.ellipse(rx, ry + 14, 9, 5, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                ctx.save();
+                ctx.translate(rx, ry - 12);
+                ctx.strokeStyle = 'rgba(125, 249, 255, 0.78)';
+                ctx.lineWidth = 2.2;
+                ctx.beginPath();
+                ctx.arc(0, 0, 14, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.rotate(r.renderAngle ?? r.angle ?? 0);
+                ctx.imageSmoothingEnabled = true;
+                if (mapbotRocketImg.complete && mapbotRocketImg.naturalWidth > 0) {
+                    ctx.drawImage(mapbotRocketImg, -rw * 0.5, -rh * 0.5, rw, rh);
+                } else {
+                    ctx.fillStyle = '#7df9ff';
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, 6, 12, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
             }
         }
 
@@ -7530,6 +7653,15 @@ async function connectToServer() {
                 pendingJoinName = null;
             }
         };
+    } catch (_) {
+        ws = null;
+        isConnectingWs = false;
+        if (inMainMenu) {
+            isJoining = false;
+            pendingJoinName = null;
+            setMenuError('Unable to connect to server. Please try again.');
+        }
+        return;
     } finally {
         isConnectingWs = false;
     }
@@ -7893,7 +8025,7 @@ async function connectToServer() {
             }
             const cx = Number(data.x) || 0;
             const cy = Number(data.y) || 0;
-            const crad = Number(data.radius) || 138;
+            const crad = Number(data.radius) || 176;
             playSpatialSound('explosion', cx, cy);
             spawnCannonImpactParticles(cx, cy, crad);
             addCameraShake(0.36, cx, cy);
@@ -8068,6 +8200,45 @@ async function connectToServer() {
                     enemyAggroUntil.set(`enemy:${data.id}`, nowMs + 8000);
                 }
             }
+            return;
+        }
+
+        if (data.type === 'mapbot_proj_parried') {
+            const px = Number(data.x) || 0;
+            const py = Number(data.y) || 0;
+            if (typeof data.id === 'number') {
+                const proj = serverProjectiles.get(data.id);
+                if (proj) {
+                    proj.parried = true;
+                    proj.x = px;
+                    proj.y = py;
+                    proj.tx = px;
+                    proj.ty = py;
+                    proj.vx = Number(data.vx) || proj.vx;
+                    proj.vy = Number(data.vy) || proj.vy;
+                    proj.angle = Number(data.angle) || proj.angle;
+                }
+                const r = serverRockets.get(data.id);
+                if (r) {
+                    r.parried = true;
+                    r.x = px;
+                    r.y = py;
+                    r.tx = px;
+                    r.ty = py;
+                    r.angle = Number(data.angle) || r.angle;
+                }
+            }
+            grenadeShockwaves.push({
+                x: px,
+                y: py,
+                radius: data.kind === 'mapbot-rocket' ? 42 : 76,
+                variant: 'goodbot',
+                isExplosionFlash: true,
+                age: 0,
+                life: 0.22
+            });
+            playSpatialSound('parry', px, py, { volumeMult: 1.25 });
+            addCameraShake(0.45, px, py);
             return;
         }
 
@@ -8755,6 +8926,7 @@ async function connectToServer() {
                         existing.tx = Number(inc.x) || 0;
                         existing.ty = Number(inc.y) || 0;
                         existing.angle = Number(inc.angle) || 0;
+                        existing.parried = Boolean(inc.parried);
                         existing._seq = stateSeq;
                     } else {
                         const rx = Number(inc.x) || 0;
@@ -8768,6 +8940,7 @@ async function connectToServer() {
                             ty: ry,
                             angle: ra,
                             renderAngle: ra,
+                            parried: Boolean(inc.parried),
                             trailAccum: 0,
                             _seq: stateSeq
                         });
@@ -8781,6 +8954,107 @@ async function connectToServer() {
             } else {
                 serverRockets.clear();
             }
+            if (Array.isArray(data.coreBlasts)) {
+                const seenCoreIds = new Set();
+                for (let i = 0; i < data.coreBlasts.length; i++) {
+                    const inc = data.coreBlasts[i];
+                    seenCoreIds.add(inc.id);
+                    const cx = Number(inc.x) || 0;
+                    const cy = Number(inc.y) || 0;
+                    const cvx = Number(inc.vx) || 0;
+                    const cvy = Number(inc.vy) || 0;
+                    const ca = Number(inc.angle) || 0;
+                    const existing = serverProjectiles.get(inc.id);
+                    if (existing) {
+                        existing.tx = cx;
+                        existing.ty = cy;
+                        existing.vx = cvx;
+                        existing.vy = cvy;
+                        existing.angle = ca;
+                        existing.parried = Boolean(inc.parried);
+                    } else {
+                        serverProjectiles.set(inc.id, {
+                            id: inc.id,
+                            kind: 'mapbot-core-blast',
+                            radius: 32,
+                            variant: 'mapbot-core-blast',
+                            x: cx,
+                            y: cy,
+                            tx: cx,
+                            ty: cy,
+                            vx: cvx,
+                            vy: cvy,
+                            angle: ca,
+                            spinAngle: ca,
+                            parried: Boolean(inc.parried),
+                            particleAccum: 0,
+                            age: 0
+                        });
+                    }
+                }
+                for (const [pid, proj] of serverProjectiles) {
+                    if ((proj.kind === 'mapbot-core-blast' || proj.variant === 'mapbot-core-blast') && !seenCoreIds.has(pid)) {
+                        serverProjectiles.delete(pid);
+                    }
+                }
+            } else {
+                for (const [pid, proj] of serverProjectiles) {
+                    if (proj.kind === 'mapbot-core-blast' || proj.variant === 'mapbot-core-blast') {
+                        serverProjectiles.delete(pid);
+                    }
+                }
+            }
+            if (Array.isArray(data.cannonballs)) {
+                const seenCannonIds = new Set();
+                for (let i = 0; i < data.cannonballs.length; i++) {
+                    const inc = data.cannonballs[i];
+                    seenCannonIds.add(inc.id);
+                    const cx = Number(inc.x) || 0;
+                    const cy = Number(inc.y) || 0;
+                    const cvx = Number(inc.vx) || 0;
+                    const cvy = Number(inc.vy) || 0;
+                    const ca = Number(inc.angle) || 0;
+                    const cr = Number(inc.radius) || 26;
+                    const existing = serverProjectiles.get(inc.id);
+                    if (existing) {
+                        existing.tx = cx;
+                        existing.ty = cy;
+                        existing.vx = cvx;
+                        existing.vy = cvy;
+                        existing.angle = ca;
+                        existing.syncedFromState = true;
+                    } else {
+                        serverProjectiles.set(inc.id, {
+                            id: inc.id,
+                            kind: 'cannonball',
+                            radius: cr,
+                            variant: 'goodbot-cannon',
+                            x: cx,
+                            y: cy,
+                            tx: cx,
+                            ty: cy,
+                            vx: cvx,
+                            vy: cvy,
+                            angle: ca,
+                            spinAngle: ca,
+                            syncedFromState: true,
+                            particleAccum: 0,
+                            age: 0
+                        });
+                    }
+                }
+                for (const [pid, proj] of serverProjectiles) {
+                    if ((proj.kind === 'cannonball' || proj.variant === 'goodbot-cannon') && !seenCannonIds.has(pid) && (proj.syncedFromState || proj.age > 0.25)) {
+                        serverProjectiles.delete(pid);
+                    }
+                }
+            } else {
+                for (const [pid, proj] of serverProjectiles) {
+                    if ((proj.kind === 'cannonball' || proj.variant === 'goodbot-cannon') && (proj.syncedFromState || proj.age > 0.25)) {
+                        serverProjectiles.delete(pid);
+                    }
+                }
+            }
             updateBossHealthBar();
             return;
         }
@@ -8792,21 +9066,36 @@ async function connectToServer() {
         }
     };
 
+    ws.onerror = () => {
+        if (inMainMenu && isJoining) {
+            isJoining = false;
+            setMenuError('Connection error. Retrying...');
+        }
+    };
+
     ws.onclose = () => {
         ws = null;
         if (suppressReloadDisconnect) {
+            return;
+        }
+        if (inMainMenu) {
+            hasConnected = false;
+            isJoining = false;
+            setTimeout(() => {
+                if (inMainMenu && !ws && !isConnectingWs) {
+                    connectToServer();
+                }
+            }, pendingJoinName !== null ? 300 : 1500);
             return;
         }
         if (hasConnected) {
             window.location.reload();
             return;
         }
-        if (!inMainMenu) {
-            setTimeout(() => {
-                pendingJoinName = myName;
-                connectToServer();
-            }, 1000);
-        }
+        setTimeout(() => {
+            pendingJoinName = myName;
+            connectToServer();
+        }, 1000);
     };
 }
 
@@ -9068,7 +9357,7 @@ function triggerAttack(isHoldRepeat = false) {
         return;
     }
 
-    const cooldown = isCannon ? 2008 : (isAssaultLaser ? 156 : (isPistol ? 408 : (ME.faction === 'rarebot' ? 508 : 428)));
+    const cooldown = isCannon ? 1008 : (isAssaultLaser ? 156 : (isPistol ? 408 : (ME.faction === 'rarebot' ? 508 : 428)));
     if (nowMs - lastAttackSentAt < cooldown) return;
     lastAttackSentAt = nowMs;
 
@@ -9082,8 +9371,22 @@ function triggerAttack(isHoldRepeat = false) {
         playSpatialSound(isCannon ? 'laserCannonShot' : 'laserShot', ME.x + ME.width / 2, ME.y + ME.height / 2);
         if (isCannon) {
             addCameraShake(0.2);
+            const hasCursor = WORLD.CAMERA.x !== null && WORLD.CAMERA.y !== null && WORLD.SYSTEM.viewScale > 0 && (WORLD.INPUTS.mouseX !== 0 || WORLD.INPUTS.mouseY !== 0);
+            const targetX = hasCursor
+                ? (WORLD.CAMERA.x + (WORLD.INPUTS.mouseX / WORLD.SYSTEM.viewScale))
+                : ((ME.x + ME.width * 0.5) + Math.sin(ME.angle) * 260);
+            const targetY = hasCursor
+                ? (WORLD.CAMERA.y + (WORLD.INPUTS.mouseY / WORLD.SYSTEM.viewScale))
+                : ((ME.y + ME.height * 0.5) - Math.cos(ME.angle) * 260);
+            ws.send(JSON.stringify({
+                type: 'attack',
+                angle: roundedAttackAngle,
+                targetX: Math.round(targetX * 100) / 100,
+                targetY: Math.round(targetY * 100) / 100
+            }));
+        } else {
+            ws.send(JSON.stringify({ type: 'attack', angle: roundedAttackAngle }));
         }
-        ws.send(JSON.stringify({ type: 'attack', angle: roundedAttackAngle }));
     } else {
         swingAnims.set(`player:${myId}`, nowMs);
         playSpatialSound('swing', ME.x + ME.width / 2, ME.y + ME.height / 2);
@@ -9198,8 +9501,10 @@ window.addEventListener('keydown', () => {
 }, { passive: true });
 
 window.addEventListener('DOMContentLoaded', () => {
-    const savedName = localStorage.getItem('playerName');
-    if (savedName && nameInput) nameInput.value = savedName;
+    try {
+        const savedName = localStorage.getItem('playerName');
+        if (savedName && nameInput) nameInput.value = savedName;
+    } catch (_) {}
 
     detectTouchCapability();
     fetchDeviceMode();
@@ -9940,7 +10245,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
             const raw = nameInput ? nameInput.value.trim() : '';
             myName = raw || ('Goodbot' + (Math.floor(Math.random() * 900) + 100));
-            localStorage.setItem('playerName', myName);
+            try {
+                localStorage.setItem('playerName', myName);
+            } catch (_) {}
             isJoining = true;
 
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -9949,6 +10256,13 @@ window.addEventListener('DOMContentLoaded', () => {
                 pendingJoinName = myName;
                 connectToServer();
             }
+            setTimeout(() => {
+                if (inMainMenu && isJoining) {
+                    isJoining = false;
+                    pendingJoinName = null;
+                    setMenuError('Connection timed out. Please try again.');
+                }
+            }, 5000);
         });
     }
 });
