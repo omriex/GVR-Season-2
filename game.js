@@ -1172,6 +1172,16 @@ const ADMIN_SPAWN_OPTIONS = [
         stats: [{ label: 'HP', value: '1000' }, { label: 'Armor', value: 'None (0)' }, { label: 'Counter', value: 'Parry & Shove' }]
     },
     {
+        id: 'goodbot-tickler',
+        title: 'Goodbot (Ball Tickler)',
+        kindLabel: 'ALLY',
+        description: dont ask me why this was added',
+        bodyType: 'goodbot',
+        weapon: 'hands',
+        ticklePose: true,
+        stats: [{ label: 'HP', value: '1000' }, { label: 'Damage', value: '1-2 Tickle' }, { label: 'Speed', value: 'Hyper Sprint' }]
+    },
+    {
         id: 'goodbot-pistol',
         title: 'Goodbot (Pistol)',
         kindLabel: 'ALLY',
@@ -1432,6 +1442,22 @@ function createEntityPreviewUrl(opt) {
             g.save();
             g.translate(-9.5 * pScale, -7.5 * pScale);
             g.rotate(-0.58);
+            g.drawImage(weaponImg, splitX, 0, rightW, weaponImg.naturalHeight, wRect.wx + leftDrawW, wRect.wy, rightDrawW, wRect.wh);
+            g.restore();
+        } else if (opt.ticklePose && weaponImg === botHandsImg && weaponImg.naturalWidth > 0) {
+            const pScale = bodySize / 48;
+            const splitX = Math.floor(weaponImg.naturalWidth / 2);
+            const rightW = weaponImg.naturalWidth - splitX;
+            const leftDrawW = (splitX / weaponImg.naturalWidth) * wRect.ww;
+            const rightDrawW = (rightW / weaponImg.naturalWidth) * wRect.ww;
+            g.save();
+            g.translate(-2.5 * pScale, -9.5 * pScale);
+            g.rotate(-0.28);
+            g.drawImage(weaponImg, 0, 0, splitX, weaponImg.naturalHeight, wRect.wx, wRect.wy, leftDrawW, wRect.wh);
+            g.restore();
+            g.save();
+            g.translate(2.5 * pScale, -12.5 * pScale);
+            g.rotate(0.28);
             g.drawImage(weaponImg, splitX, 0, rightW, weaponImg.naturalHeight, wRect.wx + leftDrawW, wRect.wy, rightDrawW, wRect.wh);
             g.restore();
         } else {
@@ -5114,13 +5140,18 @@ function getSwingOffset(entityKey, nowMs) {
     const isUgly = typeof entry === 'object' && entry !== null && Boolean(entry.ugly);
     const isClaws = typeof entry === 'object' && entry !== null && Boolean(entry.claws);
     const isHeavy = typeof entry === 'object' && entry !== null && Boolean(entry.heavy);
-    const duration = isClaws ? (isHeavy ? 340 : 240) : (isUgly ? 175 : 260);
+    const isTickle = typeof entry === 'object' && entry !== null && Boolean(entry.tickle);
+    const duration = isClaws ? (isHeavy ? 340 : 240) : (isTickle ? 120 : (isUgly ? 175 : 260));
     const elapsed = nowMs - startedAt;
     if (elapsed >= duration || elapsed < 0) {
         swingAnims.delete(entityKey);
         return 0;
     }
     const p = elapsed / duration;
+    if (isTickle) {
+        const side = entry.side === -1 ? -1 : 1;
+        return Math.sin(p * Math.PI * 3) * 0.34 * side;
+    }
     if (isClaws) {
         const pull = isHeavy ? -0.38 : -0.22;
         const peak = isHeavy ? 1.38 : 1.0;
@@ -5755,16 +5786,20 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
     const handsImg = spriteKind === 'prototype' ? prototypeRarebotHandsImg : botHandsImg;
     const bodyScale = sW / 48;
     const parryMag = weapon === 'hands' ? getParryInterlockMag(entityKey, nowMs) : 0;
+    const rawSwingEntry = entityKey ? swingAnims.get(entityKey) : null;
+    const tickleActive = weapon === 'hands' && parryMag <= 0.01 && Boolean(rawSwingEntry && typeof rawSwingEntry === 'object' && rawSwingEntry.tickle);
+    const tickleElapsed = tickleActive ? Math.max(0, nowMs - rawSwingEntry.at) : 0;
+    const tickleWave = tickleActive ? Math.sin(tickleElapsed * 0.095) : 0;
     const leftPunch = parryMag > 0.01 ? null : getLeftPunchOffset(entityKey, nowMs);
     const swingAtten = Math.abs(swingOffset) > 0.03 ? 0.2 : 1;
-    const unarmedSprint = parryMag > 0.01 ? 0 : (sprintBlend * swingAtten);
+    const unarmedSprint = (parryMag > 0.01 || tickleActive) ? 0 : (sprintBlend * swingAtten);
     const leftSprintPump = unarmedSprint * (leftPunch ? 0 : 1);
-    const leftPumpDx = parryMag > 0.01 ? (9.5 * parryMag * bodyScale) : (leftSprintPump > 0.01 ? 0.7 * leftSprintPump * bodyScale : 0);
-    const leftPumpDy = parryMag > 0.01 ? (-7.5 * parryMag * bodyScale) : (leftSprintPump > 0.01 ? -sprintSin * 5.0 * leftSprintPump * bodyScale : 0);
-    const leftPumpRot = parryMag > 0.01 ? (0.58 * parryMag) : (leftSprintPump > 0.01 ? (0.08 + sprintSin * 0.08) * leftSprintPump : 0);
-    const rightPumpDx = parryMag > 0.01 ? (-9.5 * parryMag * bodyScale) : (unarmedSprint > 0.01 ? -0.7 * unarmedSprint * bodyScale : 0);
-    const rightPumpDy = parryMag > 0.01 ? (-7.5 * parryMag * bodyScale) : (unarmedSprint > 0.01 ? sprintSin * 5.0 * unarmedSprint * bodyScale : 0);
-    const rightPumpRot = parryMag > 0.01 ? (-0.58 * parryMag) : (unarmedSprint > 0.01 ? (-0.08 - sprintSin * 0.08) * unarmedSprint : 0);
+    const leftPumpDx = parryMag > 0.01 ? (9.5 * parryMag * bodyScale) : (tickleActive ? (2.8 * tickleWave * bodyScale) : (leftSprintPump > 0.01 ? 0.7 * leftSprintPump * bodyScale : 0));
+    const leftPumpDy = parryMag > 0.01 ? (-7.5 * parryMag * bodyScale) : (tickleActive ? ((-9.5 - 4.5 * tickleWave) * bodyScale) : (leftSprintPump > 0.01 ? -sprintSin * 5.0 * leftSprintPump * bodyScale : 0));
+    const leftPumpRot = parryMag > 0.01 ? (0.58 * parryMag) : (tickleActive ? (-0.25 + 0.36 * tickleWave) : (leftSprintPump > 0.01 ? (0.08 + sprintSin * 0.08) * leftSprintPump : 0));
+    const rightPumpDx = parryMag > 0.01 ? (-9.5 * parryMag * bodyScale) : (tickleActive ? (2.8 * -tickleWave * bodyScale) : (unarmedSprint > 0.01 ? -0.7 * unarmedSprint * bodyScale : 0));
+    const rightPumpDy = parryMag > 0.01 ? (-7.5 * parryMag * bodyScale) : (tickleActive ? ((-9.5 + 4.5 * tickleWave) * bodyScale) : (unarmedSprint > 0.01 ? sprintSin * 5.0 * unarmedSprint * bodyScale : 0));
+    const rightPumpRot = parryMag > 0.01 ? (-0.58 * parryMag) : (tickleActive ? (0.25 - 0.36 * tickleWave) : (unarmedSprint > 0.01 ? (-0.08 - sprintSin * 0.08) * unarmedSprint : 0));
 
     if (handsImg.complete && handsImg.naturalWidth > 0) {
         const hW = sW * (handsImg.naturalWidth / refW) * HANDS_SCALE;
@@ -5784,7 +5819,7 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
             (splitX / refW) * 48 * HANDS_SCALE,
             (handsImg.naturalHeight / refH) * 48 * HANDS_SCALE
         ) || handsImg;
-        if (leftPunch || leftSprintPump > 0.01 || parryMag > 0.01) {
+        if (leftPunch || leftSprintPump > 0.01 || parryMag > 0.01 || tickleActive) {
             ctx.save();
             ctx.translate((leftPunch ? (leftPunch.dx || 0) * bodyScale : 0) + leftPumpDx, (leftPunch ? leftPunch.dy * bodyScale : 0) + leftPumpDy);
             ctx.rotate((leftPunch ? leftPunch.rot : 0) + leftPumpRot);
@@ -5852,7 +5887,7 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
                 (rightW / refW) * 48 * HANDS_SCALE,
                 (handsImg.naturalHeight / refH) * 48 * HANDS_SCALE
             ) || handsImg;
-            if (unarmedSprint > 0.01 || parryMag > 0.01) {
+            if (unarmedSprint > 0.01 || parryMag > 0.01 || tickleActive) {
                 ctx.save();
                 ctx.translate(rightPumpDx, rightPumpDy);
                 ctx.rotate(rightPumpRot);
@@ -5862,7 +5897,7 @@ function drawBotHands(x, y, sW, sH, angle, swingOffset, spriteKind, weapon, enti
             } else {
                 ctx.drawImage(handsImg, splitX, 0, rightW, handsImg.naturalHeight, -hW / 2 + leftDrawW, -hH / 2, rightDrawW, hH);
             }
-            if (unarmedSprint > 0.01 || parryMag > 0.01) {
+            if (unarmedSprint > 0.01 || parryMag > 0.01 || tickleActive) {
                 ctx.restore();
             }
         }
@@ -8316,10 +8351,13 @@ async function connectToServer() {
             if (!(data.kind === 'player' && data.id === myId && prevAt && nowMs - prevAt < 160)) {
                 const isHeavyClaw = data.variant === 'mapbot-claws-heavy';
                 const isClawVariant = data.variant === 'mapbot-claws' || data.variant === 'mapbot-claws-glory' || isHeavyClaw;
-                swingAnims.set(key, isClawVariant ? { at: nowMs, claws: true, heavy: isHeavyClaw } : (data.ugly ? { at: nowMs, ugly: true } : nowMs));
+                const isTickleSwing = data.variant === 'tickle';
+                swingAnims.set(key, isClawVariant ? { at: nowMs, claws: true, heavy: isHeavyClaw } : (isTickleSwing ? { at: nowMs, tickle: true, side: data.side === -1 ? -1 : 1 } : (data.ugly ? { at: nowMs, ugly: true } : nowMs)));
                 if (data.variant !== 'mapbot-claws-glory') {
                     if (isHeavyClaw) {
                         playSpatialSound('swing', data.x, data.y, { playbackRate: 0.56, volumeMult: 1.55 });
+                    } else if (isTickleSwing) {
+                        playSpatialSound('swing', data.x, data.y, { playbackRate: 1.65 + Math.random() * 0.25, volumeMult: 0.55 });
                     } else {
                         playSpatialSound('swing', data.x, data.y);
                     }
@@ -8924,11 +8962,15 @@ async function connectToServer() {
                 if (data.weaponKind === 'mapbot-claws-heavy') {
                     playSpatialSound('hit', data.x, data.y, { volumeMult: 2.0, playbackRate: 0.58, force: true });
                     playSpatialSound('blade', data.x, data.y, { volumeMult: 2.0, playbackRate: 0.62, force: true });
+                } else if (data.weaponKind === 'tickle') {
+                    playSpatialSound('hit', data.x, data.y, { playbackRate: 1.85, volumeMult: 0.45 });
                 } else {
                     playSpatialSound(data.weaponKind === 'mapbot-claws' ? 'blade' : 'hit', data.x, data.y);
                 }
             }
-            playSpatialSound('hitReceive', data.x, data.y);
+            if (data.weaponKind !== 'tickle') {
+                playSpatialSound('hitReceive', data.x, data.y);
+            }
             let attX = typeof data.attackerX === 'number' ? data.attackerX : data.x;
             let attY = typeof data.attackerY === 'number' ? data.attackerY : data.y;
             if (data.attackerKind === 'player') {
@@ -8949,23 +8991,26 @@ async function connectToServer() {
                 attX = (aa.renderX ?? aa.x) + aa.width / 2;
                 attY = (aa.renderY ?? aa.y) + aa.height / 2;
             }
-            playSpatialSound('hitDeal', attX, attY);
+            if (data.weaponKind !== 'tickle') {
+                playSpatialSound('hitDeal', attX, attY);
+            }
             if (data.weaponKind === 'ranged' && !isBlockedHit) {
                 playRandomBulletImpact(data.x, data.y);
             } else if (data.weaponKind === 'grapple' && !isBlockedHit) {
                 playSpatialSound('grapple1', data.x, data.y);
             }
             const dmgVal = Math.max(1, Math.round(Number(data.damage) || 0));
+            const isTickleHit = data.weaponKind === 'tickle';
             if (data.kind === 'player' && data.id === myId) {
                 floatingTexts.push({
                     playerId: myId,
                     x: ME.x + ME.width / 2,
                     y: ME.y - 26,
-                    xOff: (Math.random() - 0.5) * 18,
-                    text: `-${dmgVal}`,
-                    color: '#ff3030',
+                    xOff: (Math.random() - 0.5) * 28,
+                    text: isTickleHit ? `*tickle* -${dmgVal}` : `-${dmgVal}`,
+                    color: isTickleHit ? '#ff7ae2' : '#ff3030',
                     age: 0,
-                    life: 1.3
+                    life: isTickleHit ? 0.9 : 1.3
                 });
                 if (ME.faction === 'goodbot') {
                     enemyAggroUntil.set(`${data.attackerKind}:${data.attackerId}`, performance.now() + 8000);
@@ -8975,11 +9020,21 @@ async function connectToServer() {
                     enemyId: data.id,
                     x: Number(data.x) || 0,
                     y: (Number(data.y) || 0) - 50,
-                    xOff: (Math.random() - 0.5) * 18,
-                    text: `-${dmgVal}`,
-                    color: '#ff3030',
+                    xOff: (Math.random() - 0.5) * 28,
+                    text: isTickleHit ? `*tickle* -${dmgVal}` : `-${dmgVal}`,
+                    color: isTickleHit ? '#ff7ae2' : '#ff3030',
                     age: 0,
-                    life: 1.3
+                    life: isTickleHit ? 0.9 : 1.3
+                });
+            } else if (data.kind === 'ally' && isTickleHit) {
+                floatingTexts.push({
+                    x: Number(data.x) || 0,
+                    y: (Number(data.y) || 0) - 34,
+                    xOff: (Math.random() - 0.5) * 28,
+                    text: `*tickle* -${dmgVal}`,
+                    color: '#ff7ae2',
+                    age: 0,
+                    life: 0.9
                 });
             }
             return;
