@@ -225,6 +225,7 @@ let lastEquippedItemKey = null;
 
 const swingAnims = new Map();
 const clawBlockAnims = new Map();
+const clawGroundAnims = new Map();
 const mapbotGloryKills = new Map();
 const recoilAnims = new Map();
 const leftRecoilAnims = new Map();
@@ -472,6 +473,7 @@ function returnToMainMenu() {
     serverAllies = {};
     swingAnims.clear();
     clawBlockAnims.clear();
+    clawGroundAnims.clear();
     mapbotGloryKills.clear();
     if (targetEliminatedTimer) {
         clearTimeout(targetEliminatedTimer);
@@ -1771,7 +1773,7 @@ const ADMIN_PRIVATE_ITEMS = [
         stats: [
             { label: 'Heal', value: '+max HP' },
             { label: 'Uses', value: 'Infinite' },
-            { label: 'Cooldown', value: '45s' }
+            { label: 'Cooldown', value: '30s' }
         ]
     }
 ];
@@ -2964,7 +2966,7 @@ function playSpatialSound(key, wx, wy, options = null) {
     if (!isFinite(masterVol) || masterVol <= 0.005) return;
     const nowMs = performance.now();
     const minGap = key === 'mapbotCoreBlast' ? 140 : (key === 'beamerShot' ? 110 : (key === 'gloryKill' ? 100 : (key === 'bulletWallImpact' ? 70 : (key === 'explosion' ? 60 : ((key === 'swing' || key === 'hit') ? 45 : (key === 'dropslide' ? 40 : 15))))));
-    if (nowMs - (lastSoundAt[key] || 0) < minGap) return;
+    if (!(options && options.force) && nowMs - (lastSoundAt[key] || 0) < minGap) return;
 
     const ctxAudio = ensureAudioContext();
     if (!ctxAudio) return;
@@ -3013,7 +3015,7 @@ function playSpatialSound(key, wx, wy, options = null) {
             if (!soundBuffers[bufferKey]) return;
             if (performance.now() - reqAt > 400) return;
             const curNow = performance.now();
-            if (curNow - (lastSoundAt[key] || 0) < minGap) return;
+            if (!(options && options.force) && curNow - (lastSoundAt[key] || 0) < minGap) return;
             lastSoundAt[key] = curNow;
             try {
                 const source = ctxAudio.createBufferSource();
@@ -4247,6 +4249,28 @@ function update(dt) {
         }
     }
 
+    const groundRate = 1 - Math.exp(-dt * 16);
+    for (const id in serverEnemies) {
+        const e = serverEnemies[id];
+        if ((e.kind || 'rarebot') !== 'mapbot') continue;
+        const key = `enemy:${id}`;
+        let gAnim = clawGroundAnims.get(key);
+        const gTarget = (e.clawsGround || gkNowMs < (e.dropslideAnimUntil || 0)) ? 1 : 0;
+        if (!gAnim && gTarget === 0) continue;
+        if (!gAnim) {
+            gAnim = { blend: 0, seq: sprintAnimSeq };
+            clawGroundAnims.set(key, gAnim);
+        }
+        gAnim.seq = sprintAnimSeq;
+        gAnim.blend += (gTarget - gAnim.blend) * groundRate;
+        if (gTarget === 0 && gAnim.blend < 0.01) gAnim.blend = 0;
+    }
+    for (const [key, gAnim] of clawGroundAnims) {
+        if (gAnim.seq !== sprintAnimSeq) {
+            clawGroundAnims.delete(key);
+        }
+    }
+
     for (const [id, proj] of serverProjectiles) {
         if (proj.kind === 'mapbot-core-blast' || proj.variant === 'mapbot-core-blast') {
             if (typeof proj.tx === 'number' && typeof proj.ty === 'number') {
@@ -4897,7 +4921,8 @@ function getSwingOffset(entityKey, nowMs) {
     const startedAt = typeof entry === 'number' ? entry : entry.at;
     const isUgly = typeof entry === 'object' && entry !== null && Boolean(entry.ugly);
     const isClaws = typeof entry === 'object' && entry !== null && Boolean(entry.claws);
-    const duration = isClaws ? 240 : (isUgly ? 175 : 260);
+    const isHeavy = typeof entry === 'object' && entry !== null && Boolean(entry.heavy);
+    const duration = isClaws ? (isHeavy ? 340 : 240) : (isUgly ? 175 : 260);
     const elapsed = nowMs - startedAt;
     if (elapsed >= duration || elapsed < 0) {
         swingAnims.delete(entityKey);
@@ -4905,17 +4930,19 @@ function getSwingOffset(entityKey, nowMs) {
     }
     const p = elapsed / duration;
     if (isClaws) {
+        const pull = isHeavy ? -0.38 : -0.22;
+        const peak = isHeavy ? 1.38 : 1.0;
         if (p < 0.25) {
             const t = p / 0.25;
-            return -0.22 * (1 - (1 - t) * (1 - t));
+            return pull * (1 - (1 - t) * (1 - t));
         }
         if (p < 0.58) {
             const t = (p - 0.25) / 0.33;
             const easeOut = 1 - (1 - t) * (1 - t);
-            return -0.22 + 1.22 * easeOut;
+            return pull + (peak - pull) * easeOut;
         }
         const t = (p - 0.58) / 0.42;
-        return 1.0 * (1 - t * t);
+        return peak * (1 - t * t);
     }
     if (isUgly) {
         const jitter = Math.sin(p * Math.PI * 6) * 0.16 * (1 - p);
@@ -5753,6 +5780,10 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         const clawLungePx = (swingOffset || 0) * 0.65 * B;
         const blockAnim = entityKey ? clawBlockAnims.get(entityKey) : null;
         const blockBlend = blockAnim ? Math.max(0, Math.min(1, blockAnim.blend || 0)) : 0;
+        const groundAnim = entityKey ? clawGroundAnims.get(entityKey) : null;
+        const groundBlend = groundAnim ? Math.max(0, Math.min(1, groundAnim.blend || 0)) : 0;
+        const swingEntry = entityKey ? swingAnims.get(entityKey) : null;
+        const isHeavySwing = Boolean(swingEntry && typeof swingEntry === 'object' && swingEntry.heavy);
 
         ctx.save();
         ctx.translate(bodyX, bodyY);
@@ -5760,6 +5791,7 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         ctx.imageSmoothingEnabled = true;
 
         const enemyEntity = entityKey && entityKey.startsWith('enemy:') ? serverEnemies[entityKey.slice(6)] : null;
+        const heavyCharge = enemyEntity ? Math.max(0, Math.min(1, enemyEntity.heavyClawCharge || 0)) : 0;
         const gloryKillAnim = entityKey ? mapbotGloryKills.get(entityKey) : null;
         const gkElapsed = gloryKillAnim ? Math.max(0, nowMs - gloryKillAnim.at) : -1;
         const gkActive = Boolean(gloryKillAnim && gkElapsed >= 0 && gkElapsed <= gloryKillAnim.durationMs);
@@ -5899,6 +5931,33 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
                     ctx.stroke();
                     ctx.restore();
                 }
+            } else if (heavyCharge > 0.005) {
+                const ease = 1 - Math.pow(1 - heavyCharge, 2);
+                const pulse = 0.72 + 0.28 * Math.sin(nowMs * 0.028);
+                const shakeAmp = heavyCharge > 0.65 ? ((heavyCharge - 0.65) / 0.35) * 0.055 * B : 0;
+                const shakeX = shakeAmp > 0 ? Math.sin(nowMs * 0.14) * shakeAmp : 0;
+                const shakeY = shakeAmp > 0 ? Math.cos(nowMs * 0.17) * shakeAmp : 0;
+                const clawLiftScale = 1 + 0.48 * ease;
+                const clawYOffset = (0.3457 + 0.42 * ease) * B;
+                const glowColor = faction === 'rarebot'
+                    ? 'rgba(255, 58, 58, 0.95)'
+                    : (faction === 'goodbot' ? 'rgba(216, 92, 255, 0.95)' : 'rgba(228, 76, 255, 0.95)');
+                ctx.save();
+                ctx.translate(shakeX, clawYOffset + shakeY);
+                ctx.scale(clawLiftScale, clawLiftScale);
+                ctx.shadowColor = glowColor;
+                ctx.shadowBlur = (8 + 18 * ease * pulse) * scale;
+                ctx.drawImage(mapbotClawsImg, -clw * 0.5, -clh * 0.5, clw, clh);
+                ctx.restore();
+
+                ctx.save();
+                ctx.strokeStyle = glowColor;
+                ctx.globalAlpha = 0.25 + 0.55 * ease * pulse;
+                ctx.lineWidth = Math.max(2, B * (0.04 + 0.06 * ease));
+                ctx.beginPath();
+                ctx.arc(0, clawYOffset - 0.12 * B, B * (0.56 + 0.24 * ease), Math.PI * 0.14, Math.PI * 0.86);
+                ctx.stroke();
+                ctx.restore();
             } else if (blockBlend > 0.01) {
                 const natW = mapbotClawsImg.naturalWidth;
                 const natH = mapbotClawsImg.naturalHeight;
@@ -5927,8 +5986,66 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
                 ctx.arc(0, -0.18 * B, B * 0.58, -Math.PI * 0.84, -Math.PI * 0.16);
                 ctx.stroke();
                 ctx.restore();
+            } else if (groundBlend > 0.01 && Math.abs(swingOffset || 0) < 0.12) {
+                const natW = mapbotClawsImg.naturalWidth;
+                const natH = mapbotClawsImg.naturalHeight;
+                const halfNatW = natW * 0.5;
+                const halfClw = clw * 0.5;
+                const clawCy = (0.3457 - 0.56 * groundBlend) * B - clawLungePx;
+                const outwardShift = 0.14 * B * groundBlend;
+                const outwardTilt = 0.24 * groundBlend;
+                const pressScaleX = 1 + 0.06 * groundBlend;
+                const pressScaleY = 1 - 0.18 * groundBlend;
+
+                ctx.save();
+                ctx.fillStyle = `rgba(0, 0, 0, ${(0.28 * groundBlend).toFixed(3)})`;
+                ctx.beginPath();
+                ctx.ellipse(-halfClw * 0.5 - outwardShift, clawCy + 0.04 * B, halfClw * 0.42, clh * 0.36, -outwardTilt, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(halfClw * 0.5 + outwardShift, clawCy + 0.04 * B, halfClw * 0.42, clh * 0.36, outwardTilt, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                ctx.save();
+                ctx.translate(-halfClw * 0.5 - outwardShift, clawCy);
+                ctx.rotate(-outwardTilt);
+                ctx.scale(pressScaleX, pressScaleY);
+                ctx.drawImage(mapbotClawsImg, 0, 0, halfNatW, natH, -halfClw * 0.5, -clh * 0.5, halfClw, clh);
+                ctx.restore();
+
+                ctx.save();
+                ctx.translate(halfClw * 0.5 + outwardShift, clawCy);
+                ctx.rotate(outwardTilt);
+                ctx.scale(pressScaleX, pressScaleY);
+                ctx.drawImage(mapbotClawsImg, halfNatW, 0, natW - halfNatW, natH, -halfClw * 0.5, -clh * 0.5, halfClw, clh);
+                ctx.restore();
             } else {
-                ctx.drawImage(mapbotClawsImg, -clw * 0.5, 0.3457 * B - clawLungePx - clh * 0.5, clw, clh);
+                const heavyScale = isHeavySwing ? (1 + 0.28 * Math.max(0, Math.min(1, swingOffset || 0))) : 1;
+                if (isHeavySwing && heavyScale > 1.01) {
+                    const cy = 0.3457 * B - clawLungePx;
+                    ctx.save();
+                    ctx.translate(0, cy);
+                    ctx.scale(heavyScale, heavyScale);
+                    ctx.shadowColor = faction === 'rarebot' ? 'rgba(255, 58, 58, 0.95)' : 'rgba(232, 92, 255, 0.95)';
+                    ctx.shadowBlur = 14 * scale;
+                    ctx.drawImage(mapbotClawsImg, -clw * 0.5, -clh * 0.5, clw, clh);
+                    ctx.restore();
+                    if ((swingOffset || 0) > 0.25) {
+                        const sa = Math.min(1, ((swingOffset || 0) - 0.25) / 1.1);
+                        ctx.save();
+                        ctx.strokeStyle = faction === 'rarebot'
+                            ? `rgba(255, 110, 110, ${(0.92 * sa).toFixed(3)})`
+                            : `rgba(242, 132, 255, ${(0.92 * sa).toFixed(3)})`;
+                        ctx.lineWidth = Math.max(2.6, B * 0.11);
+                        ctx.beginPath();
+                        ctx.arc(0, -0.34 * B, B * (0.56 + 0.36 * sa), -Math.PI * 0.9, -Math.PI * 0.1);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                } else {
+                    ctx.drawImage(mapbotClawsImg, -clw * 0.5, 0.3457 * B - clawLungePx - clh * 0.5, clw, clh);
+                }
             }
         }
 
@@ -6354,6 +6471,34 @@ function render() {
             const pw = p.width || 48;
             const ph = p.height || 48;
             drawT5Aura((p.renderX ?? p.x) + pw * 0.5, (p.renderY ?? p.y) + ph * 0.5);
+        }
+        const mapbotAuraR = 2 * (WORLD.MAP.tileSize || 64);
+        for (const id in serverEnemies) {
+            const e = serverEnemies[id];
+            if ((e.kind || 'rarebot') !== 'mapbot' || e.airborne) continue;
+            const ew = e.width || 48;
+            const eh = e.height || 48;
+            const ax = (e.renderX ?? e.x) + ew * 0.5 - camX;
+            const ay = (e.renderY ?? e.y) + eh * 0.5 - camY;
+            if (ax + mapbotAuraR < -20 || ax - mapbotAuraR > camW + 20 || ay + mapbotAuraR < -20 || ay - mapbotAuraR > camH + 20) continue;
+            const eFac = e.faction || 'mapbot';
+            ctx.save();
+            if (eFac === 'rarebot') {
+                ctx.fillStyle = 'rgba(240, 0, 0, 0.12)';
+                ctx.strokeStyle = 'rgba(255, 58, 58, 0.38)';
+            } else if (eFac === 'goodbot') {
+                ctx.fillStyle = 'rgba(184, 51, 255, 0.11)';
+                ctx.strokeStyle = 'rgba(218, 130, 255, 0.34)';
+            } else {
+                ctx.fillStyle = 'rgba(224, 64, 255, 0.12)';
+                ctx.strokeStyle = 'rgba(232, 112, 255, 0.38)';
+            }
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(ax, ay, mapbotAuraR, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
         }
 
         if (raycastBeams.length > 0) {
@@ -7892,10 +8037,15 @@ async function connectToServer() {
             const prevEntry = swingAnims.get(key);
             const prevAt = typeof prevEntry === 'number' ? prevEntry : (prevEntry ? prevEntry.at : 0);
             if (!(data.kind === 'player' && data.id === myId && prevAt && nowMs - prevAt < 160)) {
-                const isClawVariant = data.variant === 'mapbot-claws' || data.variant === 'mapbot-claws-glory';
-                swingAnims.set(key, isClawVariant ? { at: nowMs, claws: true } : (data.ugly ? { at: nowMs, ugly: true } : nowMs));
+                const isHeavyClaw = data.variant === 'mapbot-claws-heavy';
+                const isClawVariant = data.variant === 'mapbot-claws' || data.variant === 'mapbot-claws-glory' || isHeavyClaw;
+                swingAnims.set(key, isClawVariant ? { at: nowMs, claws: true, heavy: isHeavyClaw } : (data.ugly ? { at: nowMs, ugly: true } : nowMs));
                 if (data.variant !== 'mapbot-claws-glory') {
-                    playSpatialSound('swing', data.x, data.y);
+                    if (isHeavyClaw) {
+                        playSpatialSound('swing', data.x, data.y, { playbackRate: 0.56, volumeMult: 1.55 });
+                    } else {
+                        playSpatialSound('swing', data.x, data.y);
+                    }
                 }
             }
             if (ME.faction === 'goodbot' && data.kind === 'enemy') {
@@ -8085,6 +8235,7 @@ async function connectToServer() {
             let wy = Number(data.y) || 0;
             if (data.kind === 'enemy' && serverEnemies[data.id]) {
                 const ent = serverEnemies[data.id];
+                ent.dropslideAnimUntil = performance.now() + (Number(data.durationMs) || 310);
                 wx = (ent.renderX ?? ent.x) + (ent.width || 48) * 0.5;
                 wy = (ent.renderY ?? ent.y) + (ent.height || 48) * 0.5;
             } else if (data.kind === 'ally' && serverAllies[data.id]) {
@@ -8451,7 +8602,12 @@ async function connectToServer() {
             }
             const isBlockedHit = Boolean(data.blocked && (data.blockKind === 'block' || data.blockKind === 'parry'));
             if (!isBlockedHit) {
-                playSpatialSound(data.weaponKind === 'mapbot-claws' ? 'blade' : 'hit', data.x, data.y);
+                if (data.weaponKind === 'mapbot-claws-heavy') {
+                    playSpatialSound('hit', data.x, data.y, { volumeMult: 2.0, playbackRate: 0.58, force: true });
+                    playSpatialSound('blade', data.x, data.y, { volumeMult: 2.0, playbackRate: 0.62, force: true });
+                } else {
+                    playSpatialSound(data.weaponKind === 'mapbot-claws' ? 'blade' : 'hit', data.x, data.y);
+                }
             }
             playSpatialSound('hitReceive', data.x, data.y);
             let attX = typeof data.attackerX === 'number' ? data.attackerX : data.x;
@@ -8798,6 +8954,8 @@ async function connectToServer() {
                         existing.airborne = isAirborne;
                         existing.jumpHeight = Number(incoming.jumpHeight) || 0;
                         existing.blocking = Boolean(incoming.blocking);
+                        existing.clawsGround = Boolean(incoming.clawsGround);
+                        existing.heavyClawCharge = Number(incoming.heavyClawCharge) || 0;
                         existing.invincible = Boolean(incoming.invincible);
                         existing.speedBoost = Boolean(incoming.speedBoost);
                         existing.width = incoming.width || existing.width || defSize;
@@ -8828,6 +8986,8 @@ async function connectToServer() {
                             sprinting: Boolean(incoming.sprinting),
                             airborne: Boolean(incoming.airborne),
                             blocking: Boolean(incoming.blocking),
+                            clawsGround: Boolean(incoming.clawsGround),
+                            heavyClawCharge: Number(incoming.heavyClawCharge) || 0,
                             invincible: Boolean(incoming.invincible),
                             speedBoost: Boolean(incoming.speedBoost),
                             jumpHeight: Number(incoming.jumpHeight) || 0,
@@ -9334,7 +9494,7 @@ function triggerAttack(isHoldRepeat = false) {
         if (isHoldRepeat) return;
         if (!isAdmin || ME.faction === 'spectator') return;
         if (nowMs < adminHealReadyAt) return;
-        adminHealReadyAt = nowMs + 45000;
+        adminHealReadyAt = nowMs + 30000;
         lastAttackSentAt = nowMs;
         updateAdminHealSlotCooldown(nowMs, true);
         const roundedAttackAngle = Math.round(ME.angle * 1000) / 1000;
