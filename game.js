@@ -77,6 +77,7 @@ const spectateNoBtn = document.getElementById('spectate-no-btn');
 const shopOverlay = document.getElementById('shop-overlay');
 const shopCloseBtn = document.getElementById('shop-close-btn');
 const shopTabItemsBtn = document.getElementById('shop-tab-items');
+const shopTabArmorBtn = document.getElementById('shop-tab-armor');
 const shopTabUnitsBtn = document.getElementById('shop-tab-units');
 const shopUnitsStatus = document.getElementById('shop-units-status');
 const shopGrid = document.getElementById('shop-grid');
@@ -252,6 +253,10 @@ const pendingFloatingTexts = [];
 const healParticles = [];
 const MAX_HEAL_PARTICLES = 160;
 const MAX_EXPLOSION_PARTICLES = 240;
+const armorParticles = [];
+const MAX_ARMOR_PARTICLES = 120;
+const armorParticleSpawnCarry = new Map();
+const ARMOR_5_PARTICLE_COLORS = ['#df9bff', '#b833ff', '#f0aaff', '#a800ff'];
 const GRENADE_DRAW_SIZE = 17.68;
 const EXPLOSION_COLORS = ['#ff2a00', '#ff7b00', '#ffd000', '#ff4d00'];
 const GRENADE_EXPLOSION_COLORS = ['#d84aff', '#b833ff', '#9400e6', '#f0aaff'];
@@ -490,6 +495,8 @@ function returnToMainMenu() {
     dropslideEmitters.length = 0;
     dropslideParticles.length = 0;
     sprintDustParticles.length = 0;
+    armorParticles.length = 0;
+    armorParticleSpawnCarry.clear();
     serverProjectiles.clear();
     serverGrenades = [];
     serverRockets.clear();
@@ -1411,7 +1418,7 @@ function createEntityPreviewUrl(opt) {
         g.fillStyle = opt.bodyType === 'goodbot' ? '#b833ff' : '#cc3f3f';
         g.fillRect(-bodySize / 2, -bodySize / 2, bodySize, bodySize);
     }
-    if ((opt.armor === 'goodbot-armor' || opt.armor === 'goodbot-armor-2' || opt.armor === 'goodbot-armor-3' || (opt.bodyType === 'goodbot' && opt.weapon === 'goodbot-assault-laser')) && goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
+    if ((opt.armor === 'goodbot-armor' || opt.armor === 'goodbot-armor-2' || opt.armor === 'goodbot-armor-3' || opt.armor === 'goodbot-armor-4' || opt.armor === 'goodbot-armor-5' || (opt.bodyType === 'goodbot' && opt.weapon === 'goodbot-assault-laser')) && goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
         g.drawImage(goodbotArmorImg, -bodySize / 2, -bodySize / 2, bodySize, bodySize);
     } else if ((opt.armor === 'rarebot-armor' || (opt.bodyType === 'rarebot' && opt.weapon === 'rarebot-assault-laser')) && rarebotArmorImg.complete && rarebotArmorImg.naturalWidth > 0) {
         g.drawImage(rarebotArmorImg, -bodySize / 2, -bodySize / 2, bodySize, bodySize);
@@ -1680,6 +1687,8 @@ const ITEM_SLOT_IMAGES = {
     'goodbot-armor': 'assets/Goodbot Armor Slot.png',
     'goodbot-armor-2': 'assets/Goodbot Armor Slot.png',
     'goodbot-armor-3': 'assets/Goodbot Armor Slot.png',
+    'goodbot-armor-4': 'assets/Goodbot Armor Slot.png',
+    'goodbot-armor-5': 'assets/Goodbot Armor Slot.png',
     'goodbot-grenade': 'assets/Goodbot Grenade Slot.png'
 };
 
@@ -1803,6 +1812,40 @@ const SHOP_ITEMS = [
             { label: 'Knockback', value: '-20% (All)' },
             { label: 'Stun', value: '-0.5s (All)' },
             { label: 'Type', value: 'Armor (Tier 3)' }
+        ]
+    },
+    {
+        id: 'goodbot-armor-4',
+        title: 'Tier 4 Armor',
+        kind: 'armor',
+        tier: 4,
+        description: 'Heavy dark plating with red lights that boosts your Max HP to 5000, heals +1500 HP right away, and gives 40% damage reduction, 35% knockback reduction, and 1s stun reduction.',
+        cost: 4000,
+        slotImage: ITEM_SLOT_IMAGES['goodbot-armor-4'],
+        stats: [
+            { label: 'Max HP', value: '5000 (+1500)' },
+            { label: 'Damage Taken', value: '-40% (All)' },
+            { label: 'Knockback', value: '-35% (All)' },
+            { label: 'Stun', value: '-1s (All)' },
+            { label: 'Type', value: 'Armor (Tier 4)' }
+        ]
+    },
+    {
+        id: 'goodbot-armor-5',
+        title: 'Tier 5 Armor',
+        kind: 'armor',
+        tier: 5,
+        description: 'Heavy dark plating with light purple lights that boosts your Max HP to 10000, heals +3000 HP right away, gives 510 max stamina, 20% more speed, 2x damage, 45% damage reduction, 40% knockback reduction, 1.2s stun reduction, and heals you and nearby Goodbots by 0.25% HP every second.',
+        cost: 10000,
+        slotImage: ITEM_SLOT_IMAGES['goodbot-armor-5'],
+        stats: [
+            { label: 'Max HP', value: '10000 (+3000)' },
+            { label: 'Damage Taken', value: '-45% (All)' },
+            { label: 'Knockback', value: '-40% (All)' },
+            { label: 'Stun', value: '-1.2s (All)' },
+            { label: 'Bonuses', value: 'x2 Dmg, +20% Spd, 510 Stam' },
+            { label: 'Aura', value: '3 Tiles (0.25% HP/s Heal)' },
+            { label: 'Type', value: 'Armor (Tier 5)' }
         ]
     },
     {
@@ -2262,11 +2305,16 @@ function refreshShopAffordability() {
 }
 
 function setShopTab(nextTab) {
-    activeShopTab = nextTab === 'units' ? 'units' : 'items';
+    activeShopTab = nextTab === 'units' ? 'units' : (nextTab === 'armor' ? 'armor' : 'items');
     if (shopTabItemsBtn) {
         const isItems = activeShopTab === 'items';
         shopTabItemsBtn.classList.toggle('active', isItems);
         shopTabItemsBtn.setAttribute('aria-selected', isItems ? 'true' : 'false');
+    }
+    if (shopTabArmorBtn) {
+        const isArmor = activeShopTab === 'armor';
+        shopTabArmorBtn.classList.toggle('active', isArmor);
+        shopTabArmorBtn.setAttribute('aria-selected', isArmor ? 'true' : 'false');
     }
     if (shopTabUnitsBtn) {
         const isUnits = activeShopTab === 'units';
@@ -2288,7 +2336,11 @@ function refreshShopUnitIcons() {
 function renderShopItems() {
     if (!shopGrid) return;
     shopGrid.textContent = '';
-    const list = activeShopTab === 'units' ? SHOP_UNITS : SHOP_ITEMS;
+    const list = activeShopTab === 'units'
+        ? SHOP_UNITS
+        : (activeShopTab === 'armor'
+            ? SHOP_ITEMS.filter((item) => item.kind === 'armor')
+            : SHOP_ITEMS.filter((item) => item.kind !== 'armor'));
     for (let i = 0; i < list.length; i++) {
         const item = list[i];
         const slot = document.createElement('button');
@@ -3997,6 +4049,12 @@ function update(dt) {
                 sprintAnimSeq,
                 false
             );
+            if ((p.faction || 'goodbot') !== 'spectator' && p.armor === 'goodbot-armor-5') {
+                emitTier5ArmorParticles(`player:${id}`, (p.renderX ?? p.x) + pw * 0.5, (p.renderY ?? p.y) + ph * 0.5, pw * 0.5, dt);
+            }
+        }
+        if (ME.faction !== 'spectator' && ME.armor === 'goodbot-armor-5') {
+            emitTier5ArmorParticles(`player:${myId}`, ME.x + ME.width * 0.5, ME.y + ME.height * 0.5, ME.width * 0.5, dt);
         }
 
         for (const id in serverEnemies) {
@@ -4186,6 +4244,23 @@ function update(dt) {
             pt.y += pt.vy * dt;
             pt.vx *= dustDrag;
             pt.vy *= dustDrag;
+        }
+    }
+
+    if (armorParticles.length > 0) {
+        const armorDrag = Math.pow(0.18, dt);
+        for (let i = armorParticles.length - 1; i >= 0; i--) {
+            const pt = armorParticles[i];
+            pt.age += dt;
+            if (pt.age >= pt.life) {
+                armorParticles[i] = armorParticles[armorParticles.length - 1];
+                armorParticles.pop();
+                continue;
+            }
+            pt.x += pt.vx * dt;
+            pt.y += pt.vy * dt;
+            pt.vx *= armorDrag;
+            pt.vy *= armorDrag;
         }
     }
 
@@ -4522,6 +4597,31 @@ function spawnDropslideWhiteParticles(wx, wy, dx = 0, dy = 0, count = 5) {
             life: 0.22 + Math.random() * 0.18,
             age: 0,
             color: Math.random() < 0.75 ? '#ffffff' : '#e8f0ff'
+        });
+    }
+}
+
+function emitTier5ArmorParticles(key, cx, cy, radius, dt) {
+    const rate = 14;
+    let carry = (armorParticleSpawnCarry.get(key) || 0) + dt * rate;
+    const count = Math.floor(carry);
+    armorParticleSpawnCarry.set(key, carry - count);
+    for (let i = 0; i < count; i++) {
+        if (armorParticles.length >= MAX_ARMOR_PARTICLES) {
+            armorParticles.shift();
+        }
+        const ang = Math.random() * Math.PI * 2;
+        const spawnR = radius * (0.72 + Math.random() * 0.42);
+        const speed = 14 + Math.random() * 28;
+        armorParticles.push({
+            x: cx + Math.cos(ang) * spawnR,
+            y: cy + Math.sin(ang) * spawnR,
+            vx: Math.cos(ang) * speed,
+            vy: Math.sin(ang) * speed - 10,
+            radius: 2 + Math.random() * 2.4,
+            life: 0.45 + Math.random() * 0.35,
+            age: 0,
+            color: ARMOR_5_PARTICLE_COLORS[Math.floor(Math.random() * ARMOR_5_PARTICLE_COLORS.length)]
         });
     }
 }
@@ -5744,14 +5844,16 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
         ctx.translate(renderBodyX, renderBodyY);
         ctx.rotate(bodyAngle);
         ctx.drawImage(bodyMip, -drawW / 2, -sH / 2, drawW, drawH);
-        if ((armor === 'goodbot-armor' || armor === 'goodbot-armor-2' || armor === 'goodbot-armor-3') && !isSpectator) {
+        if ((armor === 'goodbot-armor' || armor === 'goodbot-armor-2' || armor === 'goodbot-armor-3' || armor === 'goodbot-armor-4' || armor === 'goodbot-armor-5') && !isSpectator) {
             if (goodbotArmorImg.complete && goodbotArmorImg.naturalWidth > 0) {
                 const armorMip = getScaledSpriteCanvas('armor_goodbot', goodbotArmorImg, 0, 0, goodbotArmorImg.naturalWidth, goodbotArmorImg.naturalHeight, width, height) || goodbotArmorImg;
                 ctx.drawImage(armorMip, -sW / 2, -sH / 2, sW, sH);
             }
-            if (armor === 'goodbot-armor-2' || armor === 'goodbot-armor-3') {
+            if (armor === 'goodbot-armor-2' || armor === 'goodbot-armor-3' || armor === 'goodbot-armor-4' || armor === 'goodbot-armor-5') {
                 const isT3 = armor === 'goodbot-armor-3';
-                ctx.strokeStyle = isT3 ? '#ffd24a' : '#4be3ff';
+                const isT4 = armor === 'goodbot-armor-4';
+                const isT5 = armor === 'goodbot-armor-5';
+                ctx.strokeStyle = isT5 ? '#e0a6ff' : (isT4 ? '#ff3838' : (isT3 ? '#ffd24a' : '#4be3ff'));
                 ctx.lineWidth = Math.max(2, sW * 0.065);
                 ctx.beginPath();
                 ctx.arc(0, 0, sW * 0.44, -Math.PI * 0.78, -Math.PI * 0.22);
@@ -5759,8 +5861,10 @@ function drawEntity(x, y, width, height, angle, scale, label, faction, showHands
                 ctx.beginPath();
                 ctx.arc(0, 0, sW * 0.44, Math.PI * 0.22, Math.PI * 0.78);
                 ctx.stroke();
-                if (isT3) {
-                    ctx.strokeStyle = 'rgba(200, 66, 255, 0.85)';
+                if (isT3 || isT4 || isT5) {
+                    ctx.strokeStyle = isT4
+                        ? 'rgba(255, 56, 56, 0.85)'
+                        : (isT5 ? 'rgba(224, 166, 255, 0.9)' : 'rgba(200, 66, 255, 0.85)');
                     ctx.lineWidth = Math.max(1.5, sW * 0.045);
                     ctx.beginPath();
                     ctx.arc(0, 0, sW * 0.5, 0, Math.PI * 2);
@@ -6057,6 +6161,31 @@ function render() {
     if (!inMainMenu && myId !== null) {
         const meCX = ME.x + ME.width / 2;
         const meCY = ME.y + ME.height / 2;
+        const t5AuraR = 3 * (WORLD.MAP.tileSize || 64);
+        const drawT5Aura = (wx, wy) => {
+            const ax = wx - camX;
+            const ay = wy - camY;
+            if (ax + t5AuraR < -20 || ax - t5AuraR > camW + 20 || ay + t5AuraR < -20 || ay - t5AuraR > camH + 20) return;
+            ctx.save();
+            ctx.fillStyle = 'rgba(184, 51, 255, 0.11)';
+            ctx.strokeStyle = 'rgba(218, 130, 255, 0.34)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(ax, ay, t5AuraR, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+        };
+        if (ME.faction === 'goodbot' && ME.armor === 'goodbot-armor-5') {
+            drawT5Aura(meCX, meCY);
+        }
+        for (const id in serverPlayers) {
+            const p = serverPlayers[id];
+            if ((p.faction || 'goodbot') !== 'goodbot' || p.armor !== 'goodbot-armor-5') continue;
+            const pw = p.width || 48;
+            const ph = p.height || 48;
+            drawT5Aura((p.renderX ?? p.x) + pw * 0.5, (p.renderY ?? p.y) + ph * 0.5);
+        }
 
         if (raycastBeams.length > 0) {
             const bulletScale = (48 / 512) * HANDS_SCALE * 1.35;
@@ -6821,6 +6950,22 @@ function render() {
         ctx.globalAlpha = 1;
     }
 
+    if (armorParticles.length > 0) {
+        for (let i = 0; i < armorParticles.length; i++) {
+            const pt = armorParticles[i];
+            const px = pt.x - camX;
+            const py = pt.y - camY;
+            if (px < -16 || px > camW + 16 || py < -16 || py > camH + 16) continue;
+            const alpha = Math.max(0, 1 - pt.age / pt.life);
+            ctx.globalAlpha = alpha * 0.85;
+            ctx.fillStyle = pt.color;
+            ctx.beginPath();
+            ctx.arc(px, py, pt.radius * (0.55 + 0.45 * alpha), 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+    }
+
     if (healParticles.length > 0) {
         ctx.fillStyle = '#32ff32';
         ctx.beginPath();
@@ -7372,6 +7517,8 @@ async function connectToServer() {
             meLocalExhausted = false;
             sprintAnims.clear();
             sprintDustParticles.length = 0;
+            armorParticles.length = 0;
+            armorParticleSpawnCarry.clear();
             ME.faction = data.faction || 'goodbot';
             syncSpectateButtonVisibility();
             refreshAdminReviveButton();
@@ -7646,6 +7793,12 @@ async function connectToServer() {
             }
             if (typeof data.health === 'number' && isFinite(data.health)) {
                 ME.health = Math.max(0, Math.min(ME.maxHealth, data.health));
+            }
+            if (typeof data.maxEnergy === 'number' && isFinite(data.maxEnergy)) {
+                ME.maxEnergy = Math.max(1, data.maxEnergy);
+            }
+            if (typeof data.energy === 'number' && isFinite(data.energy)) {
+                ME.energy = Math.max(0, Math.min(ME.maxEnergy, data.energy));
             }
             if (typeof data.abilityCooldownMs === 'number') {
                 abilityReadyAt = data.abilityCooldownMs > 0 ? (performance.now() + data.abilityCooldownMs) : 0;
@@ -9336,6 +9489,12 @@ window.addEventListener('DOMContentLoaded', () => {
     if (shopTabItemsBtn) {
         shopTabItemsBtn.addEventListener('click', () => {
             setShopTab('items');
+        });
+    }
+
+    if (shopTabArmorBtn) {
+        shopTabArmorBtn.addEventListener('click', () => {
+            setShopTab('armor');
         });
     }
 
