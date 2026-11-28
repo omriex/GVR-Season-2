@@ -1175,7 +1175,7 @@ const ADMIN_SPAWN_OPTIONS = [
         id: 'goodbot-tickler',
         title: 'Goodbot (Ball Tickler)',
         kindLabel: 'ALLY',
-        description: dont ask me why this was added',
+        description: 'dont ask me why this was added',
         bodyType: 'goodbot',
         weapon: 'hands',
         ticklePose: true,
