@@ -1182,6 +1182,15 @@ const ADMIN_SPAWN_OPTIONS = [
         stats: [{ label: 'HP', value: '1000' }, { label: 'Damage', value: '1-2 Tickle' }, { label: 'Speed', value: 'Hyper Sprint' }]
     },
     {
+        id: 'goodbot-dropslider',
+        title: 'Goodbot Dropslider',
+        kindLabel: 'ALLY',
+        description: 'Dodges literally everything no matter what and deals 10 emotional damage to whoever he dodged.',
+        bodyType: 'goodbot',
+        weapon: 'hands',
+        stats: [{ label: 'HP', value: '1000' }, { label: 'Dodge', value: '100% Always' }, { label: 'Counter', value: '10 Emotional DMG' }]
+    },
+    {
         id: 'goodbot-pistol',
         title: 'Goodbot (Pistol)',
         kindLabel: 'ALLY',
@@ -8947,8 +8956,9 @@ async function connectToServer() {
             }
             const hx = typeof data.hitX === 'number' ? data.hitX : Number(data.x) || 0;
             const hy = typeof data.hitY === 'number' ? data.hitY : Number(data.y) || 0;
+            const isEmotionalHit = data.weaponKind === 'emotional';
             const victimFaction = data.targetFaction || (data.kind === 'enemy' ? ((serverEnemies[data.id] && serverEnemies[data.id].faction) || 'rarebot') : 'goodbot');
-            if (victimFaction === 'goodbot' || victimFaction === 'rarebot' || victimFaction === 'mapbot') {
+            if (!isEmotionalHit && (victimFaction === 'goodbot' || victimFaction === 'rarebot' || victimFaction === 'mapbot')) {
                 hitPointMarkers.push({
                     x: hx,
                     y: hy,
@@ -8958,7 +8968,7 @@ async function connectToServer() {
                 });
             }
             const isBlockedHit = Boolean(data.blocked && (data.blockKind === 'block' || data.blockKind === 'parry'));
-            if (!isBlockedHit) {
+            if (!isBlockedHit && !isEmotionalHit) {
                 if (data.weaponKind === 'mapbot-claws-heavy') {
                     playSpatialSound('hit', data.x, data.y, { volumeMult: 2.0, playbackRate: 0.58, force: true });
                     playSpatialSound('blade', data.x, data.y, { volumeMult: 2.0, playbackRate: 0.62, force: true });
@@ -8968,7 +8978,7 @@ async function connectToServer() {
                     playSpatialSound(data.weaponKind === 'mapbot-claws' ? 'blade' : 'hit', data.x, data.y);
                 }
             }
-            if (data.weaponKind !== 'tickle') {
+            if (data.weaponKind !== 'tickle' && !isEmotionalHit) {
                 playSpatialSound('hitReceive', data.x, data.y);
             }
             let attX = typeof data.attackerX === 'number' ? data.attackerX : data.x;
@@ -8991,7 +9001,7 @@ async function connectToServer() {
                 attX = (aa.renderX ?? aa.x) + aa.width / 2;
                 attY = (aa.renderY ?? aa.y) + aa.height / 2;
             }
-            if (data.weaponKind !== 'tickle') {
+            if (data.weaponKind !== 'tickle' && !isEmotionalHit) {
                 playSpatialSound('hitDeal', attX, attY);
             }
             if (data.weaponKind === 'ranged' && !isBlockedHit) {
@@ -9001,40 +9011,54 @@ async function connectToServer() {
             }
             const dmgVal = Math.max(1, Math.round(Number(data.damage) || 0));
             const isTickleHit = data.weaponKind === 'tickle';
+            const hitText = isEmotionalHit ? `-${dmgVal} (Emotional)` : (isTickleHit ? `*tickle* -${dmgVal}` : `-${dmgVal}`);
+            const hitColor = isEmotionalHit ? '#ff8c00' : (isTickleHit ? '#ff7ae2' : '#ff3030');
             if (data.kind === 'player' && data.id === myId) {
                 floatingTexts.push({
                     playerId: myId,
                     x: ME.x + ME.width / 2,
                     y: ME.y - 26,
                     xOff: (Math.random() - 0.5) * 28,
-                    text: isTickleHit ? `*tickle* -${dmgVal}` : `-${dmgVal}`,
-                    color: isTickleHit ? '#ff7ae2' : '#ff3030',
+                    text: hitText,
+                    color: hitColor,
                     age: 0,
                     life: isTickleHit ? 0.9 : 1.3
                 });
                 if (ME.faction === 'goodbot') {
                     enemyAggroUntil.set(`${data.attackerKind}:${data.attackerId}`, performance.now() + 8000);
                 }
+            } else if (data.kind === 'player' && isEmotionalHit) {
+                floatingTexts.push({
+                    playerId: data.id,
+                    x: Number(data.x) || 0,
+                    y: (Number(data.y) || 0) - 26,
+                    xOff: (Math.random() - 0.5) * 28,
+                    text: hitText,
+                    color: hitColor,
+                    age: 0,
+                    life: 1.3
+                });
             } else if (data.kind === 'enemy') {
                 floatingTexts.push({
                     enemyId: data.id,
                     x: Number(data.x) || 0,
                     y: (Number(data.y) || 0) - 50,
                     xOff: (Math.random() - 0.5) * 28,
-                    text: isTickleHit ? `*tickle* -${dmgVal}` : `-${dmgVal}`,
-                    color: isTickleHit ? '#ff7ae2' : '#ff3030',
+                    text: hitText,
+                    color: hitColor,
                     age: 0,
                     life: isTickleHit ? 0.9 : 1.3
                 });
-            } else if (data.kind === 'ally' && isTickleHit) {
+            } else if (data.kind === 'ally' && (isTickleHit || isEmotionalHit)) {
                 floatingTexts.push({
+                    allyId: data.id,
                     x: Number(data.x) || 0,
                     y: (Number(data.y) || 0) - 34,
                     xOff: (Math.random() - 0.5) * 28,
-                    text: `*tickle* -${dmgVal}`,
-                    color: '#ff7ae2',
+                    text: hitText,
+                    color: hitColor,
                     age: 0,
-                    life: 0.9
+                    life: isEmotionalHit ? 1.3 : 0.9
                 });
             }
             return;
