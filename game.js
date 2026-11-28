@@ -111,6 +111,7 @@ const adminModBanList = document.getElementById('admin-mod-ban-list');
 const adminPanelOverlay = document.getElementById('admin-panel-overlay');
 const adminPanelCloseBtn = document.getElementById('admin-panel-close-btn');
 const adminSpawnGrid = document.getElementById('admin-spawn-grid');
+const adminItemsGrid = document.getElementById('admin-items-grid');
 const adminSpawnFactionMenu = document.getElementById('admin-spawn-faction-menu');
 const adminSpawnFactionTitle = document.getElementById('admin-spawn-faction-title');
 const adminSpawnFactionButtons = document.querySelectorAll('#admin-spawn-faction-menu .admin-spawn-faction-btn');
@@ -212,6 +213,8 @@ let lastRenderedAbilityCooldownSec = -1;
 let shoveReadyAt = 0;
 let lastLocalShoveAt = 0;
 let lastRenderedShoveCooldownSec = -1;
+let adminHealReadyAt = 0;
+let lastRenderedAdminHealCooldownSec = -1;
 let lastAttackSentAt = 0;
 let lastBeamerHoldSentAt = 0;
 let lastLocalShotAt = 0;
@@ -513,6 +516,8 @@ function returnToMainMenu() {
     lastRenderedShoveCooldownSec = -1;
     activeSlot = 0;
     lastEquippedItemKey = null;
+    adminHealReadyAt = 0;
+    lastRenderedAdminHealCooldownSec = -1;
     renderInventorySlots();
     selectSlot(0, false);
     hideShopTooltip();
@@ -1525,6 +1530,48 @@ function refreshAdminSpawnIcons() {
     }
 }
 
+function renderAdminItemsGrid() {
+    if (!adminItemsGrid) return;
+    adminItemsGrid.textContent = '';
+    for (let i = 0; i < ADMIN_PRIVATE_ITEMS.length; i++) {
+        const item = ADMIN_PRIVATE_ITEMS[i];
+        const slot = document.createElement('button');
+        slot.type = 'button';
+        slot.className = 'shop-item-slot';
+        slot.setAttribute('aria-label', item.title);
+        slot.dataset.adminItem = item.id;
+
+        const img = document.createElement('img');
+        img.className = 'shop-item-icon';
+        img.src = item.slotImage;
+        img.alt = item.title;
+        img.draggable = false;
+        slot.appendChild(img);
+
+        slot.addEventListener('pointerenter', () => {
+            if (adminSpawnFactionMenu && adminSpawnFactionMenu.classList.contains('visible')) return;
+            showShopTooltip(item, slot, false, false);
+        });
+        slot.addEventListener('pointerleave', () => {
+            hideShopTooltip();
+        });
+        slot.addEventListener('focus', () => {
+            if (adminSpawnFactionMenu && adminSpawnFactionMenu.classList.contains('visible')) return;
+            showShopTooltip(item, slot, false, false);
+        });
+        slot.addEventListener('blur', () => {
+            hideShopTooltip();
+        });
+        slot.addEventListener('click', () => {
+            if (ws && ws.readyState === WebSocket.OPEN && isAdmin) {
+                ws.send(JSON.stringify({ type: 'admin_give_item', itemId: item.id }));
+            }
+        });
+
+        adminItemsGrid.appendChild(slot);
+    }
+}
+
 function refreshAdminReviveButton() {
     if (!adminReviveBtn) return;
     adminReviveBtn.disabled = !(isAdmin && ME.faction === 'spectator');
@@ -1679,6 +1726,25 @@ function drawDropshipSprite(targetCtx, x, y, sW, sH, faction, angle, nowMs = per
     targetCtx.restore();
 }
 
+let adminHealSlotUrl = null;
+function getAdminHealSlotUrl() {
+    if (adminHealSlotUrl) return adminHealSlotUrl;
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 64;
+    const g = c.getContext('2d');
+    g.fillStyle = '#e52222';
+    g.strokeStyle = '#6e0909';
+    g.lineWidth = 5;
+    g.fillRect(10, 10, 44, 44);
+    g.strokeRect(10, 10, 44, 44);
+    g.fillStyle = '#ffffff';
+    g.fillRect(27, 18, 10, 28);
+    g.fillRect(18, 27, 28, 10);
+    adminHealSlotUrl = c.toDataURL();
+    return adminHealSlotUrl;
+}
+
 const ITEM_SLOT_IMAGES = {
     'goodbot-pistol': 'assets/Goodbot Pistol Slot.png',
     'goodbot-assault-laser': 'assets/Goodbot Assault Laser Slot.png',
@@ -1689,8 +1755,26 @@ const ITEM_SLOT_IMAGES = {
     'goodbot-armor-3': 'assets/Goodbot Armor Slot.png',
     'goodbot-armor-4': 'assets/Goodbot Armor Slot.png',
     'goodbot-armor-5': 'assets/Goodbot Armor Slot.png',
-    'goodbot-grenade': 'assets/Goodbot Grenade Slot.png'
+    'goodbot-grenade': 'assets/Goodbot Grenade Slot.png',
+    'admin-max-heal': getAdminHealSlotUrl()
 };
+
+const ADMIN_PRIVATE_ITEMS = [
+    {
+        id: 'admin-max-heal',
+        title: 'Max Heal',
+        kind: 'weapon',
+        customTypeLabel: 'PRIVATE',
+        description: 'Infinite use private healing item. Click to heal to full max HP with a +max popup.',
+        cost: 0,
+        slotImage: ITEM_SLOT_IMAGES['admin-max-heal'],
+        stats: [
+            { label: 'Heal', value: '+max HP' },
+            { label: 'Uses', value: 'Infinite' },
+            { label: 'Cooldown', value: '45s' }
+        ]
+    }
+];
 
 let grenadeFallbackSlotUrl = null;
 function getGrenadeFallbackSlotUrl() {
@@ -1948,11 +2032,12 @@ const SHOP_UNITS = [
     }
 ];
 
-const ITEM_BY_ID = Object.fromEntries([...SHOP_ITEMS, ...SHOP_UNITS].map(item => [item.id, item]));
+const ITEM_BY_ID = Object.fromEntries([...SHOP_ITEMS, ...SHOP_UNITS, ...ADMIN_PRIVATE_ITEMS].map(item => [item.id, item]));
 
 function getMyEquippedWeapon() {
-    if (ME.faction !== 'goodbot') return 'hands';
     const itemId = myInventory[activeSlot];
+    if (isAdmin && ME.faction !== 'spectator' && itemId === 'admin-max-heal') return 'admin-max-heal';
+    if (ME.faction !== 'goodbot') return 'hands';
     if (itemId === 'goodbot-pistol') return 'goodbot-pistol';
     if (itemId === 'goodbot-assault-laser') return 'goodbot-assault-laser';
     if (itemId === 'goodbot-cannon') return 'goodbot-cannon';
@@ -2063,6 +2148,32 @@ function createShoveSlotIcon() {
     return svg;
 }
 
+function updateAdminHealSlotCooldown(nowMs, forceRender = false) {
+    if (!inventorySlots || inventorySlots.length === 0) return;
+    const remMs = adminHealReadyAt > nowMs ? (adminHealReadyAt - nowMs) : 0;
+    const remSec = remMs > 0 ? Math.ceil(remMs / 1000) : 0;
+    if (!forceRender && remSec === lastRenderedAdminHealCooldownSec) return;
+    lastRenderedAdminHealCooldownSec = remSec;
+    for (let i = 0; i < inventorySlots.length; i++) {
+        const slotEl = inventorySlots[i];
+        const cdOverlay = slotEl.querySelector('.ability-cooldown-overlay');
+        const hasHeal = myInventory[i] === 'admin-max-heal';
+        if (hasHeal && remSec > 0) {
+            slotEl.classList.add('on-cooldown');
+            if (cdOverlay) {
+                cdOverlay.style.display = 'flex';
+                cdOverlay.textContent = String(remSec);
+            }
+        } else {
+            slotEl.classList.remove('on-cooldown');
+            if (cdOverlay) {
+                cdOverlay.style.display = 'none';
+                cdOverlay.textContent = '';
+            }
+        }
+    }
+}
+
 function renderInventorySlots() {
     if (inventorySlots && inventorySlots.length > 0) {
         for (let i = 0; i < inventorySlots.length; i++) {
@@ -2082,7 +2193,17 @@ function renderInventorySlots() {
                 img.draggable = false;
                 slotEl.appendChild(img);
             }
+            if (itemId === 'admin-max-heal') {
+                const cdOverlay = document.createElement('div');
+                cdOverlay.className = 'ability-cooldown-overlay';
+                cdOverlay.style.display = 'none';
+                slotEl.appendChild(cdOverlay);
+            } else {
+                slotEl.classList.remove('on-cooldown');
+            }
         }
+        lastRenderedAdminHealCooldownSec = -1;
+        updateAdminHealSlotCooldown(performance.now(), true);
     }
     if (shoveSlotWrapper) {
         shoveSlotWrapper.classList.toggle('hidden', ME.faction !== 'goodbot');
@@ -4408,6 +4529,7 @@ function update(dt) {
     const nowMs = performance.now();
     updateAbilitySlotCooldown(nowMs);
     updateShoveSlotCooldown(nowMs);
+    updateAdminHealSlotCooldown(nowMs);
     const isBeamerEquipped = getMyEquippedWeapon() === 'goodbot-beamer';
     if (!isBeamerEquipped || ME.faction !== 'goodbot') {
         isBeamerActive = false;
@@ -7534,6 +7656,7 @@ async function connectToServer() {
             myAbility = data.ability || null;
             abilityReadyAt = typeof data.abilityCooldownMs === 'number' && data.abilityCooldownMs > 0 ? (performance.now() + data.abilityCooldownMs) : 0;
             shoveReadyAt = typeof data.shoveCooldownMs === 'number' && data.shoveCooldownMs > 0 ? (performance.now() + data.shoveCooldownMs) : 0;
+            adminHealReadyAt = typeof data.adminHealCooldownMs === 'number' && data.adminHealCooldownMs > 0 ? (performance.now() + data.adminHealCooldownMs) : 0;
             activeSlot = Number.isInteger(data.activeSlot) ? Math.max(0, Math.min(4, data.activeSlot)) : 0;
             lastEquippedItemKey = myInventory[activeSlot] || null;
             renderInventorySlots();
@@ -7805,6 +7928,9 @@ async function connectToServer() {
             }
             if (typeof data.shoveCooldownMs === 'number') {
                 shoveReadyAt = data.shoveCooldownMs > 0 ? (performance.now() + data.shoveCooldownMs) : 0;
+            }
+            if (typeof data.adminHealCooldownMs === 'number') {
+                adminHealReadyAt = data.adminHealCooldownMs > 0 ? (performance.now() + data.adminHealCooldownMs) : 0;
             }
             if (Number.isInteger(data.activeSlot)) {
                 activeSlot = Math.max(0, Math.min(4, data.activeSlot));
@@ -8220,13 +8346,14 @@ async function connectToServer() {
             const healVal = Math.max(1, Math.round(Number(data.amount) || 0));
             const hx = Number(data.x) || 0;
             const hy = Number(data.y) || 0;
+            const healText = (typeof data.text === 'string' && data.text) ? data.text : `+${healVal}`;
             if (data.targetKind === 'enemy') {
                 floatingTexts.push({
                     enemyId: data.id,
                     x: hx,
                     y: hy - 36,
                     xOff: (Math.random() - 0.5) * 18,
-                    text: `+${healVal}`,
+                    text: healText,
                     color: '#32ff4a',
                     age: 0,
                     life: 1.15
@@ -8237,10 +8364,21 @@ async function connectToServer() {
                     x: hx,
                     y: hy - 36,
                     xOff: (Math.random() - 0.5) * 18,
-                    text: `+${healVal}`,
+                    text: healText,
                     color: '#32ff4a',
                     age: 0,
                     life: 1.15
+                });
+            } else if (data.targetKind === 'player') {
+                floatingTexts.push({
+                    playerId: data.id,
+                    x: hx,
+                    y: hy - 36,
+                    xOff: (Math.random() - 0.5) * 18,
+                    text: healText,
+                    color: '#32ff4a',
+                    age: 0,
+                    life: 1.25
                 });
             }
             return;
@@ -8896,11 +9034,26 @@ function triggerAttack(isHoldRepeat = false) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     const equippedWeapon = getMyEquippedWeapon();
+    const isAdminMaxHeal = equippedWeapon === 'admin-max-heal';
     const isCannon = equippedWeapon === 'goodbot-cannon';
     const isPistol = equippedWeapon === 'goodbot-pistol';
     const isAssaultLaser = equippedWeapon === 'goodbot-assault-laser';
     const isBeamer = equippedWeapon === 'goodbot-beamer';
     const nowMs = performance.now();
+
+    if (isAdminMaxHeal) {
+        if (isHoldRepeat) return;
+        if (!isAdmin || ME.faction === 'spectator') return;
+        if (nowMs < adminHealReadyAt) return;
+        adminHealReadyAt = nowMs + 45000;
+        lastAttackSentAt = nowMs;
+        updateAdminHealSlotCooldown(nowMs, true);
+        const roundedAttackAngle = Math.round(ME.angle * 1000) / 1000;
+        lastSentAngle = roundedAttackAngle;
+        lastInputSendTime = nowMs;
+        ws.send(JSON.stringify({ type: 'attack', angle: roundedAttackAngle }));
+        return;
+    }
 
     if (isBeamer) {
         if (isHoldRepeat && nowMs - lastBeamerHoldSentAt < 60) return;
@@ -9017,6 +9170,11 @@ window.addEventListener('mousedown', (e) => {
         return;
     }
     if (e.button !== 0) return;
+    if (getMyEquippedWeapon() === 'admin-max-heal') {
+        isAttackHeld = false;
+        triggerAttack(false);
+        return;
+    }
     if (getMyEquippedWeapon() === 'goodbot-beamer') {
         isAttackHeld = false;
         isBeamerActive = !isBeamerActive;
@@ -9100,6 +9258,11 @@ window.addEventListener('DOMContentLoaded', () => {
     if (mobileAttackBtn) {
         mobileAttackBtn.addEventListener('touchstart', (e) => {
             e.preventDefault();
+            if (getMyEquippedWeapon() === 'admin-max-heal') {
+                isAttackHeld = false;
+                triggerAttack(false);
+                return;
+            }
             if (getMyEquippedWeapon() === 'goodbot-beamer') {
                 isAttackHeld = false;
                 isBeamerActive = !isBeamerActive;
@@ -9121,6 +9284,11 @@ window.addEventListener('DOMContentLoaded', () => {
         mobileAttackBtn.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
             e.preventDefault();
+            if (getMyEquippedWeapon() === 'admin-max-heal') {
+                isAttackHeld = false;
+                triggerAttack(false);
+                return;
+            }
             if (getMyEquippedWeapon() === 'goodbot-beamer') {
                 isAttackHeld = false;
                 isBeamerActive = !isBeamerActive;
@@ -9260,6 +9428,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     renderAdminSpawnGrid();
+    renderAdminItemsGrid();
     refreshAdminReviveButton();
 
     if (adminSpawnFactionMenu) {
