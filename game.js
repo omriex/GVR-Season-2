@@ -1162,6 +1162,16 @@ const ADMIN_SPAWN_OPTIONS = [
         stats: [{ label: 'HP', value: '1000' }, { label: 'Team', value: 'Goodbot' }]
     },
     {
+        id: 'goodbot-showdowner',
+        title: 'Goodbot (Showdowner)',
+        kindLabel: 'ALLY',
+        description: '0-armor melee prodigy that moves like a player, parries claws and blasts, shoves Mapbot charges/blocks, and solos Mapbot until it dies.',
+        bodyType: 'goodbot',
+        weapon: 'hands',
+        parryPose: true,
+        stats: [{ label: 'HP', value: '1000' }, { label: 'Armor', value: 'None (0)' }, { label: 'Counter', value: 'Parry & Shove' }]
+    },
+    {
         id: 'goodbot-pistol',
         title: 'Goodbot (Pistol)',
         kindLabel: 'ALLY',
@@ -1408,7 +1418,25 @@ function createEntityPreviewUrl(opt) {
         g.restore();
         g.drawImage(weaponImg, dualSplit.sx, 0, dualSplit.rw, dualSplit.fullH, dualSplit.rightX, dualSplit.wy, dualSplit.rightDrawW, dualSplit.wh);
     } else if (weaponImg && wRect) {
-        g.drawImage(weaponImg, wRect.wx, wRect.wy, wRect.ww, wRect.wh);
+        if (opt.parryPose && weaponImg === botHandsImg && weaponImg.naturalWidth > 0) {
+            const pScale = bodySize / 48;
+            const splitX = Math.floor(weaponImg.naturalWidth / 2);
+            const rightW = weaponImg.naturalWidth - splitX;
+            const leftDrawW = (splitX / weaponImg.naturalWidth) * wRect.ww;
+            const rightDrawW = (rightW / weaponImg.naturalWidth) * wRect.ww;
+            g.save();
+            g.translate(9.5 * pScale, -7.5 * pScale);
+            g.rotate(0.58);
+            g.drawImage(weaponImg, 0, 0, splitX, weaponImg.naturalHeight, wRect.wx, wRect.wy, leftDrawW, wRect.wh);
+            g.restore();
+            g.save();
+            g.translate(-9.5 * pScale, -7.5 * pScale);
+            g.rotate(-0.58);
+            g.drawImage(weaponImg, splitX, 0, rightW, weaponImg.naturalHeight, wRect.wx + leftDrawW, wRect.wy, rightDrawW, wRect.wh);
+            g.restore();
+        } else {
+            g.drawImage(weaponImg, wRect.wx, wRect.wy, wRect.ww, wRect.wh);
+        }
     }
 
     if (heldGrenadeRect) {
@@ -8282,9 +8310,7 @@ async function connectToServer() {
         if (data.type === 'entity_swing') {
             const key = `${data.kind}:${data.id}`;
             const nowMs = performance.now();
-            if (data.kind === 'player') {
-                parryAnims.delete(key);
-            }
+            parryAnims.delete(key);
             const prevEntry = swingAnims.get(key);
             const prevAt = typeof prevEntry === 'number' ? prevEntry : (prevEntry ? prevEntry.at : 0);
             if (!(data.kind === 'player' && data.id === myId && prevAt && nowMs - prevAt < 160)) {
@@ -8374,6 +8400,7 @@ async function connectToServer() {
             const key = `${kind}:${data.id}`;
             const nowMs = performance.now();
             const isShove = Boolean(data.shove);
+            parryAnims.delete(key);
             const localAt = isShove ? lastLocalShoveAt : lastLocalAbilityAt;
             if (!(kind === 'player' && data.id === myId && nowMs - localAt < 250)) {
                 leftPunchAnims.set(key, isShove ? { at: nowMs, shove: true } : nowMs);
@@ -8388,9 +8415,10 @@ async function connectToServer() {
         }
 
         if (data.type === 'player_parry') {
-            const pKey = `player:${data.id}`;
+            const pKind = data.kind || 'player';
+            const pKey = `${pKind}:${data.id}`;
             const nowMs = performance.now();
-            if (!(data.id === myId && nowMs - lastLocalParryAt < 250)) {
+            if (!(pKind === 'player' && data.id === myId && nowMs - lastLocalParryAt < 250)) {
                 parryAnims.set(pKey, { at: nowMs, duration: Number(data.durationMs) || 500 });
                 playSpatialSound('parrying', data.x, data.y);
             }
