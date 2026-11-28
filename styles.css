@@ -1125,7 +1125,8 @@ body.touch-mode #chat-input {
 }
 
 #shove-slot.on-cooldown .shove-slot-icon,
-#ability-slot.on-cooldown .slot-item-img {
+#ability-slot.on-cooldown .slot-item-img,
+.slot.on-cooldown .slot-item-img {
     opacity: 0.45;
 }
 
@@ -1558,7 +1559,8 @@ body.touch-mode #mobile-ability-btn.has-ability {
 }
 
 #shop-grid,
-#admin-spawn-grid {
+#admin-spawn-grid,
+#admin-items-grid {
     display: grid;
     grid-template-columns: repeat(5, 84px);
     gap: 10px;
@@ -1794,6 +1796,10 @@ body.touch-mode #mobile-ability-btn.has-ability {
     margin: 0 0 8px 0;
     letter-spacing: 0.5px;
     text-shadow: 1px 1px 0px #1a1a1a;
+}
+
+.admin-panel-section-label {
+    margin-top: 14px;
 }
 
 #admin-mod-player-list,
@@ -2582,7 +2588,8 @@ body.touch-mode #mobile-ability-btn.has-ability {
 }
 
 #ui-scale-layer.layout-mobile #shop-grid,
-#ui-scale-layer.layout-mobile #admin-spawn-grid {
+#ui-scale-layer.layout-mobile #admin-spawn-grid,
+#ui-scale-layer.layout-mobile #admin-items-grid {
     grid-template-columns: repeat(5, 52px);
     gap: 6px;
 }
@@ -2738,7 +2745,8 @@ body.touch-mode #mobile-ability-btn.has-ability {
 }
 
 #ui-scale-layer.layout-tiny #shop-grid,
-#ui-scale-layer.layout-tiny #admin-spawn-grid {
+#ui-scale-layer.layout-tiny #admin-spawn-grid,
+#ui-scale-layer.layout-tiny #admin-items-grid {
     grid-template-columns: repeat(5, 44px);
     gap: 5px;
 }
